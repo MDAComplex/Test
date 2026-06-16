@@ -22,26 +22,29 @@ export default async function LoginPage(props: { searchParams: Promise<{ callbac
 
   return (
     <div className="max-w-sm mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold mb-6 text-center">Login</h1>
+      <div className="text-center mb-6">
+        <span className="text-2xl font-extrabold">Viralo<span className="text-[#ff2d92]">.shop</span></span>
+        <p className="text-[#6b6b7a] text-sm mt-1">Shoppe ohne Reue 🎮</p>
+      </div>
       {error && (
-        <p className="text-sm text-red-600 bg-red-50 rounded-lg p-2 mb-4">
+        <p className="text-sm text-red-300 bg-[#2c1414] border border-[#5a1a1a] rounded-xl p-2 mb-4">
           Login fehlgeschlagen. Bitte Email & Passwort prüfen.
         </p>
       )}
-      <form action={login} className="space-y-4 bg-white border rounded-xl p-6">
-        <input name="email" type="email" required placeholder="Email" className="w-full border rounded-lg px-3 py-2" />
-        <input name="password" type="password" required placeholder="Passwort" className="w-full border rounded-lg px-3 py-2" />
-        <button className="w-full bg-violet-700 text-white py-2 rounded-lg font-semibold hover:bg-violet-800">
+      <form action={login} className="space-y-4 bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-6">
+        <input name="email" type="email" required placeholder="Email" className="w-full bg-[#22222c] border border-[#2c2c38] rounded-xl px-3 py-2" />
+        <input name="password" type="password" required placeholder="Passwort" className="w-full bg-[#22222c] border border-[#2c2c38] rounded-xl px-3 py-2" />
+        <button className="w-full bg-[#ff2d92] text-white py-2 rounded-xl font-semibold hover:opacity-90 glow-accent">
           Einloggen
         </button>
       </form>
-      <p className="text-center text-sm text-gray-500 mt-4">
+      <p className="text-center text-sm text-[#9b9bab] mt-4">
         Noch kein Konto?{" "}
-        <Link href="/register" className="text-violet-700 underline">
+        <Link href="/register" className="text-[#ff2d92] underline">
           Registrieren
         </Link>
       </p>
-      <p className="text-center text-xs text-gray-400 mt-6">
+      <p className="text-center text-xs text-[#6b6b7a] mt-6">
         Admin-Demo-Zugang: admin@viralo.shop / Admin123!
       </p>
     </div>

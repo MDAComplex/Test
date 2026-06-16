@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { updateCartQty, removeFromCart } from "@/lib/actions";
+import ProductImage from "@/components/ProductImage";
 
 export default async function CartPage() {
   const session = await auth();
@@ -16,28 +17,31 @@ export default async function CartPage() {
   });
 
   const total = items.reduce((s, i) => s + i.product.price * i.quantity, 0);
+  const coinsPreview = Math.round(total * 0.1);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-6">Dein Warenkorb</h1>
       {items.length === 0 ? (
         <div>
-          <p className="text-gray-500 mb-4">Dein Warenkorb ist leer.</p>
-          <Link href="/" className="text-violet-700 underline">
+          <p className="text-[#6b6b7a] mb-4">Dein Warenkorb ist leer.</p>
+          <Link href="/" className="text-[#ff2d92] underline">
             Weiter shoppen
           </Link>
         </div>
       ) : (
         <div className="space-y-4">
           {items.map((item) => (
-            <div key={item.id} className="flex items-center gap-4 bg-white border rounded-xl p-4">
-              <div className="text-4xl">{item.product.image}</div>
+            <div key={item.id} className="flex items-center gap-4 bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-4">
+              <div className="w-16 h-16 rounded-xl bg-[#22222c] flex items-center justify-center text-3xl overflow-hidden shrink-0">
+                <ProductImage image={item.product.image} className="text-3xl w-full h-full object-cover flex items-center justify-center" />
+              </div>
               <div className="flex-1">
                 <Link href={`/product/${item.productId}`} className="font-semibold">
                   {item.product.name}
                 </Link>
-                <p className="text-violet-700 font-bold">{item.product.price.toFixed(2)} €</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-[#ff2d92] font-bold">{item.product.price.toFixed(2)} €</p>
+                <p className="text-xs text-[#6b6b7a]">
                   🚚 {item.product.shippingMinDays}-{item.product.shippingMaxDays} Tage
                 </p>
               </div>
@@ -47,24 +51,25 @@ export default async function CartPage() {
                   name="quantity"
                   defaultValue={item.quantity}
                   min={1}
-                  className="w-16 border rounded px-2 py-1"
+                  className="w-14 bg-[#22222c] border border-[#2c2c38] rounded-lg px-2 py-1 text-sm"
                 />
-                <button className="text-sm bg-gray-100 px-3 py-1 rounded">Update</button>
+                <button className="text-sm bg-[#22222c] border border-[#2c2c38] px-3 py-1 rounded-lg">Update</button>
               </form>
               <form action={async () => { "use server"; await removeFromCart(item.id); }}>
-                <button className="text-sm text-red-600">Entfernen</button>
+                <button className="text-sm text-red-400">Entfernen</button>
               </form>
             </div>
           ))}
 
-          <div className="flex justify-between items-center bg-violet-50 rounded-xl p-4 font-bold text-lg">
+          <div className="flex justify-between items-center bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-4 font-bold text-lg">
             <span>Gesamt</span>
             <span>{total.toFixed(2)} €</span>
           </div>
+          <p className="text-center text-sm text-[#00f0c0]">+{coinsPreview} Coins beim Bestellen</p>
 
           <Link
             href="/checkout"
-            className="block text-center bg-violet-700 text-white py-3 rounded-lg font-semibold hover:bg-violet-800"
+            className="block text-center bg-[#ff2d92] text-white py-3 rounded-xl font-semibold hover:opacity-90 glow-accent"
           >
             Zur Kasse
           </Link>

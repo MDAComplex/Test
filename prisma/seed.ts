@@ -115,6 +115,7 @@ async function main() {
             categoryId: category.id,
             shippingMinDays: p.shippingMinDays ?? Math.floor(Math.random() * 2) + 1,
             shippingMaxDays: p.shippingMaxDays ?? Math.floor(Math.random() * 3) + 4,
+            isSample: true,
           },
         });
       }

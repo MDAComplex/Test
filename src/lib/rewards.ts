@@ -1,0 +1,165 @@
+import { prisma } from "@/lib/prisma";
+
+export const RANKS = [
+  { key: "window-shopper", min: 0, label: "Window Shopper", emoji: "🪟" },
+  { key: "trendsetter", min: 100, label: "Trendsetter", emoji: "✨" },
+  { key: "drip-lord", min: 300, label: "Drip Lord", emoji: "💧" },
+  { key: "icon", min: 700, label: "Icon", emoji: "👑" },
+] as const;
+
+export function getRank(coins: number) {
+  let current: (typeof RANKS)[number] = RANKS[0];
+  for (const r of RANKS) {
+    if (coins >= r.min) current = r;
+  }
+  const next = RANKS.find((r) => r.min > coins);
+  return { current, next };
+}
+
+export const QUESTS = [
+  { key: "cart3", label: "Lege 3 verschiedene Artikel in den Warenkorb", target: 3, reward: 15 },
+  { key: "browse5", label: "Schau dir 5 Produkte an", target: 5, reward: 10 },
+  { key: "cart50", label: "Erreiche 50 € im Warenkorb", target: 50, reward: 20 },
+] as const;
+
+export const BADGES = [
+  { key: "first-order", label: "Erste Bestellung", emoji: "🎉" },
+  { key: "ten-orders", label: "10 Bestellungen", emoji: "🏆" },
+  { key: "beauty-addict", label: "Beauty-Addict", emoji: "💄" },
+  { key: "night-owl", label: "Nachteule", emoji: "🦉" },
+  { key: "streak-7", label: "7 Tage Streak", emoji: "🔥" },
+] as const;
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export async function touchDailyLogin(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return;
+
+  const today = todayKey();
+  if (user.lastLoginDate === today) return;
+
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const continuesStreak = user.lastLoginDate === yesterday;
+  const newStreak = continuesStreak ? user.streak + 1 : 1;
+  const bonus = 5 + Math.min(newStreak, 10) * 2;
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { streak: newStreak, lastLoginDate: today, coins: { increment: bonus } },
+  });
+}
+
+export async function bumpQuest(userId: string, questKey: "cart3" | "browse5", incrementBy = 1) {
+  const date = todayKey();
+  const quest = QUESTS.find((q) => q.key === questKey)!;
+
+  const existing = await prisma.questProgress.upsert({
+    where: { userId_date_questKey: { userId, date, questKey } },
+    update: {},
+    create: { userId, date, questKey, progress: 0, completed: false },
+  });
+
+  if (existing.completed) return;
+
+  const newProgress = existing.progress + incrementBy;
+  const completed = newProgress >= quest.target;
+
+  await prisma.questProgress.update({
+    where: { id: existing.id },
+    data: { progress: newProgress, completed },
+  });
+
+  if (completed) {
+    await prisma.user.update({ where: { id: userId }, data: { coins: { increment: quest.reward } } });
+  }
+}
+
+export async function setQuestProgressAbsolute(userId: string, questKey: "cart50", value: number) {
+  const date = todayKey();
+  const quest = QUESTS.find((q) => q.key === questKey)!;
+
+  const existing = await prisma.questProgress.upsert({
+    where: { userId_date_questKey: { userId, date, questKey } },
+    update: {},
+    create: { userId, date, questKey, progress: 0, completed: false },
+  });
+
+  if (existing.completed) return;
+
+  const completed = value >= quest.target;
+
+  await prisma.questProgress.update({
+    where: { id: existing.id },
+    data: { progress: Math.max(existing.progress, value), completed },
+  });
+
+  if (completed) {
+    await prisma.user.update({ where: { id: userId }, data: { coins: { increment: quest.reward } } });
+  }
+}
+
+export async function getTodayQuests(userId: string) {
+  const date = todayKey();
+  const progress = await prisma.questProgress.findMany({ where: { userId, date } });
+
+  return QUESTS.map((q) => {
+    const p = progress.find((x) => x.questKey === q.key);
+    return { ...q, progress: p?.progress ?? 0, completed: p?.completed ?? false };
+  });
+}
+
+export async function canClaimMysteryBox(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user?.lastMysteryBoxAt) return true;
+  const today = todayKey();
+  const lastDay = user.lastMysteryBoxAt.toISOString().slice(0, 10);
+  return lastDay !== today;
+}
+
+export async function claimMysteryBox(userId: string) {
+  const canClaim = await canClaimMysteryBox(userId);
+  if (!canClaim) throw new Error("Mystery Box wurde heute schon geöffnet.");
+
+  const prizes = [10, 15, 20, 25, 30, 50, 100];
+  const weights = [25, 25, 20, 15, 10, 4, 1];
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  let roll = Math.random() * totalWeight;
+  let prize = prizes[0];
+  for (let i = 0; i < prizes.length; i++) {
+    if (roll < weights[i]) {
+      prize = prizes[i];
+      break;
+    }
+    roll -= weights[i];
+  }
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { coins: { increment: prize }, lastMysteryBoxAt: new Date() },
+  });
+
+  return prize;
+}
+
+export async function getUserBadges(userId: string) {
+  const [orders, user] = await Promise.all([
+    prisma.order.findMany({ where: { userId }, include: { items: { include: { product: { include: { category: true } } } } } }),
+    prisma.user.findUnique({ where: { id: userId } }),
+  ]);
+
+  const earned = new Set<string>();
+  if (orders.length >= 1) earned.add("first-order");
+  if (orders.length >= 10) earned.add("ten-orders");
+  if (orders.some((o) => o.items.filter((i) => i.product?.category.slug === "beauty").length >= 3)) {
+    earned.add("beauty-addict");
+  }
+  if (orders.some((o) => o.placedAt.getHours() >= 0 && o.placedAt.getHours() < 5)) {
+    earned.add("night-owl");
+  }
+  if ((user?.streak ?? 0) >= 7) earned.add("streak-7");
+
+  return BADGES.map((b) => ({ ...b, earned: earned.has(b.key) }));
+}

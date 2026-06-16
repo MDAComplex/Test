@@ -13,15 +13,35 @@ datasource db {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
-  name         String?
-  passwordHash String
-  role         String     @default("USER")
-  preferences  String?
-  createdAt    DateTime   @default(now())
-  cartItems    CartItem[]
-  orders       Order[]
+  id               String         @id @default(cuid())
+  email            String         @unique
+  name             String?
+  passwordHash     String
+  role             String         @default("USER")
+  preferences      String?
+  style            String?
+  budgetFeel       String?
+  coins            Int            @default(0)
+  totalSaved       Float          @default(0)
+  streak           Int            @default(0)
+  lastLoginDate    String?
+  lastMysteryBoxAt DateTime?
+  createdAt        DateTime       @default(now())
+  cartItems        CartItem[]
+  orders           Order[]
+  questProgress    QuestProgress[]
+}
+
+model QuestProgress {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+  date      String
+  questKey  String
+  progress  Int     @default(0)
+  completed Boolean @default(false)
+
+  @@unique([userId, date, questKey])
 }
 
 model Category {
@@ -43,6 +63,8 @@ model Product {
   shippingMinDays Int         @default(2)
   shippingMaxDays Int         @default(5)
   stock           Int         @default(99)
+  affiliateUrl    String?
+  isSample        Boolean     @default(false)
   createdAt       DateTime    @default(now())
   cartItems       CartItem[]
   orderItems      OrderItem[]
@@ -74,11 +96,13 @@ model Order {
 }
 
 model OrderItem {
-  id              String  @id @default(cuid())
+  id              String   @id @default(cuid())
   orderId         String
-  order           Order   @relation(fields: [orderId], references: [id])
-  productId       String
-  product         Product @relation(fields: [productId], references: [id])
+  order           Order    @relation(fields: [orderId], references: [id])
+  productId       String?
+  product         Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName     String
+  productImage    String
   quantity        Int
   priceAtPurchase Float
 }

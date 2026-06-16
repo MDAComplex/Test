@@ -28,12 +28,14 @@ export default function RootLayout({
       lang="de"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-gray-50 text-gray-900">
+      <body className="min-h-full flex flex-col bg-[#0e0e12] text-[#f4f4f8]">
         <Navbar />
-        <main className="flex-1">{children}</main>
-        <footer className="bg-gray-900 text-gray-300 text-xs text-center py-4 mt-8">
-          Viralo.shop ist ein Demo-Shop. Es findet keine echte Zahlung statt — alle Bestellungen,
-          Zahlungen und Versandinformationen sind fiktiv.
+        <main className="flex-1 pb-20 sm:pb-0">{children}</main>
+        <footer className="bg-[#0a0a0d] text-[#6b6b7a] text-xs text-center py-4 pb-24 sm:pb-4 px-4 space-x-3">
+          <span>
+            🎮 Dies ist ein Spiel/Demo — es werden keine echten Bestellungen ausgelöst und kein Geld eingezogen.
+          </span>
+          <a href="/datenschutz" className="underline">Datenschutz</a>
         </footer>
       </body>
     </html>

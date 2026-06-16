@@ -13,7 +13,7 @@ export default async function AdminAdsPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Werbung verwalten</h1>
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-[#9b9bab]">
         Füge hier den Anzeigencode deines Werbenetzwerks (z.B. Google AdSense, TikTok Pixel/Ads Snippet)
         ein und aktiviere den jeweiligen Platz. Damit kannst du echte Werbeeinnahmen erzielen, sobald
         echte Besucher auf die Seite kommen.
@@ -26,7 +26,7 @@ export default async function AdminAdsPage() {
               "use server";
               await updateAdSlot(slot.id, fd);
             }}
-            className="bg-white border rounded-xl p-4 space-y-3"
+            className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-4 space-y-3"
           >
             <div className="flex justify-between items-center">
               <h2 className="font-semibold">{slot.label || slot.slot}</h2>
@@ -39,10 +39,10 @@ export default async function AdminAdsPage() {
               name="html"
               defaultValue={slot.html}
               placeholder="<script>...Anzeigencode hier einfügen...</script>"
-              className="w-full border rounded-lg px-3 py-2 font-mono text-xs"
+              className="w-full bg-[#22222c] border border-[#2c2c38] rounded-lg px-3 py-2 font-mono text-xs"
               rows={4}
             />
-            <button className="bg-violet-700 text-white px-4 py-1.5 rounded-lg text-sm">Speichern</button>
+            <button className="bg-[#ff2d92] text-white px-4 py-1.5 rounded-lg text-sm font-semibold hover:opacity-90">Speichern</button>
           </form>
         ))}
       </div>

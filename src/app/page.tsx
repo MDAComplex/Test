@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
 import AdBanner from "@/components/AdBanner";
 import { CATEGORIES } from "@/lib/categories";
+import { getRank } from "@/lib/rewards";
 import Link from "next/link";
 
 export default async function HomePage() {
@@ -10,9 +11,10 @@ export default async function HomePage() {
   const userId = (session?.user as { id?: string } | undefined)?.id;
 
   let preferredSlugs: string[] = [];
+  let dbUser = null;
   if (userId) {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    preferredSlugs = (user?.preferences || "").split(",").filter(Boolean);
+    dbUser = await prisma.user.findUnique({ where: { id: userId } });
+    preferredSlugs = (dbUser?.preferences || "").split(",").filter(Boolean);
   }
 
   const allProducts = await prisma.product.findMany({
@@ -27,30 +29,54 @@ export default async function HomePage() {
     products = [...preferred, ...rest];
   }
 
+  const rank = dbUser ? getRank(dbUser.coins) : null;
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6 space-y-8">
-      <section className="bg-gradient-to-r from-violet-700 to-fuchsia-600 text-white rounded-2xl p-8 text-center">
-        <h1 className="text-3xl font-extrabold mb-2">
-          {preferredSlugs.length > 0 ? "Für dich ausgewählt ✨" : "Willkommen bei Viralo.shop"}
+    <div className="max-w-6xl mx-auto px-4 py-6 space-y-10">
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#1a1a22] via-[#1a1a22] to-[#2c1530] border border-[#2c2c38] p-6 sm:p-10 text-center">
+        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-[#ff2d92] opacity-20 blur-3xl" />
+        <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-[#00f0c0] opacity-20 blur-3xl" />
+        <h1 className="text-2xl sm:text-4xl font-extrabold mb-3 relative">
+          {dbUser ? "Shoppe ohne Reue ✨" : "Willkommen bei Viralo.shop"}
         </h1>
-        <p className="text-violet-100">
-          Von Beauty bis Elektronik – entdecke Tausende Artikel, leg sie in den Warenkorb und teste den kompletten Checkout.
+        <p className="text-[#9b9bab] relative max-w-lg mx-auto">
+          Stöbere echte Artikel, leg sie in den Warenkorb, durchlaufe den kompletten Checkout —
+          und zahl dabei <span className="text-[#00f0c0] font-semibold">0 €</span>. Sammle Coins,
+          steig Level auf und sieh, wie viel du &quot;gespart&quot; hast.
         </p>
-        {!session?.user && (
-          <Link href="/register" className="inline-block mt-4 bg-amber-400 text-violet-900 font-bold px-6 py-2 rounded-full">
-            Jetzt registrieren & Präferenzen wählen
+        {dbUser ? (
+          <div className="relative mt-6 flex flex-wrap justify-center gap-3">
+            <div className="bg-[#22222c] border border-[#2c2c38] rounded-2xl px-5 py-3">
+              <p className="text-xs text-[#6b6b7a]">Gespart gesamt</p>
+              <p className="text-xl font-extrabold text-[#00f0c0]">{dbUser.totalSaved.toFixed(2)} €</p>
+            </div>
+            <div className="bg-[#22222c] border border-[#2c2c38] rounded-2xl px-5 py-3">
+              <p className="text-xs text-[#6b6b7a]">Rang</p>
+              <p className="text-xl font-extrabold">{rank?.current.emoji} {rank?.current.label}</p>
+            </div>
+            <div className="bg-[#22222c] border border-[#2c2c38] rounded-2xl px-5 py-3">
+              <p className="text-xs text-[#6b6b7a]">Streak</p>
+              <p className="text-xl font-extrabold text-[#ff2d92]">🔥 {dbUser.streak} Tage</p>
+            </div>
+          </div>
+        ) : (
+          <Link
+            href="/register"
+            className="inline-block mt-6 bg-[#ff2d92] text-white font-bold px-6 py-3 rounded-full glow-accent relative"
+          >
+            Jetzt registrieren & Coins sichern
           </Link>
         )}
       </section>
 
       <AdBanner slot="home-top" />
 
-      <section className="flex gap-2 overflow-x-auto pb-2">
+      <section className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
         {CATEGORIES.map((c) => (
           <Link
             key={c.slug}
             href={`/category/${c.slug}`}
-            className="shrink-0 bg-white border rounded-full px-4 py-2 text-sm font-medium hover:bg-violet-50"
+            className="shrink-0 bg-[#1a1a22] border border-[#2c2c38] rounded-full px-4 py-2 text-sm font-medium hover:border-[#ff2d92]/60"
           >
             {c.emoji} {c.name}
           </Link>
@@ -59,9 +85,9 @@ export default async function HomePage() {
 
       <section>
         <h2 className="text-xl font-bold mb-4">
-          {preferredSlugs.length > 0 ? "Empfohlen für dich" : "Beliebte Produkte"}
+          {preferredSlugs.length > 0 ? "✨ Für dich ausgewählt" : "🔥 Trending"}
         </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {products.slice(0, 10).map((p) => (
             <ProductCard
               key={p.id}
@@ -80,7 +106,7 @@ export default async function HomePage() {
 
       <section>
         <h2 className="text-xl font-bold mb-4">Mehr entdecken</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {products.slice(10, 30).map((p) => (
             <ProductCard
               key={p.id}

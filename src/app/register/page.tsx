@@ -20,30 +20,34 @@ export default async function RegisterPage(props: { searchParams: Promise<{ erro
 
   return (
     <div className="max-w-md mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold mb-2 text-center">Konto erstellen</h1>
-      <p className="text-sm text-gray-500 text-center mb-6">
-        Wähle deine Interessen, damit dein Feed wie ein „Für dich“-Bereich personalisiert wird.
+      <div className="text-center mb-2">
+        <span className="text-2xl font-extrabold">Viralo<span className="text-[#ff2d92]">.shop</span></span>
+      </div>
+      <h1 className="text-xl font-bold mb-1 text-center">Konto erstellen</h1>
+      <p className="text-sm text-[#9b9bab] text-center mb-6">
+        Beantworte ein paar Fragen, damit dein Feed wie ein &quot;Für dich&quot;-Bereich personalisiert wird.
+        Startbonus: <span className="text-[#00f0c0] font-semibold">25 Coins</span> 🎉
       </p>
       {error && (
-        <p className="text-sm text-red-600 bg-red-50 rounded-lg p-2 mb-4">{decodeURIComponent(error)}</p>
+        <p className="text-sm text-red-300 bg-[#2c1414] border border-[#5a1a1a] rounded-xl p-2 mb-4">{decodeURIComponent(error)}</p>
       )}
-      <form action={register} className="space-y-4 bg-white border rounded-xl p-6">
-        <input name="name" placeholder="Name" className="w-full border rounded-lg px-3 py-2" />
-        <input name="email" type="email" required placeholder="Email" className="w-full border rounded-lg px-3 py-2" />
+      <form action={register} className="space-y-5 bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-6">
+        <input name="name" placeholder="Name" className="w-full bg-[#22222c] border border-[#2c2c38] rounded-xl px-3 py-2" />
+        <input name="email" type="email" required placeholder="Email" className="w-full bg-[#22222c] border border-[#2c2c38] rounded-xl px-3 py-2" />
         <input
           name="password"
           type="password"
           required
           minLength={6}
           placeholder="Passwort (mind. 6 Zeichen)"
-          className="w-full border rounded-lg px-3 py-2"
+          className="w-full bg-[#22222c] border border-[#2c2c38] rounded-xl px-3 py-2"
         />
 
         <div>
           <p className="text-sm font-semibold mb-2">Was interessiert dich?</p>
           <div className="grid grid-cols-2 gap-2">
             {CATEGORIES.map((c) => (
-              <label key={c.slug} className="flex items-center gap-2 text-sm border rounded-lg px-2 py-1.5 cursor-pointer">
+              <label key={c.slug} className="flex items-center gap-2 text-sm bg-[#22222c] border border-[#2c2c38] rounded-xl px-2 py-1.5 cursor-pointer">
                 <input type="checkbox" name="preferences" value={c.slug} />
                 {c.emoji} {c.name}
               </label>
@@ -51,13 +55,37 @@ export default async function RegisterPage(props: { searchParams: Promise<{ erro
           </div>
         </div>
 
-        <button className="w-full bg-violet-700 text-white py-2 rounded-lg font-semibold hover:bg-violet-800">
+        <div>
+          <p className="text-sm font-semibold mb-2">Welcher Stil bist du?</p>
+          <div className="grid grid-cols-2 gap-2">
+            {["Minimal & Clean", "Streetwear", "Glam & Beauty", "Tech & Gadgets"].map((s) => (
+              <label key={s} className="flex items-center gap-2 text-sm bg-[#22222c] border border-[#2c2c38] rounded-xl px-2 py-1.5 cursor-pointer">
+                <input type="radio" name="style" value={s} />
+                {s}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold mb-2">Wie fühlst du dich beim Shoppen meistens?</p>
+          <div className="grid grid-cols-1 gap-2">
+            {["Sparsam, ich überlege lange", "Spontan, ich liebe den Kauf-Kick", "Irgendwo dazwischen"].map((s) => (
+              <label key={s} className="flex items-center gap-2 text-sm bg-[#22222c] border border-[#2c2c38] rounded-xl px-2 py-1.5 cursor-pointer">
+                <input type="radio" name="budgetFeel" value={s} />
+                {s}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <button className="w-full bg-[#ff2d92] text-white py-2 rounded-xl font-semibold hover:opacity-90 glow-accent">
           Konto erstellen
         </button>
       </form>
-      <p className="text-center text-sm text-gray-500 mt-4">
+      <p className="text-center text-sm text-[#9b9bab] mt-4">
         Schon registriert?{" "}
-        <Link href="/login" className="text-violet-700 underline">
+        <Link href="/login" className="text-[#ff2d92] underline">
           Login
         </Link>
       </p>

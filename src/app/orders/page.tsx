@@ -4,10 +4,10 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 
 const STATUS_LABEL: Record<string, string> = {
-  PLACED: "Bestellt",
+  PLACED: "Bestätigt",
   PACKED: "Verpackt",
   SHIPPED: "Versendet",
-  OUT_FOR_DELIVERY: "Wird zugestellt",
+  OUT_FOR_DELIVERY: "Unterwegs",
   DELIVERED: "Zugestellt",
 };
 
@@ -26,23 +26,23 @@ export default async function OrdersPage() {
     <div className="max-w-3xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-6">Meine Bestellungen</h1>
       {orders.length === 0 ? (
-        <p className="text-gray-500">Noch keine Bestellungen.</p>
+        <p className="text-[#6b6b7a]">Noch keine Bestellungen.</p>
       ) : (
         <div className="space-y-4">
           {orders.map((o) => (
             <Link
               key={o.id}
               href={`/orders/${o.id}`}
-              className="block bg-white border rounded-xl p-4 hover:shadow"
+              className="block bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-4 hover:border-[#ff2d92]/50"
             >
               <div className="flex justify-between">
                 <span className="font-semibold">Bestellung #{o.id.slice(-6).toUpperCase()}</span>
-                <span className="text-sm bg-violet-100 text-violet-700 px-2 py-1 rounded-full">
-                  {STATUS_LABEL[o.status]}
+                <span className="text-sm bg-[#22222c] text-[#00f0c0] px-2 py-1 rounded-full">
+                  {STATUS_LABEL[o.status] ?? o.status}
                 </span>
               </div>
-              <p className="text-sm text-gray-500">{o.items.length} Artikel · {o.total.toFixed(2)} €</p>
-              <p className="text-xs text-gray-400">
+              <p className="text-sm text-[#9b9bab]">{o.items.length} Artikel · {o.total.toFixed(2)} €</p>
+              <p className="text-xs text-[#6b6b7a]">
                 Aufgegeben am {o.placedAt.toLocaleDateString("de-DE")}
               </p>
             </Link>
