@@ -3,13 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
 import ProductImage from "@/components/ProductImage";
 import LevelUpConfetti from "@/components/LevelUpConfetti";
+import { Receipt, Package, Truck, Bike, Home as HomeIcon } from "lucide-react";
 
 const STEPS = [
-  { key: "PLACED", label: "Bestätigt", emoji: "🧾", at: 0 },
-  { key: "PACKED", label: "Verpackt", emoji: "📦", at: 0.15 },
-  { key: "SHIPPED", label: "Versendet", emoji: "🚚", at: 0.4 },
-  { key: "OUT_FOR_DELIVERY", label: "Unterwegs", emoji: "🛵", at: 0.75 },
-  { key: "DELIVERED", label: "Zugestellt", emoji: "🏠", at: 1 },
+  { key: "PLACED", label: "Bestätigt", icon: Receipt, at: 0 },
+  { key: "PACKED", label: "Verpackt", icon: Package, at: 0.15 },
+  { key: "SHIPPED", label: "Versendet", icon: Truck, at: 0.4 },
+  { key: "OUT_FOR_DELIVERY", label: "Unterwegs", icon: Bike, at: 0.75 },
+  { key: "DELIVERED", label: "Zugestellt", icon: HomeIcon, at: 1 },
 ];
 
 function deriveStatus(placedAt: Date, estMin: Date, estMax: Date, stored: string) {
@@ -70,65 +71,84 @@ export default async function OrderDetailPage(props: {
     <div className="max-w-2xl mx-auto px-4 py-8">
       {levelup && <LevelUpConfetti rank={levelup} />}
       <h1 className="text-2xl font-bold mb-1">Bestellung #{order.id.slice(-6).toUpperCase()}</h1>
-      <p className="text-sm text-[#6b6b7a] mb-6">
+      <p className="text-sm text-[#6b6b76] mb-6">
         Aufgegeben am {order.placedAt.toLocaleDateString("de-DE")} um{" "}
         {order.placedAt.toLocaleTimeString("de-DE")}
       </p>
 
-      <div className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-6 mb-6">
+      <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6 mb-6">
         <div className="flex justify-between mb-4">
-          {STEPS.map((s, i) => (
-            <div key={s.key} className="flex-1 flex flex-col items-center text-center">
-              <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${
-                  i <= currentIndex ? "bg-[#ff2d92] text-white glow-accent" : "bg-[#22222c] text-[#6b6b7a]"
-                }`}
-              >
-                {s.emoji}
+          {STEPS.map((s, i) => {
+            const StepIcon = s.icon;
+            const isDelivered = s.key === "DELIVERED" && i <= currentIndex;
+            return (
+              <div key={s.key} className="flex-1 flex flex-col items-center text-center">
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    isDelivered
+                      ? "bg-[#1faa59] text-white"
+                      : i <= currentIndex
+                      ? "bg-[#ff5a1f] text-white glow-accent"
+                      : "bg-[#f4f4f5] text-[#6b6b76]"
+                  }`}
+                >
+                  <StepIcon size={18} />
+                </div>
+                <span
+                  className={`text-xs mt-1 ${
+                    isDelivered
+                      ? "text-[#1faa59] font-semibold"
+                      : i <= currentIndex
+                      ? "text-[#ff5a1f] font-semibold"
+                      : "text-[#6b6b76]"
+                  }`}
+                >
+                  {s.label}
+                </span>
               </div>
-              <span className={`text-xs mt-1 ${i <= currentIndex ? "text-[#ff2d92] font-semibold" : "text-[#6b6b7a]"}`}>
-                {s.label}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        <div className="w-full h-2 bg-[#22222c] rounded-full overflow-hidden mb-4">
-          <div className="h-full bg-[#ff2d92]" style={{ width: `${Math.round(ratio * 100)}%` }} />
+        <div className="w-full h-2 bg-[#f4f4f5] rounded-full overflow-hidden mb-4">
+          <div
+            className={`h-full ${effectiveStatus === "DELIVERED" ? "bg-[#1faa59]" : "bg-[#ff5a1f]"}`}
+            style={{ width: `${Math.round(ratio * 100)}%` }}
+          />
         </div>
 
         {effectiveStatus !== "DELIVERED" ? (
-          <div className="bg-[#22222c] rounded-xl p-3 text-sm space-y-1">
+          <div className="bg-[#f4f4f5] rounded-xl p-3 text-sm space-y-1">
             {nextStep && <p>⏳ Nächster Schritt ({nextStep.label}) in {formatDuration(msUntilNext)}</p>}
-            <p className="text-[#00f0c0]">📅 Zugestellt voraussichtlich in {formatDuration(msUntilDelivery)}</p>
+            <p className="text-[#1c1c1f]">📅 Zugestellt voraussichtlich in {formatDuration(msUntilDelivery)}</p>
           </div>
         ) : (
-          <div className="bg-[#0c2620] text-[#00f0c0] rounded-xl p-3 text-sm font-semibold text-center">
+          <div className="bg-[#eafbf1] text-[#1faa59] rounded-xl p-3 text-sm font-semibold text-center">
             🎉 Paket zugestellt!
           </div>
         )}
       </div>
 
-      <div className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-6 mb-6">
+      <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6 mb-6">
         <h2 className="font-bold mb-3">Lieferadresse</h2>
         <p className="text-sm">{order.shippingName}</p>
-        <p className="text-sm text-[#9b9bab] whitespace-pre-line">{order.shippingAddress}</p>
+        <p className="text-sm text-[#6b6b76] whitespace-pre-line">{order.shippingAddress}</p>
       </div>
 
-      <div className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-6">
+      <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6">
         <h2 className="font-bold mb-3">Artikel</h2>
         {order.items.map((i) => (
           <div key={i.id} className="flex justify-between items-center gap-3 text-sm py-2">
-            <div className="w-10 h-10 rounded-lg bg-[#22222c] flex items-center justify-center overflow-hidden shrink-0">
+            <div className="w-10 h-10 rounded-lg bg-[#f4f4f5] flex items-center justify-center overflow-hidden shrink-0">
               <ProductImage image={i.productImage} className="w-full h-full object-cover flex items-center justify-center text-xl" />
             </div>
             <span className="flex-1">{i.productName} × {i.quantity}</span>
             <span>{(i.priceAtPurchase * i.quantity).toFixed(2)} €</span>
           </div>
         ))}
-        <div className="flex justify-between font-bold border-t border-[#2c2c38] mt-2 pt-2">
+        <div className="flex justify-between font-bold border-t border-[#e5e5e8] mt-2 pt-2">
           <span>Gesamt</span>
-          <span>{order.total.toFixed(2)} €</span>
+          <span className="text-[#ff5a1f]">{order.total.toFixed(2)} €</span>
         </div>
       </div>
     </div>

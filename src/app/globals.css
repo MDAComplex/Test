@@ -1,14 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0e0e12;
-  --surface: #1a1a22;
-  --surface-2: #22222c;
-  --foreground: #f4f4f8;
-  --muted: #9b9bab;
-  --accent: #ff2d92;
-  --accent-2: #00f0c0;
-  --border: #2c2c38;
+  --background: #ffffff;
+  --surface: #f7f7f8;
+  --surface-2: #f4f4f5;
+  --foreground: #1c1c1f;
+  --muted: #6b6b76;
+  --accent: #ff5a1f;
+  --accent-2: #1faa59;
+  --border: #e5e5e8;
 }
 
 @theme inline {
@@ -33,11 +33,11 @@ body {
 }
 
 .glow-accent {
-  box-shadow: 0 0 24px -6px rgba(255, 45, 146, 0.55);
+  box-shadow: 0 0 16px -4px rgba(255, 90, 31, 0.35);
 }
 
 .glow-mint {
-  box-shadow: 0 0 24px -6px rgba(0, 240, 192, 0.45);
+  box-shadow: 0 0 16px -4px rgba(31, 170, 89, 0.3);
 }
 
 .text-accent {

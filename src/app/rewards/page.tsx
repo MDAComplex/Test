@@ -44,23 +44,23 @@ export default async function RewardsPage() {
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
       <h1 className="text-2xl font-bold">🎁 Deine Rewards</h1>
 
-      <div className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-6 space-y-4">
+      <div className="bg-[#ffffff] border border-[#e5e5e8] rounded-2xl p-6 space-y-4">
         <div className="flex justify-between items-center">
           <div>
-            <p className="text-xs text-[#6b6b7a]">Coins</p>
-            <p className="text-3xl font-extrabold text-[#00f0c0]">{user.coins}</p>
+            <p className="text-xs text-[#6b6b76]">Coins</p>
+            <p className="text-3xl font-extrabold text-[#1faa59]">{user.coins}</p>
           </div>
           <div className="text-right">
-            <p className="text-xs text-[#6b6b7a]">Rang</p>
+            <p className="text-xs text-[#6b6b76]">Rang</p>
             <p className="text-xl font-extrabold">{current.emoji} {current.label}</p>
           </div>
         </div>
         {next && (
           <div>
-            <div className="w-full h-2 bg-[#22222c] rounded-full overflow-hidden">
-              <div className="h-full bg-[#ff2d92]" style={{ width: `${progressToNext}%` }} />
+            <div className="w-full h-2 bg-[#f4f4f5] rounded-full overflow-hidden">
+              <div className="h-full bg-[#ff5a1f]" style={{ width: `${progressToNext}%` }} />
             </div>
-            <p className="text-xs text-[#6b6b7a] mt-1">
+            <p className="text-xs text-[#6b6b76] mt-1">
               Noch {next.min - user.coins} Coins bis {next.emoji} {next.label}
             </p>
           </div>
@@ -68,14 +68,14 @@ export default async function RewardsPage() {
         <div className="flex items-center gap-2 text-sm">
           <span className="text-lg">🔥</span>
           <span className="font-semibold">{user.streak} Tage Streak</span>
-          <span className="text-[#6b6b7a]">— jeden Tag einloggen für Bonus-Coins</span>
+          <span className="text-[#6b6b76]">— jeden Tag einloggen für Bonus-Coins</span>
         </div>
-        <div className="bg-[#22222c] rounded-xl p-3 text-sm">
-          💰 Gespart gesamt: <span className="text-[#00f0c0] font-bold">{user.totalSaved.toFixed(2)} €</span>
+        <div className="bg-[#eafbf1] rounded-xl p-3 text-sm">
+          💰 Gespart gesamt: <span className="text-[#1faa59] font-bold">{user.totalSaved.toFixed(2)} €</span>
         </div>
       </div>
 
-      <div className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-6">
+      <div className="bg-[#ffffff] border border-[#e5e5e8] rounded-2xl p-6">
         <h2 className="font-bold mb-3">🎰 Mystery Box (täglich)</h2>
         {canClaim ? (
           <form
@@ -84,29 +84,29 @@ export default async function RewardsPage() {
               await claimMysteryBoxAction();
             }}
           >
-            <button className="w-full bg-gradient-to-r from-[#ff2d92] to-[#00f0c0] text-black font-bold py-3 rounded-xl glow-accent">
+            <button className="w-full bg-gradient-to-r from-[#ff5a1f] to-[#1faa59] text-black font-bold py-3 rounded-lg glow-accent">
               🎁 Box öffnen
             </button>
           </form>
         ) : (
-          <p className="text-sm text-[#6b6b7a]">Heute schon geöffnet — komm morgen wieder! ⏳</p>
+          <p className="text-sm text-[#6b6b76]">Heute schon geöffnet — komm morgen wieder! ⏳</p>
         )}
       </div>
 
-      <div className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-6">
+      <div className="bg-[#ffffff] border border-[#e5e5e8] rounded-2xl p-6">
         <h2 className="font-bold mb-3">📋 Tagesquests</h2>
         <div className="space-y-3">
           {quests.map((q) => (
             <div key={q.key}>
               <div className="flex justify-between text-sm mb-1">
-                <span className={q.completed ? "text-[#00f0c0]" : ""}>
+                <span className={q.completed ? "text-[#1faa59]" : ""}>
                   {q.completed ? "✅ " : ""}{q.label}
                 </span>
-                <span className="text-[#6b6b7a]">+{q.reward} Coins</span>
+                <span className="text-[#6b6b76]">+{q.reward} Coins</span>
               </div>
-              <div className="w-full h-1.5 bg-[#22222c] rounded-full overflow-hidden">
+              <div className="w-full h-1.5 bg-[#f4f4f5] rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-[#ff2d92]"
+                  className="h-full bg-[#ff5a1f]"
                   style={{ width: `${Math.min(100, Math.round((q.progress / q.target) * 100))}%` }}
                 />
               </div>
@@ -115,14 +115,14 @@ export default async function RewardsPage() {
         </div>
       </div>
 
-      <div className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-6">
+      <div className="bg-[#ffffff] border border-[#e5e5e8] rounded-2xl p-6">
         <h2 className="font-bold mb-3">🏅 Badges</h2>
         <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
           {badges.map((b) => (
             <div
               key={b.key}
               className={`flex flex-col items-center text-center p-2 rounded-xl border ${
-                b.earned ? "bg-[#22222c] border-[#ff2d92]/50" : "bg-[#1a1a22] border-[#2c2c38] opacity-40"
+                b.earned ? "bg-[#eafbf1] border-[#ff5a1f]/50" : "bg-[#ffffff] border-[#e5e5e8] opacity-40"
               }`}
             >
               <span className="text-2xl">{b.emoji}</span>
@@ -132,14 +132,14 @@ export default async function RewardsPage() {
         </div>
       </div>
 
-      <div className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-6">
+      <div className="bg-[#ffffff] border border-[#e5e5e8] rounded-2xl p-6">
         <h2 className="font-bold mb-3">📊 Wochen-Leaderboard (gespart)</h2>
         {leaderboardWithNames.length === 0 ? (
-          <p className="text-sm text-[#6b6b7a]">Noch keine Bestellungen diese Woche.</p>
+          <p className="text-sm text-[#6b6b76]">Noch keine Bestellungen diese Woche.</p>
         ) : (
           <ol className="space-y-1 text-sm">
             {leaderboardWithNames.map((l, i) => (
-              <li key={i} className={`flex justify-between ${l.isYou ? "text-[#ff2d92] font-semibold" : ""}`}>
+              <li key={i} className={`flex justify-between ${l.isYou ? "text-[#ff5a1f] font-semibold" : ""}`}>
                 <span>{i + 1}. {l.name} {l.isYou ? "(du)" : ""}</span>
                 <span>{l.saved.toFixed(2)} €</span>
               </li>

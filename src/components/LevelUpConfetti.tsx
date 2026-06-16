@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const COLORS = ["#ff2d92", "#00f0c0", "#ffd166", "#7c5cff", "#ff6b6b"];
+const COLORS = ["#ff5a1f", "#1faa59", "#ffd166", "#7c5cff", "#ff6b6b"];
 
 export default function LevelUpConfetti({ rank }: { rank: string }) {
   const [pieces] = useState(() =>
@@ -37,10 +37,10 @@ export default function LevelUpConfetti({ rank }: { rank: string }) {
           }}
         />
       ))}
-      <div className="absolute top-10 left-1/2 -translate-x-1/2 bg-[#1a1a22] border border-[#ff2d92]/60 rounded-2xl px-6 py-4 text-center glow-accent animate-pop">
+      <div className="absolute top-10 left-1/2 -translate-x-1/2 bg-white border border-[#ff5a1f]/60 rounded-2xl px-6 py-4 text-center glow-accent animate-pop">
         <p className="text-3xl">🎉</p>
-        <p className="font-extrabold text-lg mt-1">Level Up!</p>
-        <p className="text-sm text-[#9b9bab]">Du bist jetzt {rank}</p>
+        <p className="font-extrabold text-lg mt-1 text-[#1c1c1f]">Level Up!</p>
+        <p className="text-sm text-[#6b6b76]">Du bist jetzt {rank}</p>
       </div>
       <style jsx>{`
         .confetti-piece {

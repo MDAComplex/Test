@@ -27,11 +27,11 @@ export default async function AdminOrdersPage() {
       <h1 className="text-2xl font-bold">Bestellungen</h1>
       <div className="space-y-4">
         {orders.map((o) => (
-          <div key={o.id} className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-4">
+          <div key={o.id} className="bg-white border border-[#e5e5e8] rounded-2xl p-4">
             <div className="flex justify-between items-start flex-wrap gap-2">
               <div>
                 <p className="font-semibold">#{o.id.slice(-6).toUpperCase()} – {o.user.email}</p>
-                <p className="text-sm text-[#9b9bab]">
+                <p className="text-sm text-[#6b6b76]">
                   {o.items.length} Artikel · {o.total.toFixed(2)} € · {o.placedAt.toLocaleDateString("de-DE")}
                 </p>
               </div>
@@ -42,19 +42,19 @@ export default async function AdminOrdersPage() {
                 }}
                 className="flex items-center gap-2"
               >
-                <select name="status" defaultValue={o.status} className="bg-[#22222c] border border-[#2c2c38] rounded-lg px-2 py-1 text-sm">
+                <select name="status" defaultValue={o.status} className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-2 py-1 text-sm">
                   {STATUSES.map((s) => (
                     <option key={s} value={s}>
                       {LABEL[s]}
                     </option>
                   ))}
                 </select>
-                <button className="text-sm bg-[#ff2d92] text-white px-3 py-1 rounded-lg">Status setzen</button>
+                <button className="text-sm bg-[#ff5a1f] text-white px-3 py-1 rounded-lg">Status setzen</button>
               </form>
             </div>
           </div>
         ))}
-        {orders.length === 0 && <p className="text-[#6b6b7a]">Noch keine Bestellungen.</p>}
+        {orders.length === 0 && <p className="text-[#6b6b76]">Noch keine Bestellungen.</p>}
       </div>
     </div>
   );

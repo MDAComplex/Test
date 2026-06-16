@@ -33,36 +33,36 @@ export default async function HomePage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-10">
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#1a1a22] via-[#1a1a22] to-[#2c1530] border border-[#2c2c38] p-6 sm:p-10 text-center">
-        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-[#ff2d92] opacity-20 blur-3xl" />
-        <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-[#00f0c0] opacity-20 blur-3xl" />
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#ffffff] via-[#ffffff] to-[#fdeee8] border border-[#e5e5e8] p-6 sm:p-10 text-center">
+        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-[#ff5a1f] opacity-20 blur-3xl" />
+        <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-[#1faa59] opacity-20 blur-3xl" />
         <h1 className="text-2xl sm:text-4xl font-extrabold mb-3 relative">
           {dbUser ? "Shoppe ohne Reue ✨" : "Willkommen bei Viralo.shop"}
         </h1>
-        <p className="text-[#9b9bab] relative max-w-lg mx-auto">
+        <p className="text-[#6b6b76] relative max-w-lg mx-auto">
           Stöbere echte Artikel, leg sie in den Warenkorb, durchlaufe den kompletten Checkout —
-          und zahl dabei <span className="text-[#00f0c0] font-semibold">0 €</span>. Sammle Coins,
+          und zahl dabei <span className="text-[#1faa59] font-semibold">0 €</span>. Sammle Coins,
           steig Level auf und sieh, wie viel du &quot;gespart&quot; hast.
         </p>
         {dbUser ? (
           <div className="relative mt-6 flex flex-wrap justify-center gap-3">
-            <div className="bg-[#22222c] border border-[#2c2c38] rounded-2xl px-5 py-3">
-              <p className="text-xs text-[#6b6b7a]">Gespart gesamt</p>
-              <p className="text-xl font-extrabold text-[#00f0c0]">{dbUser.totalSaved.toFixed(2)} €</p>
+            <div className="bg-[#eafbf1] border border-[#e5e5e8] rounded-2xl px-5 py-3">
+              <p className="text-xs text-[#6b6b76]">Gespart gesamt</p>
+              <p className="text-xl font-extrabold text-[#1faa59]">{dbUser.totalSaved.toFixed(2)} €</p>
             </div>
-            <div className="bg-[#22222c] border border-[#2c2c38] rounded-2xl px-5 py-3">
-              <p className="text-xs text-[#6b6b7a]">Rang</p>
+            <div className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-2xl px-5 py-3">
+              <p className="text-xs text-[#6b6b76]">Rang</p>
               <p className="text-xl font-extrabold">{rank?.current.emoji} {rank?.current.label}</p>
             </div>
-            <div className="bg-[#22222c] border border-[#2c2c38] rounded-2xl px-5 py-3">
-              <p className="text-xs text-[#6b6b7a]">Streak</p>
-              <p className="text-xl font-extrabold text-[#ff2d92]">🔥 {dbUser.streak} Tage</p>
+            <div className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-2xl px-5 py-3">
+              <p className="text-xs text-[#6b6b76]">Streak</p>
+              <p className="text-xl font-extrabold text-[#1faa59]">🔥 {dbUser.streak} Tage</p>
             </div>
           </div>
         ) : (
           <Link
             href="/register"
-            className="inline-block mt-6 bg-[#ff2d92] text-white font-bold px-6 py-3 rounded-full glow-accent relative"
+            className="inline-block mt-6 bg-[#ff5a1f] text-white font-bold px-6 py-3 rounded-lg glow-accent relative"
           >
             Jetzt registrieren & Coins sichern
           </Link>
@@ -76,7 +76,7 @@ export default async function HomePage() {
           <Link
             key={c.slug}
             href={`/category/${c.slug}`}
-            className="shrink-0 bg-[#1a1a22] border border-[#2c2c38] rounded-full px-4 py-2 text-sm font-medium hover:border-[#ff2d92]/60"
+            className="shrink-0 bg-[#ffffff] border border-[#e5e5e8] rounded-lg px-4 py-2 text-sm font-medium hover:border-[#ff5a1f]/60"
           >
             {c.emoji} {c.name}
           </Link>

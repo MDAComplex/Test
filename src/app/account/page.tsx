@@ -27,12 +27,12 @@ export default async function AccountPage(props: { searchParams: Promise<{ error
         <p className="text-sm text-red-300 bg-[#2c1414] border border-[#5a1a1a] rounded-xl p-2 mb-4">{decodeURIComponent(error)}</p>
       )}
       {ok && (
-        <p className="text-sm text-[#00f0c0] bg-[#0c2620] border border-[#1a4a3a] rounded-xl p-2 mb-4">Passwort erfolgreich geändert.</p>
+        <p className="text-sm text-[#1faa59] bg-[#eafbf1] border border-[#bfe9d1] rounded-xl p-2 mb-4">Passwort erfolgreich geändert.</p>
       )}
-      <form action={submit} className="space-y-4 bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-6">
-        <input name="currentPassword" type="password" required placeholder="Aktuelles Passwort" className="w-full bg-[#22222c] border border-[#2c2c38] rounded-xl px-3 py-2" />
-        <input name="newPassword" type="password" required minLength={6} placeholder="Neues Passwort (mind. 6 Zeichen)" className="w-full bg-[#22222c] border border-[#2c2c38] rounded-xl px-3 py-2" />
-        <button className="w-full bg-[#ff2d92] text-white py-2 rounded-xl font-semibold hover:opacity-90">
+      <form action={submit} className="space-y-4 bg-[#ffffff] border border-[#e5e5e8] rounded-2xl p-6">
+        <input name="currentPassword" type="password" required placeholder="Aktuelles Passwort" className="w-full bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2" />
+        <input name="newPassword" type="password" required minLength={6} placeholder="Neues Passwort (mind. 6 Zeichen)" className="w-full bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2" />
+        <button className="w-full bg-[#ff5a1f] text-white py-2 rounded-xl font-semibold hover:opacity-90">
           Speichern
         </button>
       </form>

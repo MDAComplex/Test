@@ -5,7 +5,7 @@ export default async function AdBanner({ slot }: { slot: string }) {
 
   if (!adSlot?.enabled || !adSlot.html) {
     return (
-      <div className="border border-dashed border-[#2c2c38] rounded-xl p-4 text-center text-xs text-[#6b6b7a] bg-[#1a1a22]">
+      <div className="border border-dashed border-[#e5e5e8] rounded-xl p-4 text-center text-xs text-[#6b6b76] bg-[#f7f7f8]">
         Werbeplatz ({slot}) — vom Admin im Admin-Panel unter „Werbung“ aktivierbar
       </div>
     );

@@ -18,7 +18,7 @@ export default async function CategoryPage(props: { params: Promise<{ slug: stri
         {category.emoji} {category.name}
       </h1>
       {category.products.length === 0 ? (
-        <p className="text-[#6b6b7a]">Noch keine Artikel in dieser Kategorie.</p>
+        <p className="text-[#6b6b76]">Noch keine Artikel in dieser Kategorie.</p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {category.products.map((p) => (

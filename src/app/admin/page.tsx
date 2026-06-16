@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { ShoppingCart, Receipt, Flame } from "lucide-react";
 
 export default async function AdminDashboard() {
   const session = await auth();
@@ -41,26 +42,26 @@ export default async function AdminDashboard() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
-        <div className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-4">
-          <h2 className="font-bold mb-3">🛒 Aktive Shopper (offener Warenkorb)</h2>
+        <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4">
+          <h2 className="font-bold mb-3 flex items-center gap-2"><ShoppingCart size={18} /> Aktive Shopper (offener Warenkorb)</h2>
           {activeShoppers.length === 0 ? (
-            <p className="text-sm text-[#6b6b7a]">Aktuell niemand mit Artikeln im Warenkorb.</p>
+            <p className="text-sm text-[#6b6b76]">Aktuell niemand mit Artikeln im Warenkorb.</p>
           ) : (
             <ul className="text-sm space-y-1">
               {activeShoppers.map((c) => (
                 <li key={c.userId} className="flex justify-between">
                   <span>{c.user.name || c.user.email}</span>
-                  <span className="text-[#6b6b7a]">{c.user.email}</span>
+                  <span className="text-[#6b6b76]">{c.user.email}</span>
                 </li>
               ))}
             </ul>
           )}
         </div>
 
-        <div className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-4">
-          <h2 className="font-bold mb-3">🧾 Letzte Bestellungen</h2>
+        <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4">
+          <h2 className="font-bold mb-3 flex items-center gap-2"><Receipt size={18} /> Letzte Bestellungen</h2>
           {recentOrders.length === 0 ? (
-            <p className="text-sm text-[#6b6b7a]">Noch keine Bestellungen.</p>
+            <p className="text-sm text-[#6b6b76]">Noch keine Bestellungen.</p>
           ) : (
             <ul className="text-sm space-y-1">
               {recentOrders.map((o) => (
@@ -73,10 +74,10 @@ export default async function AdminDashboard() {
           )}
         </div>
 
-        <div className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-4 md:col-span-2">
-          <h2 className="font-bold mb-3">🔥 Beliebteste Artikel</h2>
+        <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4 md:col-span-2">
+          <h2 className="font-bold mb-3 flex items-center gap-2"><Flame size={18} /> Beliebteste Artikel</h2>
           {topWithCounts.length === 0 ? (
-            <p className="text-sm text-[#6b6b7a]">Noch keine Bestelldaten.</p>
+            <p className="text-sm text-[#6b6b76]">Noch keine Bestelldaten.</p>
           ) : (
             <ul className="text-sm space-y-1">
               {topWithCounts.map((t, i) => (
@@ -95,9 +96,9 @@ export default async function AdminDashboard() {
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="bg-[#1a1a22] border border-[#2c2c38] rounded-2xl p-4 text-center">
-      <p className="text-2xl font-extrabold text-[#ff2d92]">{value}</p>
-      <p className="text-xs text-[#6b6b7a]">{label}</p>
+    <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4 text-center">
+      <p className="text-2xl font-extrabold text-[#ff5a1f]">{value}</p>
+      <p className="text-xs text-[#6b6b76]">{label}</p>
     </div>
   );
 }
