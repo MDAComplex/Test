@@ -1,0 +1,92 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String?
+  passwordHash String
+  role         String     @default("USER")
+  preferences  String?
+  createdAt    DateTime   @default(now())
+  cartItems    CartItem[]
+  orders       Order[]
+}
+
+model Category {
+  id       String    @id @default(cuid())
+  slug     String    @unique
+  name     String
+  emoji    String    @default("🛍️")
+  products Product[]
+}
+
+model Product {
+  id              String      @id @default(cuid())
+  name            String
+  description     String
+  price           Float
+  image           String
+  categoryId      String
+  category        Category    @relation(fields: [categoryId], references: [id])
+  shippingMinDays Int         @default(2)
+  shippingMaxDays Int         @default(5)
+  stock           Int         @default(99)
+  createdAt       DateTime    @default(now())
+  cartItems       CartItem[]
+  orderItems      OrderItem[]
+}
+
+model CartItem {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int     @default(1)
+
+  @@unique([userId, productId])
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  total           Float
+  status          String      @default("PLACED")
+  placedAt        DateTime    @default(now())
+  estDeliveryMin  DateTime
+  estDeliveryMax  DateTime
+  shippingName    String
+  shippingAddress String
+  items           OrderItem[]
+}
+
+model OrderItem {
+  id              String  @id @default(cuid())
+  orderId         String
+  order           Order   @relation(fields: [orderId], references: [id])
+  productId       String
+  product         Product @relation(fields: [productId], references: [id])
+  quantity        Int
+  priceAtPurchase Float
+}
+
+model AdSlot {
+  id      String  @id @default(cuid())
+  slot    String  @unique
+  enabled Boolean @default(false)
+  html    String  @default("")
+  label   String  @default("")
+}
