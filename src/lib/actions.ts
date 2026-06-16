@@ -23,9 +23,6 @@ export async function registerUser(formData: FormData) {
   const email = String(formData.get("email") || "").trim().toLowerCase();
   const name = String(formData.get("name") || "").trim();
   const password = String(formData.get("password") || "");
-  const preferences = formData.getAll("preferences").map(String).join(",");
-  const style = String(formData.get("style") || "");
-  const budgetFeel = String(formData.get("budgetFeel") || "");
 
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   if (!emailValid || !password || password.length < 6) {
@@ -39,10 +36,33 @@ export async function registerUser(formData: FormData) {
 
   const passwordHash = await bcrypt.hash(password, 10);
   await prisma.user.create({
-    data: { email, name, passwordHash, preferences, style, budgetFeel, role: "USER", coins: 25 },
+    data: { email, name, passwordHash, role: "USER", coins: 25, onboarded: false },
   });
 
-  await signIn("credentials", { email, password, redirectTo: "/" });
+  await signIn("credentials", { email, password, redirectTo: "/onboarding" });
+}
+
+export async function completeOnboarding(formData: FormData) {
+  const user = await requireUser();
+  const preferences = formData.getAll("preferences").map(String).join(",");
+  const style = String(formData.get("style") || "");
+  const budgetFeel = String(formData.get("budgetFeel") || "");
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { preferences, style, budgetFeel, onboarded: true },
+  });
+
+  revalidatePath("/");
+  redirect("/");
+}
+
+export async function updateOwnName(formData: FormData) {
+  const user = await requireUser();
+  const name = String(formData.get("name") || "").trim();
+  if (!name) throw new Error("Bitte einen Namen angeben.");
+  await prisma.user.update({ where: { id: user.id }, data: { name } });
+  revalidatePath("/account");
 }
 
 export async function recordProductView() {

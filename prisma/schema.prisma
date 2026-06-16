@@ -19,6 +19,7 @@ model User {
   name             String?
   passwordHash     String
   role             String         @default("USER")
+  onboarded        Boolean        @default(false)
   preferences      String?
   style            String?
   budgetFeel       String?

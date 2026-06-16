@@ -2,6 +2,7 @@ import { signIn } from "@/lib/auth";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import Logo from "@/components/Logo";
 
 export default async function LoginPage(props: { searchParams: Promise<{ callbackUrl?: string; error?: string }> }) {
   const { callbackUrl, error } = await props.searchParams;
@@ -23,7 +24,10 @@ export default async function LoginPage(props: { searchParams: Promise<{ callbac
   return (
     <div className="max-w-sm mx-auto px-4 py-12">
       <div className="text-center mb-6">
-        <span className="text-2xl font-extrabold">Viralo<span className="text-[#ff5a1f]">.shop</span></span>
+        <div className="flex items-center justify-center gap-2">
+          <Logo size={32} />
+          <span className="text-2xl font-extrabold">Viralo<span className="text-[#ff5a1f]">.shop</span></span>
+        </div>
         <p className="text-[#6b6b76] text-sm mt-1">Shoppe ohne Reue 🎮</p>
       </div>
       {error && (

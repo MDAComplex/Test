@@ -82,12 +82,13 @@ async function main() {
 
   await prisma.user.upsert({
     where: { email: adminEmail },
-    update: {},
+    update: { onboarded: true },
     create: {
       email: adminEmail,
       name: "Shop Admin",
       passwordHash: adminHash,
       role: "ADMIN",
+      onboarded: true,
     },
   });
 

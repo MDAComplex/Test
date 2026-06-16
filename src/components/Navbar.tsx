@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { auth, signOut } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { CATEGORIES } from "@/lib/categories";
 import { getRank, touchDailyLogin } from "@/lib/rewards";
-import { ShoppingCart, Home, Gift, Package, Settings, LogOut } from "lucide-react";
+import { ShoppingCart, Home, Gift, Package, Settings, User } from "lucide-react";
+import Logo from "@/components/Logo";
 
 export default async function Navbar() {
   const session = await auth();
@@ -29,7 +30,8 @@ export default async function Navbar() {
     <>
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-[#e5e5e8] text-[#1c1c1f]">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-4">
-          <Link href="/" className="text-xl font-extrabold tracking-tight">
+          <Link href="/" className="flex items-center gap-2 text-xl font-extrabold tracking-tight">
+            <Logo />
             Viralo<span className="text-[#ff5a1f]">.shop</span>
           </Link>
           <nav className="hidden md:flex gap-1 overflow-x-auto text-sm flex-1 scrollbar-none">
@@ -68,15 +70,13 @@ export default async function Navbar() {
               </Link>
             )}
             {session?.user ? (
-              <form
-                action={async () => {
-                  "use server";
-                  await signOut({ redirectTo: "/" });
-                }}
-                className="hidden sm:block"
+              <Link
+                href="/account"
+                className="flex items-center justify-center w-9 h-9 rounded-full bg-[#f4f4f5] border border-[#e5e5e8] hover:border-[#ff5a1f]"
+                aria-label="Mein Konto"
               >
-                <button className="text-sm bg-[#f4f4f5] border border-[#e5e5e8] px-3 py-1 rounded-lg">Logout</button>
-              </form>
+                <User size={18} className="text-[#1c1c1f]" />
+              </Link>
             ) : (
               <Link href="/login" className="text-sm bg-[#ff5a1f] text-white px-4 py-1.5 rounded-lg font-semibold">
                 Login
@@ -105,23 +105,14 @@ export default async function Navbar() {
           <Link href="/orders" className="flex flex-col items-center gap-0.5 px-2">
             <Package size={18} /> Bestellungen
           </Link>
-          {user.role === "ADMIN" ? (
+          {user.role === "ADMIN" && (
             <Link href="/admin" className="flex flex-col items-center gap-0.5 px-2 text-[#1c1c1f]">
               <Settings size={18} /> Admin
             </Link>
-          ) : (
-            <form
-              action={async () => {
-                "use server";
-                await signOut({ redirectTo: "/" });
-              }}
-              className="flex flex-col items-center gap-0.5 px-2"
-            >
-              <button type="submit" className="flex flex-col items-center gap-0.5">
-                <LogOut size={18} /> Logout
-              </button>
-            </form>
           )}
+          <Link href="/account" className="flex flex-col items-center gap-0.5 px-2">
+            <User size={18} /> Profil
+          </Link>
         </nav>
       )}
     </>
