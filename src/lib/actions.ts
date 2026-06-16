@@ -65,6 +65,22 @@ export async function updateOwnName(formData: FormData) {
   revalidatePath("/account");
 }
 
+export async function toggleWishlist(productId: string) {
+  const user = await requireUser();
+  const existing = await prisma.wishlist.findUnique({
+    where: { userId_productId: { userId: user.id, productId } },
+  });
+
+  if (existing) {
+    await prisma.wishlist.delete({ where: { id: existing.id } });
+  } else {
+    await prisma.wishlist.create({ data: { userId: user.id, productId } });
+  }
+
+  revalidatePath("/favoriten");
+  revalidatePath(`/product/${productId}`);
+}
+
 export async function recordProductView() {
   const session = await auth();
   const userId = (session?.user as { id?: string } | undefined)?.id;

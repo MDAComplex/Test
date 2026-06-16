@@ -4,6 +4,7 @@ import ProductCard from "@/components/ProductCard";
 import AdBanner from "@/components/AdBanner";
 import { CATEGORIES } from "@/lib/categories";
 import { getRank } from "@/lib/rewards";
+import { getRatingsMap } from "@/lib/reviews";
 import Link from "next/link";
 
 export default async function HomePage() {
@@ -30,6 +31,17 @@ export default async function HomePage() {
   }
 
   const rank = dbUser ? getRank(dbUser.coins) : null;
+
+  const ratingsMap = await getRatingsMap(products.slice(0, 30).map((p) => p.id));
+  const wishlistedIds = userId
+    ? new Set(
+        (
+          await prisma.wishlist.findMany({
+            where: { userId, productId: { in: products.slice(0, 30).map((p) => p.id) } },
+          })
+        ).map((w) => w.productId)
+      )
+    : new Set<string>();
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-10">
@@ -78,7 +90,7 @@ export default async function HomePage() {
             href={`/category/${c.slug}`}
             className="shrink-0 bg-[#ffffff] border border-[#e5e5e8] rounded-lg px-4 py-2 text-sm font-medium hover:border-[#ff5a1f]/60"
           >
-            {c.emoji} {c.name}
+            {c.name}
           </Link>
         ))}
       </section>
@@ -97,6 +109,8 @@ export default async function HomePage() {
               image={p.image}
               shippingMinDays={p.shippingMinDays}
               shippingMaxDays={p.shippingMaxDays}
+              rating={ratingsMap.get(p.id)}
+              isWishlisted={wishlistedIds.has(p.id)}
             />
           ))}
         </div>
@@ -116,6 +130,8 @@ export default async function HomePage() {
               image={p.image}
               shippingMinDays={p.shippingMinDays}
               shippingMaxDays={p.shippingMaxDays}
+              rating={ratingsMap.get(p.id)}
+              isWishlisted={wishlistedIds.has(p.id)}
             />
           ))}
         </div>

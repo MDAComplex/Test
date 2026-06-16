@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { CATEGORIES } from "@/lib/categories";
 import { getRank, touchDailyLogin } from "@/lib/rewards";
-import { ShoppingCart, Home, Gift, Package, Settings, User } from "lucide-react";
+import { ShoppingCart, Home, Gift, Package, Settings, User, Search, Heart, Coins } from "lucide-react";
 import Logo from "@/components/Logo";
 
 export default async function Navbar() {
@@ -12,7 +12,6 @@ export default async function Navbar() {
 
   let cartCount = 0;
   let coins = 0;
-  let rankEmoji = "";
 
   if (user?.id) {
     await touchDailyLogin(user.id);
@@ -22,8 +21,6 @@ export default async function Navbar() {
     ]);
     cartCount = items.reduce((s, i) => s + i.quantity, 0);
     coins = dbUser?.coins ?? 0;
-    const { current } = getRank(coins);
-    rankEmoji = current.emoji;
   }
 
   return (
@@ -41,19 +38,33 @@ export default async function Navbar() {
                 href={`/category/${c.slug}`}
                 className="px-2 py-1 rounded-lg hover:bg-[#f4f4f5] whitespace-nowrap text-[#6b6b76] hover:text-[#1c1c1f]"
               >
-                {c.emoji} {c.name}
+                {c.name}
               </Link>
             ))}
           </nav>
-          <div className="flex items-center gap-3 ml-auto">
+          <form action="/search" method="GET" className="hidden md:flex items-center bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-2 py-1.5 w-48">
+            <Search size={16} className="text-[#6b6b76] shrink-0" />
+            <input
+              type="text"
+              name="q"
+              placeholder="Suchen..."
+              className="bg-transparent text-sm px-2 outline-none w-full"
+            />
+          </form>
+          <div className="flex items-center gap-3 ml-auto md:ml-0">
             {user && (
               <Link
                 href="/rewards"
                 className="hidden sm:flex items-center gap-1 bg-[#f4f4f5] border border-[#e5e5e8] rounded-full px-3 py-1 text-sm"
               >
+                <Coins size={14} className="text-[#1faa59]" />
                 <span className="text-[#1faa59] font-bold">{coins}</span>
                 <span className="text-[#6b6b76]">Coins</span>
-                <span className="ml-1">{rankEmoji}</span>
+              </Link>
+            )}
+            {user && (
+              <Link href="/favoriten" className="relative px-2 hidden sm:inline-block" aria-label="Favoriten">
+                <Heart size={20} className="text-[#1c1c1f]" />
               </Link>
             )}
             <Link href="/cart" className="relative px-2 hidden sm:inline-block">
@@ -84,6 +95,15 @@ export default async function Navbar() {
             )}
           </div>
         </div>
+        <form action="/search" method="GET" className="md:hidden flex items-center bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-2 py-1.5 mx-4 mb-3">
+          <Search size={16} className="text-[#6b6b76] shrink-0" />
+          <input
+            type="text"
+            name="q"
+            placeholder="Suchen..."
+            className="bg-transparent text-sm px-2 outline-none w-full"
+          />
+        </form>
       </header>
 
       {user && (
@@ -98,6 +118,9 @@ export default async function Navbar() {
                 {cartCount}
               </span>
             )}
+          </Link>
+          <Link href="/favoriten" className="flex flex-col items-center gap-0.5 px-2">
+            <Heart size={18} /> Favoriten
           </Link>
           <Link href="/rewards" className="flex flex-col items-center gap-0.5 px-2">
             <Gift size={18} /> Rewards

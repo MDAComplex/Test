@@ -2,6 +2,67 @@ import bcrypt from "bcryptjs";
 import { CATEGORIES } from "../src/lib/categories";
 import { prisma } from "../src/lib/prisma";
 
+const REVIEW_NAMES = [
+  "Julia M.", "Tom K.", "Sarah W.", "Lukas B.", "Nina S.", "Felix R.", "Laura H.",
+  "Maximilian P.", "Anna T.", "David L.", "Hannah F.", "Jonas G.", "Lea N.", "Paul D.",
+  "Emily C.", "Niklas V.", "Sophie A.", "Daniel Z.", "Mara E.", "Tim O.",
+];
+
+const REVIEW_TEXTS_BY_STARS: Record<number, string[]> = {
+  5: [
+    "Bin total begeistert, hat alle Erwartungen übertroffen!",
+    "Top Qualität für den Preis, würde ich jederzeit wieder kaufen.",
+    "Lieferung war schnell und die Ware kam top verpackt an.",
+    "Genau wie beschrieben, kann ich nur empfehlen.",
+    "Mein neues Lieblingsprodukt, nutze es jeden Tag.",
+    "Super Verarbeitung, macht einen sehr hochwertigen Eindruck.",
+  ],
+  4: [
+    "Gutes Produkt, kleine Abzüge bei der Verarbeitung.",
+    "Erfüllt seinen Zweck, optisch hätte es etwas hochwertiger sein können.",
+    "Preis-Leistung stimmt, bin zufrieden.",
+    "Funktioniert wie erwartet, kleine Schwächen bei der Anleitung.",
+    "Würde ich wieder kaufen, aber nicht zu jedem Preis.",
+  ],
+  3: [
+    "Ganz okay, aber nichts Besonderes.",
+    "Erfüllt den Zweck, hatte mir aber etwas mehr erwartet.",
+    "Mittelmäßig – für den gelegentlichen Gebrauch ausreichend.",
+  ],
+  2: [
+    "Leider etwas enttäuschend, Qualität könnte besser sein.",
+    "Hat ein paar Mängel, die ich vorher nicht erwartet hätte.",
+  ],
+};
+
+function randomReviewsForProduct() {
+  const count = 2 + Math.floor(Math.random() * 4); // 2-5 reviews
+  const reviews: { authorName: string; rating: number; text: string; createdAt: Date }[] = [];
+  const usedNames = new Set<string>();
+
+  for (let i = 0; i < count; i++) {
+    let name = REVIEW_NAMES[Math.floor(Math.random() * REVIEW_NAMES.length)];
+    let attempts = 0;
+    while (usedNames.has(name) && attempts < 5) {
+      name = REVIEW_NAMES[Math.floor(Math.random() * REVIEW_NAMES.length)];
+      attempts++;
+    }
+    usedNames.add(name);
+
+    const roll = Math.random();
+    const rating = roll < 0.55 ? 5 : roll < 0.8 ? 4 : roll < 0.92 ? 3 : 2;
+    const texts = REVIEW_TEXTS_BY_STARS[rating];
+    const text = texts[Math.floor(Math.random() * texts.length)];
+
+    const daysAgo = Math.floor(Math.random() * 120) + 1;
+    const createdAt = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+
+    reviews.push({ authorName: name, rating, text, createdAt });
+  }
+
+  return reviews;
+}
+
 const PRODUCTS: Record<string, { name: string; description: string; price: number; image: string; shippingMinDays?: number; shippingMaxDays?: number }[]> = {
   elektronik: [
     { name: "Wireless Bluetooth Kopfhörer Pro", description: "Over-Ear Kopfhörer mit aktivem Noise Cancelling und 40h Akkulaufzeit.", price: 79.99, image: "🎧" },
@@ -101,11 +162,11 @@ async function main() {
 
     const products = PRODUCTS[cat.slug] ?? [];
     for (const p of products) {
-      const existing = await prisma.product.findFirst({
+      let product = await prisma.product.findFirst({
         where: { name: p.name, categoryId: category.id },
       });
-      if (!existing) {
-        await prisma.product.create({
+      if (!product) {
+        product = await prisma.product.create({
           data: {
             name: p.name,
             description: p.description,
@@ -116,6 +177,14 @@ async function main() {
             shippingMaxDays: p.shippingMaxDays ?? Math.floor(Math.random() * 3) + 4,
             isSample: true,
           },
+        });
+      }
+
+      const reviewCount = await prisma.review.count({ where: { productId: product.id } });
+      if (reviewCount === 0) {
+        const reviews = randomReviewsForProduct();
+        await prisma.review.createMany({
+          data: reviews.map((r) => ({ ...r, productId: product!.id })),
         });
       }
     }

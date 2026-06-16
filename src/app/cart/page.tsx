@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { updateCartQty, removeFromCart } from "@/lib/actions";
 import ProductImage from "@/components/ProductImage";
-import { Truck } from "lucide-react";
+import { Truck, Plus, Minus, Trash2 } from "lucide-react";
 
 export default async function CartPage() {
   const session = await auth();
@@ -17,7 +17,8 @@ export default async function CartPage() {
     orderBy: { id: "asc" },
   });
 
-  const total = items.reduce((s, i) => s + i.product.price * i.quantity, 0);
+  const subtotal = items.reduce((s, i) => s + i.product.price * i.quantity, 0);
+  const total = subtotal;
   const coinsPreview = Math.round(total * 0.1);
 
   return (
@@ -46,25 +47,48 @@ export default async function CartPage() {
                   <Truck size={14} /> {item.product.shippingMinDays}-{item.product.shippingMaxDays} Tage
                 </p>
               </div>
-              <form action={async (fd) => { "use server"; await updateCartQty(item.id, parseInt(String(fd.get("quantity")), 10)); }} className="flex items-center gap-2">
-                <input
-                  type="number"
-                  name="quantity"
-                  defaultValue={item.quantity}
-                  min={1}
-                  className="w-14 bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-2 py-1 text-sm"
-                />
-                <button className="text-sm bg-[#f4f4f5] border border-[#e5e5e8] px-3 py-1 rounded-lg">Update</button>
-              </form>
+              <div className="flex items-center gap-1">
+                <form action={async () => { "use server"; await updateCartQty(item.id, item.quantity - 1); }}>
+                  <button
+                    type="submit"
+                    aria-label="Menge verringern"
+                    className="w-8 h-8 flex items-center justify-center bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg hover:border-[#ff5a1f]"
+                  >
+                    <Minus size={14} />
+                  </button>
+                </form>
+                <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
+                <form action={async () => { "use server"; await updateCartQty(item.id, item.quantity + 1); }}>
+                  <button
+                    type="submit"
+                    aria-label="Menge erhöhen"
+                    className="w-8 h-8 flex items-center justify-center bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg hover:border-[#ff5a1f]"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </form>
+              </div>
               <form action={async () => { "use server"; await removeFromCart(item.id); }}>
-                <button className="text-sm text-red-400">Entfernen</button>
+                <button
+                  type="submit"
+                  aria-label="Entfernen"
+                  className="w-8 h-8 flex items-center justify-center text-red-400 hover:text-red-500"
+                >
+                  <Trash2 size={16} />
+                </button>
               </form>
             </div>
           ))}
 
-          <div className="flex justify-between items-center bg-white border border-[#e5e5e8] rounded-2xl p-4 font-bold text-lg">
-            <span>Gesamt</span>
-            <span className="text-[#ff5a1f]">{total.toFixed(2)} €</span>
+          <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4 space-y-2">
+            <div className="flex justify-between items-center text-sm text-[#6b6b76]">
+              <span>Zwischensumme</span>
+              <span>{subtotal.toFixed(2)} €</span>
+            </div>
+            <div className="flex justify-between items-center font-bold text-lg border-t border-[#e5e5e8] pt-2">
+              <span>Gesamtsumme</span>
+              <span className="text-[#ff5a1f]">{total.toFixed(2)} €</span>
+            </div>
           </div>
           <p className="text-center text-sm text-[#1faa59]">+{coinsPreview} Coins beim Bestellen</p>
 

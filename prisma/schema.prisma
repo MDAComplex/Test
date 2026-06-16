@@ -32,6 +32,7 @@ model User {
   cartItems        CartItem[]
   orders           Order[]
   questProgress    QuestProgress[]
+  wishlist         Wishlist[]
 }
 
 model QuestProgress {
@@ -70,6 +71,29 @@ model Product {
   createdAt       DateTime    @default(now())
   cartItems       CartItem[]
   orderItems      OrderItem[]
+  reviews         Review[]
+  wishlist        Wishlist[]
+}
+
+model Review {
+  id         String   @id @default(cuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  authorName String
+  rating     Int
+  text       String
+  createdAt  DateTime @default(now())
+}
+
+model Wishlist {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
 }
 
 model CartItem {
