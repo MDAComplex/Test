@@ -1,8 +1,6 @@
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { CATEGORIES } from "../src/lib/categories";
-
-const prisma = new PrismaClient();
+import { prisma } from "../src/lib/prisma";
 
 const PRODUCTS: Record<string, { name: string; description: string; price: number; image: string; shippingMinDays?: number; shippingMaxDays?: number }[]> = {
   elektronik: [
