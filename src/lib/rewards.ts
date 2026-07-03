@@ -1,10 +1,12 @@
 import { prisma } from "@/lib/prisma";
+import { getShipmentProgress, getTrackingNumber, isShippedOrLater } from "@/lib/shipping";
 
+// iconKey wird im UI auf lucide-Icons gemappt (siehe components/RewardIcon.tsx) — keine Emojis im UI.
 export const RANKS = [
-  { key: "window-shopper", min: 0, label: "Window Shopper", emoji: "🪟" },
-  { key: "trendsetter", min: 100, label: "Trendsetter", emoji: "✨" },
-  { key: "drip-lord", min: 300, label: "Drip Lord", emoji: "💧" },
-  { key: "icon", min: 700, label: "Icon", emoji: "👑" },
+  { key: "window-shopper", min: 0, label: "Window Shopper", iconKey: "store" },
+  { key: "trendsetter", min: 100, label: "Trendsetter", iconKey: "sparkles" },
+  { key: "drip-lord", min: 300, label: "Drip Lord", iconKey: "gem" },
+  { key: "icon", min: 700, label: "Icon", iconKey: "crown" },
 ] as const;
 
 export function getRank(coins: number) {
@@ -23,11 +25,11 @@ export const QUESTS = [
 ] as const;
 
 export const BADGES = [
-  { key: "first-order", label: "Erste Bestellung", emoji: "🎉" },
-  { key: "ten-orders", label: "10 Bestellungen", emoji: "🏆" },
-  { key: "beauty-addict", label: "Beauty-Addict", emoji: "💄" },
-  { key: "night-owl", label: "Nachteule", emoji: "🦉" },
-  { key: "streak-7", label: "7 Tage Streak", emoji: "🔥" },
+  { key: "first-order", label: "Erste Bestellung", iconKey: "party" },
+  { key: "ten-orders", label: "10 Bestellungen", iconKey: "trophy" },
+  { key: "beauty-addict", label: "Beauty-Addict", iconKey: "heart" },
+  { key: "night-owl", label: "Nachteule", iconKey: "moon" },
+  { key: "streak-7", label: "7 Tage Streak", iconKey: "flame" },
 ] as const;
 
 function todayKey() {
@@ -142,6 +144,55 @@ export async function claimMysteryBox(userId: string) {
   });
 
   return prize;
+}
+
+/**
+ * Lazy-Check bei Seitenaufrufen: findet zugestellte Bestellungen ohne gutgeschriebenen
+ * Lieferbonus, schreibt Coins gut und legt Benachrichtigungen (Versand + Zustellung) an.
+ * Gibt die frisch gutgeschriebenen Boni zurück (für Erfolgs-Banner).
+ */
+export async function grantDeliveryRewards(userId: string) {
+  const [orders, notifications] = await Promise.all([
+    prisma.order.findMany({ where: { userId }, orderBy: { placedAt: "desc" }, take: 30 }),
+    prisma.notification.findMany({ where: { userId } }),
+  ]);
+
+  const granted: { orderId: string; coins: number }[] = [];
+
+  for (const order of orders) {
+    const { currentStatus } = getShipmentProgress(order);
+    const shortId = order.id.slice(-6).toUpperCase();
+
+    // Versandbestätigung einmalig anlegen (Dedup über Bestell-ID im Body).
+    if (isShippedOrLater(currentStatus)) {
+      const exists = notifications.some((n) => n.title === "Versandbestätigung" && n.body.includes(order.id));
+      if (!exists) {
+        await prisma.notification.create({
+          data: {
+            userId,
+            title: "Versandbestätigung",
+            body: `Deine Bestellung #${shortId} wurde an den Versanddienstleister übergeben. Sendungsnummer: ${getTrackingNumber(order.id)}. (Ref: ${order.id})`,
+          },
+        });
+      }
+    }
+
+    if (currentStatus === "DELIVERED" && !order.rewardGranted) {
+      const coins = Math.max(5, Math.round(order.total * 0.1));
+      await prisma.order.update({ where: { id: order.id }, data: { rewardGranted: true } });
+      await prisma.user.update({ where: { id: userId }, data: { coins: { increment: coins } } });
+      await prisma.notification.create({
+        data: {
+          userId,
+          title: "Deine Bestellung wurde zugestellt",
+          body: `Bestellung #${shortId} wurde zugestellt. Dein Lieferbonus von ${coins} Coins wurde gutgeschrieben. (Ref: ${order.id})`,
+        },
+      });
+      granted.push({ orderId: order.id, coins });
+    }
+  }
+
+  return granted;
 }
 
 export async function getUserBadges(userId: string) {

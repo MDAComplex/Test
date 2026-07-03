@@ -26,8 +26,8 @@ export default async function RegisterPage(props: { searchParams: Promise<{ erro
       </div>
       <h1 className="text-xl font-bold mb-1 text-center">Konto erstellen</h1>
       <p className="text-sm text-[#6b6b76] text-center mb-6">
-        Nach der Registrierung personalisieren wir deinen Feed mit ein paar kurzen Fragen.
-        Startbonus: <span className="text-[#1faa59] font-semibold">25 Coins</span> 🎉
+        Direkt loslegen — Präferenzen kannst du später jederzeit im Konto anpassen.
+        Startbonus: <span className="text-[#1faa59] font-semibold">25 Coins</span>
       </p>
       {error && (
         <p className="text-sm text-red-300 bg-[#2c1414] border border-[#5a1a1a] rounded-xl p-2 mb-4">{decodeURIComponent(error)}</p>

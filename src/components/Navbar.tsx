@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { CATEGORIES } from "@/lib/categories";
 import { getRank, touchDailyLogin } from "@/lib/rewards";
-import { ShoppingCart, Home, Gift, Package, Settings, User, Search, Heart, Coins } from "lucide-react";
+import { ShoppingCart, Home, Gift, Package, Settings, User, Search, Heart, Coins, Bell } from "lucide-react";
 import Logo from "@/components/Logo";
 
 export default async function Navbar() {
@@ -12,15 +12,18 @@ export default async function Navbar() {
 
   let cartCount = 0;
   let coins = 0;
+  let unreadCount = 0;
 
   if (user?.id) {
     await touchDailyLogin(user.id);
-    const [items, dbUser] = await Promise.all([
+    const [items, dbUser, unread] = await Promise.all([
       prisma.cartItem.findMany({ where: { userId: user.id } }),
       prisma.user.findUnique({ where: { id: user.id } }),
+      prisma.notification.count({ where: { userId: user.id, read: false } }),
     ]);
     cartCount = items.reduce((s, i) => s + i.quantity, 0);
     coins = dbUser?.coins ?? 0;
+    unreadCount = unread;
   }
 
   return (
@@ -60,6 +63,16 @@ export default async function Navbar() {
                 <Coins size={14} className="text-[#1faa59]" />
                 <span className="text-[#1faa59] font-bold">{coins}</span>
                 <span className="text-[#6b6b76]">Coins</span>
+              </Link>
+            )}
+            {user && (
+              <Link href="/notifications" className="relative px-2" aria-label="Benachrichtigungen">
+                <Bell size={20} className="text-[#1c1c1f]" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-[#ff5a1f] text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
               </Link>
             )}
             {user && (

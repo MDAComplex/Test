@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { updateCartQty, removeFromCart } from "@/lib/actions";
 import ProductImage from "@/components/ProductImage";
+import { effectivePrice, hasDiscount } from "@/lib/pricing";
 import { Truck, Plus, Minus, Trash2 } from "lucide-react";
 
 export default async function CartPage() {
@@ -17,9 +18,10 @@ export default async function CartPage() {
     orderBy: { id: "asc" },
   });
 
-  const subtotal = items.reduce((s, i) => s + i.product.price * i.quantity, 0);
+  const subtotal = items.reduce((s, i) => s + effectivePrice(i.product) * i.quantity, 0);
   const total = subtotal;
-  const coinsPreview = Math.round(total * 0.1);
+  // 10 Coins Bestellbonus sofort + Lieferbonus (~10% des Warenwerts) bei Zustellung.
+  const deliveryBonus = Math.max(5, Math.round(total * 0.1));
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -42,7 +44,17 @@ export default async function CartPage() {
                 <Link href={`/product/${item.productId}`} className="font-semibold">
                   {item.product.name}
                 </Link>
-                <p className="text-[#ff5a1f] font-bold">{item.product.price.toFixed(2)} €</p>
+                <p className="flex items-baseline gap-2">
+                  <span className="text-[#ff5a1f] font-bold">{effectivePrice(item.product).toFixed(2)} €</span>
+                  {hasDiscount(item.product) && (
+                    <>
+                      <span className="text-xs text-[#6b6b76] line-through">{item.product.price.toFixed(2)} €</span>
+                      <span className="text-[10px] font-bold text-white bg-[#ff5a1f] rounded px-1 py-0.5">
+                        -{item.product.discountPercent}%
+                      </span>
+                    </>
+                  )}
+                </p>
                 <p className="text-xs text-[#6b6b76] flex items-center gap-1">
                   <Truck size={14} /> {item.product.shippingMinDays}-{item.product.shippingMaxDays} Tage
                 </p>
@@ -90,7 +102,9 @@ export default async function CartPage() {
               <span className="text-[#ff5a1f]">{total.toFixed(2)} €</span>
             </div>
           </div>
-          <p className="text-center text-sm text-[#1faa59]">+{coinsPreview} Coins beim Bestellen</p>
+          <p className="text-center text-sm text-[#1faa59]">
+            +10 Coins beim Bestellen · +{deliveryBonus} Coins bei Zustellung
+          </p>
 
           <Link
             href="/checkout"

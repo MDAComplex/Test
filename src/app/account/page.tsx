@@ -5,7 +5,8 @@ import { changeOwnPassword, updateOwnName } from "@/lib/actions";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { getRank } from "@/lib/rewards";
 import Link from "next/link";
-import { Package, Flame, Wallet, PiggyBank, Pencil, KeyRound, LogOut } from "lucide-react";
+import RewardIcon from "@/components/RewardIcon";
+import { Package, Flame, Wallet, PiggyBank, Pencil, KeyRound, LogOut, SlidersHorizontal } from "lucide-react";
 
 export default async function AccountPage(props: { searchParams: Promise<{ error?: string; ok?: string }> }) {
   const session = await auth();
@@ -61,6 +62,9 @@ export default async function AccountPage(props: { searchParams: Promise<{ error
       {ok === "name" && (
         <p className="text-sm text-[#1faa59] bg-[#eafbf1] border border-[#bfe9d1] rounded-xl p-2">Name erfolgreich geändert.</p>
       )}
+      {ok === "preferences" && (
+        <p className="text-sm text-[#1faa59] bg-[#eafbf1] border border-[#bfe9d1] rounded-xl p-2">Präferenzen gespeichert.</p>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4 text-center">
@@ -69,7 +73,7 @@ export default async function AccountPage(props: { searchParams: Promise<{ error
           <p className="text-xs text-[#6b6b76]">Coins</p>
         </div>
         <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4 text-center">
-          <span className="text-lg block mb-1">{current.emoji}</span>
+          <RewardIcon iconKey={current.iconKey} size={18} className="mx-auto mb-1 text-[#ff5a1f]" />
           <p className="text-sm font-bold">{current.label}</p>
           <p className="text-xs text-[#6b6b76]">Rang</p>
         </div>
@@ -109,6 +113,21 @@ export default async function AccountPage(props: { searchParams: Promise<{ error
         )}
         <Link href="/orders" className="text-sm text-[#ff5a1f] font-medium underline block mt-3">
           Alle Bestellungen & Tracking ansehen →
+        </Link>
+      </div>
+
+      <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6">
+        <h2 className="font-bold mb-3 flex items-center gap-2">
+          <SlidersHorizontal size={18} /> Präferenzen
+        </h2>
+        <p className="text-sm text-[#6b6b76] mb-3">
+          Lege fest, welche Kategorien und Stile dir auf der Startseite zuerst angezeigt werden.
+        </p>
+        <Link
+          href="/onboarding"
+          className="inline-block bg-[#f4f4f5] border border-[#e5e5e8] px-4 py-2 rounded-lg text-sm font-semibold hover:border-[#ff5a1f]"
+        >
+          Präferenzen anpassen
         </Link>
       </div>
 

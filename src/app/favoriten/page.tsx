@@ -33,6 +33,8 @@ export default async function FavoritenPage() {
               image={w.product.image}
               shippingMinDays={w.product.shippingMinDays}
               shippingMaxDays={w.product.shippingMaxDays}
+              discountPercent={w.product.discountPercent}
+              stock={w.product.stock}
               rating={ratingsMap.get(w.product.id)}
               isWishlisted={true}
             />

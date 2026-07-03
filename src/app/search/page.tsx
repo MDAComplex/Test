@@ -57,6 +57,8 @@ export default async function SearchPage(
               image={p.image}
               shippingMinDays={p.shippingMinDays}
               shippingMaxDays={p.shippingMaxDays}
+              discountPercent={p.discountPercent}
+              stock={p.stock}
               rating={ratingsMap.get(p.id)}
               isWishlisted={wishlistedIds.has(p.id)}
             />

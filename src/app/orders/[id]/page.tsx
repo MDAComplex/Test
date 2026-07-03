@@ -3,43 +3,31 @@ import { prisma } from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
 import ProductImage from "@/components/ProductImage";
 import LevelUpConfetti from "@/components/LevelUpConfetti";
-import { Receipt, Package, Truck, Bike, Home as HomeIcon } from "lucide-react";
+import { getShipmentProgress, type ShipmentStatus } from "@/lib/shipping";
+import { grantDeliveryRewards } from "@/lib/rewards";
+import {
+  Receipt,
+  Package,
+  Truck,
+  Warehouse,
+  MapPin,
+  CheckCircle,
+  Coins,
+  Clock,
+  type LucideIcon,
+} from "lucide-react";
 
-const STEPS = [
-  { key: "PLACED", label: "Bestätigt", icon: Receipt, at: 0 },
-  { key: "PACKED", label: "Verpackt", icon: Package, at: 0.15 },
-  { key: "SHIPPED", label: "Versendet", icon: Truck, at: 0.4 },
-  { key: "OUT_FOR_DELIVERY", label: "Unterwegs", icon: Bike, at: 0.75 },
-  { key: "DELIVERED", label: "Zugestellt", icon: HomeIcon, at: 1 },
-];
+const STATION_ICONS: Record<ShipmentStatus, LucideIcon> = {
+  PLACED: Receipt,
+  PACKED: Package,
+  SHIPPED: Truck,
+  IN_TRANSIT: Warehouse,
+  OUT_FOR_DELIVERY: MapPin,
+  DELIVERED: CheckCircle,
+};
 
-function deriveStatus(placedAt: Date, estMin: Date, estMax: Date, stored: string) {
-  // Fiktiver Fortschritt: Status leitet sich aus verstrichener Zeit ab, falls Admin ihn nicht manuell gesetzt hat.
-  if (stored !== "PLACED") return { status: stored, ratio: 1 };
-  const now = Date.now();
-  const totalSpan = estMax.getTime() - placedAt.getTime();
-  const elapsed = now - placedAt.getTime();
-  const ratio = totalSpan > 0 ? Math.min(Math.max(elapsed / totalSpan, 0), 1) : 1;
-
-  let status = "PLACED";
-  for (const s of STEPS) {
-    if (ratio >= s.at) status = s.key;
-  }
-  return { status, ratio };
-}
-
-function msUntil(target: number) {
-  return target - Date.now();
-}
-
-function formatDuration(ms: number) {
-  if (ms <= 0) return "in Kürze";
-  const hours = Math.floor(ms / (1000 * 60 * 60));
-  const days = Math.floor(hours / 24);
-  const remHours = hours % 24;
-  if (days > 0) return `${days} Tag${days > 1 ? "e" : ""}, ${remHours} Std.`;
-  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
-  return `${hours} Std. ${minutes} Min.`;
+function formatDateTime(d: Date) {
+  return `${d.toLocaleDateString("de-DE")} · ${d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr`;
 }
 
 export default async function OrderDetailPage(props: {
@@ -52,6 +40,10 @@ export default async function OrderDetailPage(props: {
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) redirect(`/login?callbackUrl=/orders/${id}`);
 
+  // Lazy-Check: Lieferboni gutschreiben + Benachrichtigungen anlegen, bevor die Bestellung geladen wird.
+  const granted = await grantDeliveryRewards(userId);
+  const justGranted = granted.find((g) => g.orderId === id);
+
   const order = await prisma.order.findUnique({
     where: { id },
     include: { items: { include: { product: true } } },
@@ -59,13 +51,9 @@ export default async function OrderDetailPage(props: {
 
   if (!order || order.userId !== userId) notFound();
 
-  const { status: effectiveStatus, ratio } = deriveStatus(order.placedAt, order.estDeliveryMin, order.estDeliveryMax, order.status);
-  const currentIndex = STEPS.findIndex((s) => s.key === effectiveStatus);
-  const nextStep = STEPS[currentIndex + 1];
-
-  const totalSpan = order.estDeliveryMax.getTime() - order.placedAt.getTime();
-  const msUntilNext = nextStep ? msUntil(order.placedAt.getTime() + nextStep.at * totalSpan) : 0;
-  const msUntilDelivery = msUntil(order.estDeliveryMax.getTime());
+  const { stations, currentStatus, trackingNumber, estimatedDelivery } = getShipmentProgress(order);
+  const delivered = currentStatus === "DELIVERED";
+  const subtotal = order.total + order.discountAmount;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
@@ -76,57 +64,76 @@ export default async function OrderDetailPage(props: {
         {order.placedAt.toLocaleTimeString("de-DE")}
       </p>
 
+      {justGranted && (
+        <div className="bg-[#eafbf1] border border-[#bfe9d1] rounded-2xl p-4 mb-6 flex items-center gap-3">
+          <Coins size={22} className="text-[#1faa59] shrink-0" />
+          <div>
+            <p className="font-bold text-[#1faa59]">+{justGranted.coins} Coins gutgeschrieben!</p>
+            <p className="text-sm text-[#1c1c1f]">Dein Lieferbonus für diese zugestellte Bestellung.</p>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6 mb-6">
-        <div className="flex justify-between mb-4">
-          {STEPS.map((s, i) => {
-            const StepIcon = s.icon;
-            const isDelivered = s.key === "DELIVERED" && i <= currentIndex;
+        <div className="flex flex-wrap justify-between items-start gap-2 mb-5">
+          <div>
+            <h2 className="font-bold">Sendungsverfolgung</h2>
+            <p className="text-xs text-[#6b6b76]">Sendungsnummer: <span className="font-mono font-semibold text-[#1c1c1f]">{trackingNumber}</span></p>
+          </div>
+          {!delivered ? (
+            <span className="text-xs bg-[#fff7ed] text-[#ff5a1f] border border-[#ffd6c2] px-2 py-1 rounded-full flex items-center gap-1">
+              <Clock size={12} /> Zustellung vsl. {estimatedDelivery.toLocaleDateString("de-DE")}
+            </span>
+          ) : (
+            <span className="text-xs bg-[#eafbf1] text-[#1faa59] px-2 py-1 rounded-full flex items-center gap-1">
+              <CheckCircle size={12} /> Zugestellt
+            </span>
+          )}
+        </div>
+
+        {/* Vertikale Tracking-Timeline (wie Post/DHL) */}
+        <ol className="relative">
+          {stations.map((s, i) => {
+            const Icon = STATION_ICONS[s.key];
+            const isLast = i === stations.length - 1;
+            const circle =
+              s.state === "done"
+                ? "bg-[#1faa59] text-white"
+                : s.state === "current"
+                ? "bg-[#ff5a1f] text-white glow-accent"
+                : "bg-[#f4f4f5] text-[#6b6b76] border border-[#e5e5e8]";
             return (
-              <div key={s.key} className="flex-1 flex flex-col items-center text-center">
-                <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    isDelivered
-                      ? "bg-[#1faa59] text-white"
-                      : i <= currentIndex
-                      ? "bg-[#ff5a1f] text-white glow-accent"
-                      : "bg-[#f4f4f5] text-[#6b6b76]"
-                  }`}
-                >
-                  <StepIcon size={18} />
+              <li key={s.key} className="flex gap-4 pb-1">
+                <div className="flex flex-col items-center">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${circle}`}>
+                    <Icon size={18} />
+                  </div>
+                  {!isLast && (
+                    <div className={`w-0.5 flex-1 min-h-8 ${s.state === "done" ? "bg-[#1faa59]" : "bg-[#e5e5e8]"}`} />
+                  )}
                 </div>
-                <span
-                  className={`text-xs mt-1 ${
-                    isDelivered
-                      ? "text-[#1faa59] font-semibold"
-                      : i <= currentIndex
-                      ? "text-[#ff5a1f] font-semibold"
-                      : "text-[#6b6b76]"
-                  }`}
-                >
-                  {s.label}
-                </span>
-              </div>
+                <div className={`pb-6 ${s.state === "upcoming" ? "opacity-60" : ""}`}>
+                  <p
+                    className={`font-semibold text-sm ${
+                      s.state === "current" ? "text-[#ff5a1f]" : s.state === "done" ? "text-[#1faa59]" : "text-[#6b6b76]"
+                    }`}
+                  >
+                    {s.label}
+                  </p>
+                  <p className="text-xs text-[#6b6b76]">{s.description}</p>
+                  <p className="text-xs text-[#6b6b76] mt-0.5">
+                    {s.state === "upcoming" ? `Voraussichtlich ${formatDateTime(s.timestamp)}` : formatDateTime(s.timestamp)}
+                  </p>
+                </div>
+              </li>
             );
           })}
-        </div>
+        </ol>
 
-        <div className="w-full h-2 bg-[#f4f4f5] rounded-full overflow-hidden mb-4">
-          <div
-            className={`h-full ${effectiveStatus === "DELIVERED" ? "bg-[#1faa59]" : "bg-[#ff5a1f]"}`}
-            style={{ width: `${Math.round(ratio * 100)}%` }}
-          />
-        </div>
-
-        {effectiveStatus !== "DELIVERED" ? (
-          <div className="bg-[#f4f4f5] rounded-xl p-3 text-sm space-y-1">
-            {nextStep && <p>⏳ Nächster Schritt ({nextStep.label}) in {formatDuration(msUntilNext)}</p>}
-            <p className="text-[#1c1c1f]">📅 Zugestellt voraussichtlich in {formatDuration(msUntilDelivery)}</p>
-          </div>
-        ) : (
-          <div className="bg-[#eafbf1] text-[#1faa59] rounded-xl p-3 text-sm font-semibold text-center">
-            🎉 Paket zugestellt!
-          </div>
-        )}
+        <p className="text-xs text-[#6b6b76] border-t border-[#e5e5e8] pt-3">
+          Geschätztes Lieferfenster: {order.estDeliveryMin.toLocaleDateString("de-DE")} –{" "}
+          {order.estDeliveryMax.toLocaleDateString("de-DE")}
+        </p>
       </div>
 
       <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6 mb-6">
@@ -146,9 +153,27 @@ export default async function OrderDetailPage(props: {
             <span>{(i.priceAtPurchase * i.quantity).toFixed(2)} €</span>
           </div>
         ))}
-        <div className="flex justify-between font-bold border-t border-[#e5e5e8] mt-2 pt-2">
-          <span>Gesamt</span>
-          <span className="text-[#ff5a1f]">{order.total.toFixed(2)} €</span>
+        <div className="border-t border-[#e5e5e8] mt-2 pt-2 space-y-1 text-sm">
+          {order.discountAmount > 0 && (
+            <>
+              <div className="flex justify-between text-[#6b6b76]">
+                <span>Zwischensumme</span>
+                <span>{subtotal.toFixed(2)} €</span>
+              </div>
+              <div className="flex justify-between text-[#1faa59]">
+                <span>Gutschein {order.couponCode}</span>
+                <span>−{order.discountAmount.toFixed(2)} €</span>
+              </div>
+            </>
+          )}
+          <div className="flex justify-between font-bold">
+            <span>Gesamt (Warenwert)</span>
+            <span className="text-[#ff5a1f]">{order.total.toFixed(2)} €</span>
+          </div>
+          <div className="flex justify-between font-semibold text-[#1faa59]">
+            <span>Bezahlt</span>
+            <span>CHF 0.00 (Demo)</span>
+          </div>
         </div>
       </div>
     </div>

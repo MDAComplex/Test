@@ -28,7 +28,7 @@ export default async function LoginPage(props: { searchParams: Promise<{ callbac
           <Logo size={32} />
           <span className="text-2xl font-extrabold">Viralo<span className="text-[#ff5a1f]">.shop</span></span>
         </div>
-        <p className="text-[#6b6b76] text-sm mt-1">Shoppe ohne Reue 🎮</p>
+        <p className="text-[#6b6b76] text-sm mt-1">Shoppe ohne Reue</p>
       </div>
       {error && (
         <p className="text-sm text-red-300 bg-[#2c1414] border border-[#5a1a1a] rounded-xl p-2 mb-4">

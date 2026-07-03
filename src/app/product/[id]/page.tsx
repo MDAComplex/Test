@@ -7,11 +7,12 @@ import { getRatingsMap } from "@/lib/reviews";
 import ProductImage from "@/components/ProductImage";
 import ProductCard from "@/components/ProductCard";
 import Link from "next/link";
-import { Truck, Star, Heart } from "lucide-react";
+import { effectivePrice, hasDiscount } from "@/lib/pricing";
+import { Truck, Star, Heart, RotateCcw, Lock, ShieldCheck } from "lucide-react";
 
-export default async function ProductPage(props: { params: Promise<{ id: string }>; searchParams: Promise<{ qty?: string }> }) {
+export default async function ProductPage(props: { params: Promise<{ id: string }>; searchParams: Promise<{ qty?: string; img?: string }> }) {
   const { id } = await props.params;
-  const { qty } = await props.searchParams;
+  const { qty, img } = await props.searchParams;
   const quantity = Math.max(1, parseInt(qty || "1", 10) || 1);
 
   const product = await prisma.product.findUnique({
@@ -45,8 +46,24 @@ export default async function ProductPage(props: { params: Promise<{ id: string 
         ← {product.category.name}
       </Link>
       <div className="grid md:grid-cols-2 gap-8 mt-4">
+        <div className="space-y-3">
         <div className="aspect-square text-[8rem] flex items-center justify-center bg-white border border-[#e5e5e8] rounded-2xl overflow-hidden relative">
-          <ProductImage image={product.image} className="text-[8rem] w-full h-full object-cover flex items-center justify-center" />
+          {product.discountPercent > 0 && (
+            <span className="absolute top-3 left-3 z-10 bg-[#ff5a1f] text-white text-sm font-bold px-2.5 py-1 rounded-lg">
+              -{product.discountPercent}%
+            </span>
+          )}
+          <ProductImage
+            image={
+              // Galerie: ?img=N wählt ein Bild aus product.images, 0 = Hauptbild.
+              (() => {
+                const gallery = [product.image, ...product.images];
+                const idx = Math.min(Math.max(parseInt(img || "0", 10) || 0, 0), gallery.length - 1);
+                return gallery[idx];
+              })()
+            }
+            className="text-[8rem] w-full h-full object-cover flex items-center justify-center"
+          />
           <form
             action={async () => {
               "use server";
@@ -63,9 +80,44 @@ export default async function ProductPage(props: { params: Promise<{ id: string 
             </button>
           </form>
         </div>
+
+        {product.images.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto">
+            {[product.image, ...product.images].map((image, i) => {
+              const activeIdx = Math.min(Math.max(parseInt(img || "0", 10) || 0, 0), product.images.length);
+              return (
+                <Link
+                  key={i}
+                  href={`/product/${product.id}?img=${i}`}
+                  scroll={false}
+                  className={`w-16 h-16 shrink-0 rounded-xl overflow-hidden border-2 bg-[#f4f4f5] flex items-center justify-center ${
+                    i === activeIdx ? "border-[#ff5a1f]" : "border-[#e5e5e8] hover:border-[#ff5a1f]/50"
+                  }`}
+                >
+                  <ProductImage image={image} className="w-full h-full object-cover flex items-center justify-center text-2xl" />
+                </Link>
+              );
+            })}
+          </div>
+        )}
+
+        {product.videoUrl && (
+          <video controls src={product.videoUrl} className="w-full rounded-2xl border border-[#e5e5e8]" />
+        )}
+        </div>
         <div className="space-y-4">
           <h1 className="text-2xl font-bold">{product.name}</h1>
-          <p className="text-3xl font-extrabold text-[#ff5a1f]">{product.price.toFixed(2)} €</p>
+          <div className="flex items-baseline gap-3">
+            <p className="text-3xl font-extrabold text-[#ff5a1f]">{effectivePrice(product).toFixed(2)} €</p>
+            {hasDiscount(product) && (
+              <>
+                <p className="text-lg text-[#6b6b76] line-through">{product.price.toFixed(2)} €</p>
+                <span className="bg-[#ff5a1f] text-white text-xs font-bold px-2 py-0.5 rounded-lg">
+                  -{product.discountPercent}%
+                </span>
+              </>
+            )}
+          </div>
 
           {rating.count > 0 && (
             <div className="flex items-center gap-2">
@@ -90,7 +142,15 @@ export default async function ProductPage(props: { params: Promise<{ id: string 
           <p className="text-sm bg-[#eafbf1] text-[#1faa59] inline-flex items-center gap-1 px-3 py-1 rounded-full">
             <Truck size={14} /> Lieferung in {product.shippingMinDays}-{product.shippingMaxDays} Werktagen
           </p>
-          <p className="text-sm text-[#6b6b76]">{product.stock} Stück verfügbar</p>
+          {product.stock <= 0 ? (
+            <p className="text-sm font-medium text-[#6b6b76] bg-[#f4f4f5] border border-[#e5e5e8] inline-block px-3 py-1 rounded-full">
+              Ausverkauft
+            </p>
+          ) : product.stock < 10 ? (
+            <p className="text-sm font-semibold text-[#ff5a1f]">Nur noch {product.stock} verfügbar</p>
+          ) : (
+            <p className="text-sm font-medium text-[#1faa59]">Auf Lager</p>
+          )}
 
           <form
             action={async (fd) => {
@@ -110,10 +170,20 @@ export default async function ProductPage(props: { params: Promise<{ id: string 
                 className="w-16 text-center py-2 border-l border-[#e5e5e8] focus:outline-none"
               />
             </div>
-            <button className="bg-[#ff5a1f] text-white px-6 py-3 rounded-lg font-semibold hover:opacity-90 glow-accent">
-              In den Warenkorb
+            <button
+              disabled={product.stock <= 0}
+              className="bg-[#ff5a1f] text-white px-6 py-3 rounded-lg font-semibold hover:opacity-90 glow-accent disabled:bg-[#e5e5e8] disabled:text-[#6b6b76] disabled:hover:opacity-100"
+            >
+              {product.stock <= 0 ? "Ausverkauft" : "In den Warenkorb"}
             </button>
           </form>
+
+          <div className="grid grid-cols-2 gap-2 text-xs text-[#6b6b76] border-t border-[#e5e5e8] pt-4">
+            <span className="flex items-center gap-1.5"><Truck size={14} className="text-[#1faa59]" /> Kostenloser Versand</span>
+            <span className="flex items-center gap-1.5"><RotateCcw size={14} className="text-[#1faa59]" /> 30 Tage Rückgaberecht</span>
+            <span className="flex items-center gap-1.5"><Lock size={14} className="text-[#1faa59]" /> Sichere Bezahlung</span>
+            <span className="flex items-center gap-1.5"><ShieldCheck size={14} className="text-[#1faa59]" /> Käuferschutz</span>
+          </div>
         </div>
       </div>
 
@@ -161,6 +231,8 @@ export default async function ProductPage(props: { params: Promise<{ id: string 
                 image={p.image}
                 shippingMinDays={p.shippingMinDays}
                 shippingMaxDays={p.shippingMaxDays}
+                discountPercent={p.discountPercent}
+                stock={p.stock}
                 rating={similarRatings.get(p.id)}
               />
             ))}

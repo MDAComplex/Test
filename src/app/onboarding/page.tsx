@@ -12,7 +12,8 @@ export default async function OnboardingPage() {
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) redirect("/login");
-  if (user.onboarded) redirect("/");
+  // Onboarding ist optional: auch bereits "onboarded" Nutzer können hier ihre
+  // Präferenzen anpassen (Link im Account). completeOnboarding leitet sie zurück zu /account.
 
   async function submit(formData: FormData) {
     "use server";

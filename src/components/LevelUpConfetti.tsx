@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PartyPopper } from "lucide-react";
 
 const COLORS = ["#ff5a1f", "#1faa59", "#ffd166", "#7c5cff", "#ff6b6b"];
 
@@ -38,7 +39,7 @@ export default function LevelUpConfetti({ rank }: { rank: string }) {
         />
       ))}
       <div className="absolute top-10 left-1/2 -translate-x-1/2 bg-white border border-[#ff5a1f]/60 rounded-2xl px-6 py-4 text-center glow-accent animate-pop">
-        <p className="text-3xl">🎉</p>
+        <PartyPopper size={32} className="mx-auto text-[#ff5a1f]" />
         <p className="font-extrabold text-lg mt-1 text-[#1c1c1f]">Level Up!</p>
         <p className="text-sm text-[#6b6b76]">Du bist jetzt {rank}</p>
       </div>
