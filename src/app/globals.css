@@ -73,3 +73,8 @@ body {
 .animate-pop {
   animation: pop 0.25s ease-out;
 }
+
+/* Leaflet-Karte unter der sticky Navbar (z-50) halten. */
+.leaflet-container {
+  z-index: 0;
+}

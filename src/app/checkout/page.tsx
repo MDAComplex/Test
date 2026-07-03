@@ -4,17 +4,31 @@ import { redirect } from "next/navigation";
 import { checkout, validateCoupon } from "@/lib/actions";
 import { effectivePrice, hasDiscount } from "@/lib/pricing";
 import { COUNTRIES, countryName } from "@/lib/countries";
+import { geocodeAddress } from "@/lib/geocode";
 import AdBanner from "@/components/AdBanner";
-import { Package, CreditCard, Truck, RotateCcw, ShieldCheck, Lock, TicketPercent, Info, Coins } from "lucide-react";
+import DeliveryMapClient from "@/components/DeliveryMapClient";
+import { Package, CreditCard, Truck, RotateCcw, ShieldCheck, Lock, TicketPercent, Info, Coins, Map } from "lucide-react";
 
 export default async function CheckoutPage(props: {
-  searchParams: Promise<{ coupon?: string; coins?: string }>;
+  searchParams: Promise<{
+    coupon?: string;
+    coins?: string;
+    previewZip?: string;
+    previewCity?: string;
+    previewCountry?: string;
+  }>;
 }) {
   const session = await auth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) redirect("/login?callbackUrl=/checkout");
 
-  const { coupon: couponParam, coins: coinsParam } = await props.searchParams;
+  const {
+    coupon: couponParam,
+    coins: coinsParam,
+    previewZip,
+    previewCity,
+    previewCountry,
+  } = await props.searchParams;
 
   const [items, dbUser, addresses] = await Promise.all([
     prisma.cartItem.findMany({ where: { userId }, include: { product: true } }),
@@ -43,6 +57,21 @@ export default async function CheckoutPage(props: {
   const coinsDiscount = effectiveRedeem / 100;
 
   const total = Math.max(0, afterCoupon - coinsDiscount);
+
+  // --- Lieferrouten-Vorschau (fiktiv, ab Viralo Fulfillment Center, Los Angeles) ---
+  // Basis: Standard-/erste gespeicherte Adresse, sonst manuelle Vorschau via GET-Parameter.
+  const previewAddress =
+    addresses.length > 0
+      ? { zip: addresses[0].zip, city: addresses[0].city, country: addresses[0].country }
+      : previewZip && previewCity
+      ? { zip: previewZip, city: previewCity, country: (previewCountry || "CH").toUpperCase() }
+      : null;
+  const previewGeo = previewAddress
+    ? await geocodeAddress(previewAddress.zip, previewAddress.city, previewAddress.country)
+    : null;
+  const shipMinDays = Math.max(...items.map((i) => i.product.shippingMinDays));
+  const shipMaxDays = Math.max(...items.map((i) => i.product.shippingMaxDays));
+  const etaText = `Voraussichtliche Lieferung in ${shipMinDays}–${shipMaxDays} Tagen`;
 
   const inputClass =
     "w-full bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f] focus:border-[#ff5a1f]";
@@ -149,6 +178,48 @@ export default async function CheckoutPage(props: {
             <span className="flex items-center gap-1"><ShieldCheck size={14} className="text-[#1faa59]" /> Käuferschutz</span>
           </div>
         </form>
+
+        <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6 shadow-sm">
+          <h2 className="font-bold mb-3 flex items-center gap-2">
+            <Map size={18} /> Lieferroute (Vorschau)
+          </h2>
+          {previewAddress && previewGeo && (
+            <DeliveryMapClient
+              destLat={previewGeo.lat}
+              destLng={previewGeo.lng}
+              destLabel={`${previewAddress.zip} ${previewAddress.city}, ${countryName(previewAddress.country)}`}
+              progress={0}
+              etaText={etaText}
+            />
+          )}
+          {previewAddress && !previewGeo && (
+            <p className="text-sm text-[#6b6b76]">Karte für diese Adresse nicht verfügbar.</p>
+          )}
+          {!previewAddress && (
+            <div>
+              <p className="text-sm text-[#6b6b76] mb-3">
+                Gib PLZ, Ort und Land ein, um eine Vorschau der fiktiven Lieferroute ab unserem
+                Fulfillment Center in Los Angeles zu sehen.
+              </p>
+              {/* GET-Formular: lädt den Checkout mit ?previewZip=&previewCity=&previewCountry= neu. */}
+              <form action="/checkout" method="GET" className="flex flex-wrap gap-2">
+                {coupon && <input type="hidden" name="coupon" value={coupon.code} />}
+                {effectiveRedeem > 0 && <input type="hidden" name="coins" value={effectiveRedeem} />}
+                <input name="previewZip" required placeholder="PLZ" defaultValue={previewZip ?? ""} className={`${inputClass} w-24 flex-none`} />
+                <input name="previewCity" required placeholder="Ort" defaultValue={previewCity ?? ""} className={`${inputClass} flex-1 min-w-32`} />
+                <select name="previewCountry" defaultValue={previewCountry || "CH"} className={`${inputClass} w-40 flex-none`}>
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.name}</option>
+                  ))}
+                </select>
+                <button className="bg-[#1c1c1f] text-white px-4 py-2 rounded-xl text-sm font-semibold">
+                  Route anzeigen
+                </button>
+              </form>
+            </div>
+          )}
+          <p className="text-xs text-[#6b6b76] mt-3">{etaText} · Demo — fiktive Route.</p>
+        </div>
       </div>
 
       <div className="space-y-4 md:pt-11">

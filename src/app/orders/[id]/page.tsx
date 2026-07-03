@@ -5,6 +5,9 @@ import Link from "next/link";
 import ProductImage from "@/components/ProductImage";
 import LevelUpConfetti from "@/components/LevelUpConfetti";
 import { getShipmentProgress, isCancellable, type ShipmentStatus } from "@/lib/shipping";
+import { COUNTRIES } from "@/lib/countries";
+import { geocodeAddress } from "@/lib/geocode";
+import DeliveryMapClient from "@/components/DeliveryMapClient";
 import { grantDeliveryRewards } from "@/lib/rewards";
 import { cancelOrder, reorder } from "@/lib/actions";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
@@ -32,6 +35,27 @@ const STATION_ICONS: Record<ShipmentStatus, LucideIcon> = {
   DELIVERED: CheckCircle,
 };
 
+// Best-effort-Parsing der gespeicherten Adresse ("Straße\nPLZ Ort\nLändername",
+// siehe checkout-Action). Liefert null, wenn PLZ/Ort nicht erkennbar sind.
+function parseShippingAddress(address: string): { zip: string; city: string; country: string } | null {
+  const lines = address.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return null;
+
+  // Letzte Zeile: deutscher Ländername → Code (Fallback CH).
+  const last = lines[lines.length - 1].toLowerCase();
+  const country =
+    COUNTRIES.find((c) => c.name.toLowerCase() === last)?.code ??
+    COUNTRIES.find((c) => last.includes(c.name.toLowerCase()))?.code ??
+    "CH";
+
+  // Zeile mit "PLZ Ort" suchen (PLZ: 3–10 Zeichen aus Ziffern/Buchstaben/-/Leerzeichen).
+  for (const line of lines) {
+    const m = line.match(/^([A-Za-z0-9][A-Za-z0-9 -]{1,9})\s+(.+)$/);
+    if (m && /\d/.test(m[1])) return { zip: m[1].trim(), city: m[2].trim(), country };
+  }
+  return null;
+}
+
 function formatDateTime(d: Date) {
   return `${d.toLocaleDateString("de-DE")} · ${d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr`;
 }
@@ -57,8 +81,14 @@ export default async function OrderDetailPage(props: {
 
   if (!order || order.userId !== userId) notFound();
 
-  const { stations, currentStatus, trackingNumber, estimatedDelivery } = getShipmentProgress(order);
+  const { stations, currentStatus, progressRatio, trackingNumber, estimatedDelivery } = getShipmentProgress(order);
   const cancelled = currentStatus === "CANCELLED";
+
+  // Lieferrouten-Karte: Adresse best-effort parsen und geocoden; bei Fehlern keine Karte.
+  const parsedAddress = cancelled ? null : parseShippingAddress(order.shippingAddress);
+  const routeGeo = parsedAddress
+    ? await geocodeAddress(parsedAddress.zip, parsedAddress.city, parsedAddress.country)
+    : null;
   const delivered = currentStatus === "DELIVERED";
   const cancellable = isCancellable(currentStatus);
   const subtotal = order.total + order.discountAmount + order.coinsRedeemed / 100;
@@ -186,6 +216,19 @@ export default async function OrderDetailPage(props: {
             Geschätztes Lieferfenster: {order.estDeliveryMin.toLocaleDateString("de-DE")} –{" "}
             {order.estDeliveryMax.toLocaleDateString("de-DE")}
           </p>
+
+          {parsedAddress && routeGeo && (
+            <div className="mt-4">
+              <h3 className="font-semibold text-sm mb-2">Lieferroute</h3>
+              <DeliveryMapClient
+                destLat={routeGeo.lat}
+                destLng={routeGeo.lng}
+                destLabel={parsedAddress.city}
+                progress={progressRatio}
+                etaText={`Lieferfenster ${order.estDeliveryMin.toLocaleDateString("de-DE")} – ${order.estDeliveryMax.toLocaleDateString("de-DE")}`}
+              />
+            </div>
+          )}
         </div>
       )}
 
