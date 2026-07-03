@@ -33,6 +33,7 @@ model User {
   orders           Order[]
   questProgress    QuestProgress[]
   wishlist         Wishlist[]
+  notifications    Notification[]
 }
 
 model QuestProgress {
@@ -61,6 +62,9 @@ model Product {
   description     String
   price           Float
   image           String
+  images          String[]    @default([])
+  videoUrl        String?
+  discountPercent Int         @default(0)
   categoryId      String
   category        Category    @relation(fields: [categoryId], references: [id])
   shippingMinDays Int         @default(2)
@@ -118,7 +122,29 @@ model Order {
   estDeliveryMax  DateTime
   shippingName    String
   shippingAddress String
+  couponCode      String?
+  discountAmount  Float       @default(0)
+  rewardGranted   Boolean     @default(false)
   items           OrderItem[]
+}
+
+model Coupon {
+  id        String    @id @default(cuid())
+  code      String    @unique
+  percent   Int
+  active    Boolean   @default(true)
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
 }
 
 model OrderItem {
