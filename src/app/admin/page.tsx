@@ -1,104 +1,171 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { ShoppingCart, Receipt, Flame } from "lucide-react";
+import { getShipmentProgress, STATUS_LABELS } from "@/lib/shipping";
+import Link from "next/link";
+import ProductImage from "@/components/ProductImage";
+import {
+  Package,
+  Receipt,
+  Users,
+  Euro,
+  Truck,
+  AlertTriangle,
+  ArrowRight,
+  TicketPercent,
+  Megaphone,
+} from "lucide-react";
 
 export default async function AdminDashboard() {
   const session = await auth();
   const role = (session?.user as { role?: string } | undefined)?.role;
   if (role !== "ADMIN") redirect("/");
 
-  const [productCount, userCount, orders, activeShoppers, topItems] = await Promise.all([
+  const [productCount, userCount, orders, lowStock] = await Promise.all([
     prisma.product.count(),
     prisma.user.count(),
-    prisma.order.findMany({ include: { items: true }, orderBy: { placedAt: "desc" } }),
-    prisma.cartItem.findMany({ distinct: ["userId"], include: { user: true } }),
-    prisma.orderItem.groupBy({
-      by: ["productName", "productImage"],
-      _sum: { quantity: true },
-      orderBy: { _sum: { quantity: "desc" } },
-      take: 5,
+    prisma.order.findMany({
+      include: { user: true, items: true },
+      orderBy: { placedAt: "desc" },
+    }),
+    prisma.product.findMany({
+      where: { stock: { lt: 10 } },
+      orderBy: { stock: "asc" },
+      take: 8,
     }),
   ]);
 
   const revenue = orders.reduce((s, o) => s + o.total, 0);
-  const recentOrders = orders.slice(0, 8);
-
-  const topWithCounts = topItems.map((t) => ({
-    name: t.productName,
-    image: t.productImage,
-    qty: t._sum.quantity ?? 0,
-  }));
+  const withProgress = orders.map((o) => ({ order: o, progress: getShipmentProgress(o) }));
+  const openDeliveries = withProgress.filter((w) => w.progress.currentStatus !== "DELIVERED").length;
+  const recent = withProgress.slice(0, 5);
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Stat label="Produkte" value={productCount} />
-        <Stat label="Registrierte Nutzer" value={userCount} />
-        <Stat label="Bestellungen" value={orders.length} />
-        <Stat label="Umsatz (fiktiv)" value={`${revenue.toFixed(2)} €`} />
+      <div>
+        <h1 className="text-2xl font-bold text-[#1c1c1f]">Dashboard</h1>
+        <p className="text-sm text-[#6b6b76]">Überblick über Shop, Bestellungen und Lager.</p>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4">
-          <h2 className="font-bold mb-3 flex items-center gap-2"><ShoppingCart size={18} /> Aktive Shopper (offener Warenkorb)</h2>
-          {activeShoppers.length === 0 ? (
-            <p className="text-sm text-[#6b6b76]">Aktuell niemand mit Artikeln im Warenkorb.</p>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <Stat icon={<Package size={18} />} label="Produkte" value={productCount} href="/admin/products" />
+        <Stat icon={<Receipt size={18} />} label="Bestellungen" value={orders.length} href="/admin/orders" />
+        <Stat icon={<Users size={18} />} label="Nutzer" value={userCount} />
+        <Stat icon={<Euro size={18} />} label="Gesamtumsatz" value={`${revenue.toFixed(2)} €`} />
+        <Stat icon={<Truck size={18} />} label="Offene Lieferungen" value={openDeliveries} href="/admin/orders" />
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white border border-[#e5e5e8] rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[#e5e5e8]">
+            <h2 className="font-bold flex items-center gap-2 text-[#1c1c1f]">
+              <Receipt size={18} /> Letzte Bestellungen
+            </h2>
+            <Link href="/admin/orders" className="text-sm text-[#ff5a1f] font-medium flex items-center gap-1">
+              Alle ansehen <ArrowRight size={14} />
+            </Link>
+          </div>
+          {recent.length === 0 ? (
+            <p className="p-4 text-sm text-[#6b6b76]">Noch keine Bestellungen.</p>
           ) : (
-            <ul className="text-sm space-y-1">
-              {activeShoppers.map((c) => (
-                <li key={c.userId} className="flex justify-between">
-                  <span>{c.user.name || c.user.email}</span>
-                  <span className="text-[#6b6b76]">{c.user.email}</span>
-                </li>
-              ))}
-            </ul>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-[#f7f7f8] text-left text-[#6b6b76]">
+                  <tr>
+                    <th className="px-4 py-2 font-medium">Bestellung</th>
+                    <th className="px-4 py-2 font-medium">Kunde</th>
+                    <th className="px-4 py-2 font-medium">Summe</th>
+                    <th className="px-4 py-2 font-medium">Status (live)</th>
+                    <th className="px-4 py-2 font-medium">Datum</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recent.map(({ order, progress }) => (
+                    <tr key={order.id} className="border-t border-[#e5e5e8]">
+                      <td className="px-4 py-2.5 font-medium text-[#1c1c1f]">#{order.id.slice(-6).toUpperCase()}</td>
+                      <td className="px-4 py-2.5 text-[#6b6b76]">{order.user.name || order.user.email}</td>
+                      <td className="px-4 py-2.5">{order.total.toFixed(2)} €</td>
+                      <td className="px-4 py-2.5">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded-lg text-xs font-medium ${
+                            progress.currentStatus === "DELIVERED"
+                              ? "bg-[#1faa59]/10 text-[#1faa59]"
+                              : "bg-[#ff5a1f]/10 text-[#ff5a1f]"
+                          }`}
+                        >
+                          {STATUS_LABELS[progress.currentStatus]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-[#6b6b76]">{order.placedAt.toLocaleDateString("de-DE")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
-        <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4">
-          <h2 className="font-bold mb-3 flex items-center gap-2"><Receipt size={18} /> Letzte Bestellungen</h2>
-          {recentOrders.length === 0 ? (
-            <p className="text-sm text-[#6b6b76]">Noch keine Bestellungen.</p>
-          ) : (
-            <ul className="text-sm space-y-1">
-              {recentOrders.map((o) => (
-                <li key={o.id} className="flex justify-between">
-                  <span>#{o.id.slice(-6).toUpperCase()}</span>
-                  <span>{o.total.toFixed(2)} €</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <div className="space-y-6">
+          <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4">
+            <h2 className="font-bold mb-3 flex items-center gap-2 text-[#1c1c1f]">
+              <AlertTriangle size={18} className="text-[#ff5a1f]" /> Niedriger Lagerbestand
+            </h2>
+            {lowStock.length === 0 ? (
+              <p className="text-sm text-[#6b6b76]">Alle Produkte ausreichend auf Lager.</p>
+            ) : (
+              <ul className="text-sm divide-y divide-[#e5e5e8]">
+                {lowStock.map((p) => (
+                  <li key={p.id} className="flex items-center gap-2 py-2">
+                    <span className="w-7 h-7 rounded-lg bg-[#f4f4f5] flex items-center justify-center overflow-hidden shrink-0">
+                      <ProductImage image={p.image} className="w-full h-full object-cover flex items-center justify-center text-sm" />
+                    </span>
+                    <Link href={`/admin/products/${p.id}`} className="flex-1 truncate hover:text-[#ff5a1f]">
+                      {p.name}
+                    </Link>
+                    <span className={`text-xs font-semibold ${p.stock === 0 ? "text-red-600" : "text-[#ff5a1f]"}`}>
+                      {p.stock === 0 ? "Ausverkauft" : `${p.stock} Stk.`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
-        <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4 md:col-span-2">
-          <h2 className="font-bold mb-3 flex items-center gap-2"><Flame size={18} /> Beliebteste Artikel</h2>
-          {topWithCounts.length === 0 ? (
-            <p className="text-sm text-[#6b6b76]">Noch keine Bestelldaten.</p>
-          ) : (
-            <ul className="text-sm space-y-1">
-              {topWithCounts.map((t, i) => (
-                <li key={i} className="flex justify-between">
-                  <span>{t.image} {t.name}</span>
-                  <span>{t.qty}× verkauft</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4">
+            <h2 className="font-bold mb-3 text-[#1c1c1f]">Schnellzugriff</h2>
+            <div className="grid grid-cols-2 gap-2">
+              <QuickLink href="/admin/products" icon={<Package size={16} />} label="Produkte" />
+              <QuickLink href="/admin/orders" icon={<Truck size={16} />} label="Bestellungen" />
+              <QuickLink href="/admin/coupons" icon={<TicketPercent size={16} />} label="Gutscheine" />
+              <QuickLink href="/admin/ads" icon={<Megaphone size={16} />} label="Werbung" />
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4 text-center">
-      <p className="text-2xl font-extrabold text-[#ff5a1f]">{value}</p>
-      <p className="text-xs text-[#6b6b76]">{label}</p>
+function Stat({ icon, label, value, href }: { icon: React.ReactNode; label: string; value: string | number; href?: string }) {
+  const inner = (
+    <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4 h-full hover:border-[#ff5a1f]/40 transition-colors">
+      <div className="flex items-center gap-2 text-[#6b6b76] mb-1.5">
+        <span className="text-[#ff5a1f]">{icon}</span>
+        <span className="text-xs font-medium">{label}</span>
+      </div>
+      <p className="text-xl font-extrabold text-[#1c1c1f]">{value}</p>
     </div>
+  );
+  return href ? <Link href={href}>{inner}</Link> : inner;
+}
+
+function QuickLink({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center gap-2 px-3 py-2 bg-[#f7f7f8] border border-[#e5e5e8] rounded-xl text-sm font-medium text-[#1c1c1f] hover:border-[#ff5a1f] hover:text-[#ff5a1f] transition-colors"
+    >
+      {icon} {label}
+    </Link>
   );
 }

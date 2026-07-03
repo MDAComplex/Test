@@ -1,27 +1,42 @@
 import Link from "next/link";
-import { LayoutDashboard, Package, Receipt, Megaphone, KeyRound, ArrowLeft } from "lucide-react";
+import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import { LayoutDashboard, Package, Receipt, TicketPercent, Megaphone, Store } from "lucide-react";
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+const NAV = [
+  { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/products", label: "Produkte", icon: Package },
+  { href: "/admin/orders", label: "Bestellungen", icon: Receipt },
+  { href: "/admin/coupons", label: "Gutscheine & Rabatte", icon: TicketPercent },
+  { href: "/admin/ads", label: "Werbung", icon: Megaphone },
+];
+
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  // Defense in depth: zusätzlich zum Check in jeder Seite.
+  const session = await auth();
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  if (role !== "ADMIN") redirect("/");
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
-      <div className="flex gap-2 mb-6 flex-wrap">
-        <Link href="/admin" className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f7f7f8] border border-[#e5e5e8] rounded-lg text-sm font-medium">
-          <LayoutDashboard size={16} /> Dashboard
-        </Link>
-        <Link href="/admin/products" className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f7f7f8] border border-[#e5e5e8] rounded-lg text-sm font-medium">
-          <Package size={16} /> Produkte
-        </Link>
-        <Link href="/admin/orders" className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f7f7f8] border border-[#e5e5e8] rounded-lg text-sm font-medium">
-          <Receipt size={16} /> Bestellungen
-        </Link>
-        <Link href="/admin/ads" className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f7f7f8] border border-[#e5e5e8] rounded-lg text-sm font-medium">
-          <Megaphone size={16} /> Werbung
-        </Link>
-        <Link href="/account" className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f7f7f8] border border-[#e5e5e8] rounded-lg text-sm font-medium">
-          <KeyRound size={16} /> Passwort
-        </Link>
-        <Link href="/" className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f4f4f5] rounded-lg text-sm font-medium ml-auto">
-          <ArrowLeft size={16} /> Zurück zum Shop
+      <div className="mb-6 bg-white border border-[#e5e5e8] rounded-2xl p-3 flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-bold text-[#1c1c1f] px-2">Admin</span>
+        <nav className="flex gap-1.5 flex-wrap">
+          {NAV.map(({ href, label, icon: Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f7f7f8] border border-[#e5e5e8] rounded-lg text-sm font-medium text-[#1c1c1f] hover:border-[#ff5a1f] hover:text-[#ff5a1f] transition-colors"
+            >
+              <Icon size={16} /> {label}
+            </Link>
+          ))}
+        </nav>
+        <Link
+          href="/"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f4f4f5] rounded-lg text-sm font-medium ml-auto text-[#6b6b76] hover:text-[#1c1c1f]"
+        >
+          <Store size={16} /> Zum Shop
         </Link>
       </div>
       {children}

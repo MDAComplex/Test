@@ -1,27 +1,42 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { createProduct, deleteProduct, deleteAllSampleProducts } from "@/lib/actions";
+import { createProduct, deleteProduct, deleteAllSampleProducts, importProducts } from "@/lib/actions";
 import ProductImage from "@/components/ProductImage";
+import ProductForm from "./ProductForm";
 import Link from "next/link";
-import { Trash2 } from "lucide-react";
+import { Trash2, Search, Download, Upload, Plus, Pencil, Star, CheckCircle2 } from "lucide-react";
 
-export default async function AdminProductsPage() {
+export default async function AdminProductsPage(props: {
+  searchParams: Promise<{ q?: string; imported?: string; skipped?: string; ok?: string }>;
+}) {
   const session = await auth();
   const role = (session?.user as { role?: string } | undefined)?.role;
   if (role !== "ADMIN") redirect("/");
 
+  const searchParams = await props.searchParams;
+  const q = (searchParams.q ?? "").trim();
+
   const [products, categories] = await Promise.all([
-    prisma.product.findMany({ include: { category: true }, orderBy: { createdAt: "desc" } }),
+    prisma.product.findMany({
+      where: q ? { name: { contains: q, mode: "insensitive" } } : undefined,
+      include: { category: true, _count: { select: { reviews: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
     prisma.category.findMany({ orderBy: { name: "asc" } }),
   ]);
 
   const sampleCount = products.filter((p) => p.isSample).length;
+  const imported = searchParams.imported ? parseInt(searchParams.imported, 10) : null;
+  const skipped = searchParams.skipped ? parseInt(searchParams.skipped, 10) : 0;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="flex justify-between items-center flex-wrap gap-2">
-        <h1 className="text-2xl font-bold">Produkte verwalten</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-[#1c1c1f]">Produkte</h1>
+          <p className="text-sm text-[#6b6b76]">{products.length} Produkte {q && `für „${q}"`}</p>
+        </div>
         {sampleCount > 0 && (
           <form action={deleteAllSampleProducts}>
             <button className="text-sm bg-red-50 border border-red-300 text-red-600 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
@@ -31,75 +46,139 @@ export default async function AdminProductsPage() {
         )}
       </div>
 
-      <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6">
-        <h2 className="font-bold mb-4">Neuen Artikel anlegen</h2>
-        <form action={createProduct} className="grid md:grid-cols-2 gap-3" encType="multipart/form-data">
-          <input name="name" required placeholder="Produktname" className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2" />
-          <select name="categoryId" required className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2">
-            <option value="">Kategorie wählen…</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.emoji} {c.name}
-              </option>
-            ))}
-          </select>
-          <input name="price" type="number" step="0.01" required placeholder="Preis (€)" className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2" />
-          <input name="image" placeholder="Bild-URL oder Emoji, z.B. 🎧" className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2" />
-          <label className="md:col-span-2 text-sm text-[#6b6b76]">
-            Oder Bild hochladen (überschreibt Bild-URL/Emoji):
-            <input name="imageFile" type="file" accept="image/*" className="block w-full mt-1 text-sm" />
+      {(searchParams.ok === "created" || searchParams.ok === "updated") && (
+        <p className="flex items-center gap-2 text-sm text-[#1faa59] bg-[#1faa59]/10 border border-[#1faa59]/30 rounded-xl px-3 py-2">
+          <CheckCircle2 size={16} />
+          {searchParams.ok === "created" ? "Artikel wurde angelegt." : "Artikel wurde gespeichert."}
+        </p>
+      )}
+      {imported !== null && (
+        <p className="flex items-center gap-2 text-sm text-[#1faa59] bg-[#1faa59]/10 border border-[#1faa59]/30 rounded-xl px-3 py-2">
+          <CheckCircle2 size={16} />
+          {imported} Produkte importiert{skipped > 0 ? `, ${skipped} ungültige Einträge übersprungen` : ""}.
+        </p>
+      )}
+
+      {/* Werkzeugleiste: Suche, Export, Import */}
+      <div className="bg-white border border-[#e5e5e8] rounded-2xl p-3 flex items-center gap-3 flex-wrap">
+        <form method="GET" className="flex items-center gap-2 flex-1 min-w-[220px]">
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6b6b76]" />
+            <input
+              name="q"
+              defaultValue={q}
+              placeholder="Nach Produktname suchen…"
+              className="w-full bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl pl-9 pr-3 py-2 text-sm"
+            />
+          </div>
+          <button className="bg-[#1c1c1f] text-white px-3 py-2 rounded-xl text-sm font-medium">Suchen</button>
+          {q && (
+            <Link href="/admin/products" className="text-sm text-[#6b6b76] underline">
+              Zurücksetzen
+            </Link>
+          )}
+        </form>
+        <a
+          href="/admin/products/export"
+          className="flex items-center gap-1.5 px-3 py-2 bg-[#f7f7f8] border border-[#e5e5e8] rounded-xl text-sm font-medium hover:border-[#ff5a1f]"
+        >
+          <Download size={15} /> Exportieren (JSON)
+        </a>
+        <form action={importProducts} encType="multipart/form-data" className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 px-3 py-2 bg-[#f7f7f8] border border-[#e5e5e8] rounded-xl text-sm font-medium cursor-pointer hover:border-[#ff5a1f]">
+            <Upload size={15} /> Importieren (JSON)
+            <input name="importFile" type="file" accept="application/json,.json" required className="w-36 text-xs" />
           </label>
-          <input name="shippingMinDays" type="number" defaultValue={2} placeholder="Versand min Tage" className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2" />
-          <input name="shippingMaxDays" type="number" defaultValue={5} placeholder="Versand max Tage" className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2" />
-          <input name="stock" type="number" defaultValue={99} placeholder="Lagerbestand" className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2" />
-          <input name="affiliateUrl" placeholder="Affiliate-/Kauf-URL (optional, später nutzbar)" className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2" />
-          <textarea
-            name="description"
-            placeholder="Beschreibung"
-            className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2 md:col-span-2"
-            rows={2}
-          />
-          <button className="md:col-span-2 bg-[#ff5a1f] text-white py-2 rounded-xl font-semibold hover:opacity-90">
-            Artikel hinzufügen
-          </button>
+          <button className="bg-[#ff5a1f] text-white px-3 py-2 rounded-xl text-sm font-medium">Import starten</button>
         </form>
       </div>
 
+      {/* Neues Produkt anlegen (einklappbar) */}
+      <details className="bg-white border border-[#e5e5e8] rounded-2xl">
+        <summary className="cursor-pointer p-4 font-bold text-[#1c1c1f] flex items-center gap-2 select-none">
+          <Plus size={18} className="text-[#ff5a1f]" /> Neuen Artikel anlegen
+        </summary>
+        <div className="p-4 pt-0">
+          <ProductForm action={createProduct} categories={categories} submitLabel="Artikel hinzufügen" />
+        </div>
+      </details>
+
+      {/* Produktliste */}
       <div className="bg-white border border-[#e5e5e8] rounded-2xl overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-[#f4f4f5] text-left">
+          <thead className="bg-[#f7f7f8] text-left text-[#6b6b76]">
             <tr>
-              <th className="p-3">Artikel</th>
-              <th className="p-3">Kategorie</th>
-              <th className="p-3">Preis</th>
-              <th className="p-3">Versand</th>
-              <th className="p-3">Lager</th>
-              <th className="p-3"></th>
+              <th className="p-3 font-medium">Artikel</th>
+              <th className="p-3 font-medium">Kategorie</th>
+              <th className="p-3 font-medium">Preis</th>
+              <th className="p-3 font-medium">Rabatt</th>
+              <th className="p-3 font-medium">Lager</th>
+              <th className="p-3 font-medium">Bewertungen</th>
+              <th className="p-3 font-medium text-right">Aktionen</th>
             </tr>
           </thead>
           <tbody>
             {products.map((p) => (
               <tr key={p.id} className="border-t border-[#e5e5e8]">
-                <td className="p-3 flex items-center gap-2">
-                  <span className="w-8 h-8 rounded-lg bg-[#f4f4f5] flex items-center justify-center overflow-hidden shrink-0">
-                    <ProductImage image={p.image} className="w-full h-full object-cover flex items-center justify-center text-lg" />
-                  </span>
-                  {p.name} {p.isSample && <span className="text-[10px] text-[#6b6b76]">(Beispiel)</span>}
+                <td className="p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-9 h-9 rounded-lg bg-[#f4f4f5] flex items-center justify-center overflow-hidden shrink-0">
+                      <ProductImage image={p.image} className="w-full h-full object-cover flex items-center justify-center text-lg" />
+                    </span>
+                    <span className="font-medium text-[#1c1c1f]">
+                      {p.name} {p.isSample && <span className="text-[10px] text-[#6b6b76] font-normal">(Beispiel)</span>}
+                    </span>
+                  </div>
                 </td>
-                <td className="p-3">{p.category.name}</td>
+                <td className="p-3 text-[#6b6b76]">{p.category.name}</td>
                 <td className="p-3">{p.price.toFixed(2)} €</td>
-                <td className="p-3">{p.shippingMinDays}-{p.shippingMaxDays} T.</td>
-                <td className="p-3">{p.stock}</td>
-                <td className="p-3 flex gap-2">
-                  <Link href={`/admin/products/${p.id}`} className="text-[#ff5a1f] underline">
-                    Bearbeiten
-                  </Link>
-                  <form action={async () => { "use server"; await deleteProduct(p.id); }}>
-                    <button className="text-red-400">Löschen</button>
-                  </form>
+                <td className="p-3">
+                  {p.discountPercent > 0 ? (
+                    <span className="inline-block px-2 py-0.5 rounded-lg text-xs font-semibold bg-[#1faa59]/10 text-[#1faa59]">
+                      -{p.discountPercent}%
+                    </span>
+                  ) : (
+                    <span className="text-[#6b6b76]">–</span>
+                  )}
+                </td>
+                <td className="p-3">
+                  {p.stock === 0 ? (
+                    <span className="inline-block px-2 py-0.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600">Ausverkauft</span>
+                  ) : p.stock < 10 ? (
+                    <span className="inline-block px-2 py-0.5 rounded-lg text-xs font-semibold bg-[#ff5a1f]/10 text-[#ff5a1f]">{p.stock} Stk.</span>
+                  ) : (
+                    <span>{p.stock}</span>
+                  )}
+                </td>
+                <td className="p-3 text-[#6b6b76]">
+                  <span className="inline-flex items-center gap-1">
+                    <Star size={13} className="text-[#ff5a1f]" /> {p._count.reviews}
+                  </span>
+                </td>
+                <td className="p-3">
+                  <div className="flex gap-2 justify-end items-center">
+                    <Link
+                      href={`/admin/products/${p.id}`}
+                      className="flex items-center gap-1 text-[#ff5a1f] font-medium hover:underline"
+                    >
+                      <Pencil size={13} /> Bearbeiten
+                    </Link>
+                    <form action={async () => { "use server"; await deleteProduct(p.id); }}>
+                      <button className="flex items-center gap-1 text-red-500 hover:underline">
+                        <Trash2 size={13} /> Löschen
+                      </button>
+                    </form>
+                  </div>
                 </td>
               </tr>
             ))}
+            {products.length === 0 && (
+              <tr>
+                <td colSpan={7} className="p-6 text-center text-[#6b6b76]">
+                  Keine Produkte gefunden.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

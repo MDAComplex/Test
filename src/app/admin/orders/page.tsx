@@ -2,15 +2,10 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { updateOrderStatus } from "@/lib/actions";
+import { getShipmentProgress, getTrackingNumber, STATUS_LABELS, type ShipmentStatus } from "@/lib/shipping";
+import { Truck } from "lucide-react";
 
-const STATUSES = ["PLACED", "PACKED", "SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED"];
-const LABEL: Record<string, string> = {
-  PLACED: "Bestellt",
-  PACKED: "Verpackt",
-  SHIPPED: "Versendet",
-  OUT_FOR_DELIVERY: "Wird zugestellt",
-  DELIVERED: "Zugestellt",
-};
+const STATUSES: ShipmentStatus[] = ["PLACED", "PACKED", "SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"];
 
 export default async function AdminOrdersPage() {
   const session = await auth();
@@ -18,42 +13,73 @@ export default async function AdminOrdersPage() {
   if (role !== "ADMIN") redirect("/");
 
   const orders = await prisma.order.findMany({
-    include: { user: true, items: { include: { product: true } } },
+    include: { user: true, items: true },
     orderBy: { placedAt: "desc" },
   });
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Bestellungen</h1>
+      <div>
+        <h1 className="text-2xl font-bold text-[#1c1c1f]">Bestellungen</h1>
+        <p className="text-sm text-[#6b6b76]">
+          {orders.length} Bestellungen. Der Live-Status wird aus dem Bestelldatum berechnet; der gespeicherte Status kann manuell überschrieben werden.
+        </p>
+      </div>
+
       <div className="space-y-4">
-        {orders.map((o) => (
-          <div key={o.id} className="bg-white border border-[#e5e5e8] rounded-2xl p-4">
-            <div className="flex justify-between items-start flex-wrap gap-2">
-              <div>
-                <p className="font-semibold">#{o.id.slice(-6).toUpperCase()} – {o.user.email}</p>
-                <p className="text-sm text-[#6b6b76]">
-                  {o.items.length} Artikel · {o.total.toFixed(2)} € · {o.placedAt.toLocaleDateString("de-DE")}
-                </p>
+        {orders.map((o) => {
+          const progress = getShipmentProgress(o);
+          const delivered = progress.currentStatus === "DELIVERED";
+          return (
+            <div key={o.id} className="bg-white border border-[#e5e5e8] rounded-2xl p-4">
+              <div className="flex justify-between items-start flex-wrap gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold text-[#1c1c1f]">#{o.id.slice(-6).toUpperCase()}</p>
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold ${
+                        delivered ? "bg-[#1faa59]/10 text-[#1faa59]" : "bg-[#ff5a1f]/10 text-[#ff5a1f]"
+                      }`}
+                    >
+                      <Truck size={12} /> Live: {STATUS_LABELS[progress.currentStatus]}
+                    </span>
+                    <span className="text-xs text-[#6b6b76]">Gespeichert: {STATUS_LABELS[o.status as ShipmentStatus] ?? o.status}</span>
+                  </div>
+                  <p className="text-sm text-[#6b6b76]">
+                    {o.user.name ? `${o.user.name} · ` : ""}{o.user.email}
+                  </p>
+                  <p className="text-sm text-[#6b6b76]">
+                    {o.items.reduce((s, i) => s + i.quantity, 0)} Artikel · {o.total.toFixed(2)} €
+                    {o.discountAmount > 0 && (
+                      <span className="text-[#1faa59]">
+                        {" "}· Rabatt {o.discountAmount.toFixed(2)} €{o.couponCode ? ` (${o.couponCode})` : ""}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-[#6b6b76]">
+                    Sendung {getTrackingNumber(o.id)} · Bestellt am {o.placedAt.toLocaleDateString("de-DE")}, {o.placedAt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr
+                  </p>
+                </div>
+                <form
+                  action={async (fd) => {
+                    "use server";
+                    await updateOrderStatus(o.id, String(fd.get("status")));
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <select name="status" defaultValue={o.status} className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-2 py-1.5 text-sm">
+                    {STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {STATUS_LABELS[s]}
+                      </option>
+                    ))}
+                  </select>
+                  <button className="text-sm bg-[#ff5a1f] text-white px-3 py-1.5 rounded-lg font-medium">Status setzen</button>
+                </form>
               </div>
-              <form
-                action={async (fd) => {
-                  "use server";
-                  await updateOrderStatus(o.id, String(fd.get("status")));
-                }}
-                className="flex items-center gap-2"
-              >
-                <select name="status" defaultValue={o.status} className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-2 py-1 text-sm">
-                  {STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {LABEL[s]}
-                    </option>
-                  ))}
-                </select>
-                <button className="text-sm bg-[#ff5a1f] text-white px-3 py-1 rounded-lg">Status setzen</button>
-              </form>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {orders.length === 0 && <p className="text-[#6b6b76]">Noch keine Bestellungen.</p>}
       </div>
     </div>
