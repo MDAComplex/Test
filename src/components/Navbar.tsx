@@ -7,9 +7,10 @@ import { ShoppingCart, Home, Gift, Package, Settings, User, Heart, Coins, Bell, 
 import Logo from "@/components/Logo";
 import SearchBox from "@/components/SearchBox";
 
-// So viele Kategorien werden direkt in der Leiste gezeigt — der Rest wandert
-// in das "Alle Kategorien"-Dropdown (nichts wird mehr mitten im Wort abgeschnitten).
-const VISIBLE_CATEGORIES = 5;
+// Inline sichtbare Kategorien: 3 ab lg, 5 ab xl — der Rest steckt im
+// "Alle Kategorien"-Dropdown, damit nichts ins Suchfeld hineinragt.
+const VISIBLE_LG = 3;
+const VISIBLE_XL = 5;
 
 export default async function Navbar() {
   const session = await auth();
@@ -36,8 +37,7 @@ export default async function Navbar() {
 
   // Kategorien live aus der DB (Admin kann sie anlegen/umbenennen/löschen).
   const categories = await prisma.category.findMany({ orderBy: { name: "asc" } });
-  const visible = categories.slice(0, VISIBLE_CATEGORIES);
-  const overflow = categories.slice(VISIBLE_CATEGORIES);
+  const visible = categories.slice(0, VISIBLE_XL);
 
   return (
     <>
@@ -48,12 +48,14 @@ export default async function Navbar() {
             Viralo<span className="text-[#ff5a1f]">.shop</span>
           </Link>
 
-          <nav className="hidden lg:flex items-center gap-1 text-sm flex-1 min-w-0">
-            {visible.map((c) => (
+          <nav className="hidden lg:flex items-center gap-1 text-sm shrink-0">
+            {visible.map((c, i) => (
               <Link
                 key={c.slug}
                 href={`/category/${c.slug}`}
-                className="px-2 py-1 rounded-lg hover:bg-[#f4f4f5] whitespace-nowrap text-[#6b6b76] hover:text-[#1c1c1f]"
+                className={`px-2 py-1 rounded-lg hover:bg-[#f4f4f5] whitespace-nowrap text-[#6b6b76] hover:text-[#1c1c1f] ${
+                  i >= VISIBLE_LG ? "hidden xl:inline-flex" : ""
+                }`}
               >
                 {c.name}
               </Link>
@@ -64,7 +66,7 @@ export default async function Navbar() {
                 Alle Kategorien <ChevronDown size={14} />
               </summary>
               <div className="absolute top-full left-0 mt-1 bg-white border border-[#e5e5e8] rounded-xl shadow-lg py-2 w-56 z-50">
-                {overflow.map((c) => (
+                {categories.map((c) => (
                   <Link
                     key={c.slug}
                     href={`/category/${c.slug}`}
@@ -83,7 +85,7 @@ export default async function Navbar() {
             </details>
           </nav>
 
-          <SearchBox className="hidden md:block w-56 lg:w-64 ml-auto lg:ml-0" />
+          <SearchBox className="hidden md:block flex-1 min-w-[10rem] max-w-xs ml-auto" />
 
           <div className="flex items-center gap-2 ml-auto md:ml-0">
             {user && (
