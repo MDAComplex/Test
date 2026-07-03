@@ -19,6 +19,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) return null;
+        // Blockierte Nutzer dürfen sich nicht anmelden.
+        if (user.blocked) return null;
 
         const valid = await bcrypt.compare(password, user.passwordHash);
         if (!valid) return null;

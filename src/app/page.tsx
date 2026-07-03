@@ -6,7 +6,7 @@ import AdBanner from "@/components/AdBanner";
 import { CATEGORIES } from "@/lib/categories";
 import { getRank, grantDeliveryRewards } from "@/lib/rewards";
 import { getRatingsMap } from "@/lib/reviews";
-import { Flame, Sparkles, PackagePlus } from "lucide-react";
+import { Flame, Sparkles, PackagePlus, History } from "lucide-react";
 import Link from "next/link";
 
 export default async function HomePage() {
@@ -37,7 +37,19 @@ export default async function HomePage() {
   const rank = dbUser ? getRank(dbUser.coins) : null;
   const newest = allProducts.slice(0, 5);
 
-  const visibleIds = [...new Set([...products.slice(0, 30), ...newest].map((p) => p.id))];
+  // Zuletzt angesehen (max. 8, neueste zuerst) — billig: ein kleiner Query.
+  const recentlyViewed = userId
+    ? (
+        await prisma.recentlyViewed.findMany({
+          where: { userId },
+          orderBy: { viewedAt: "desc" },
+          take: 8,
+          include: { product: true },
+        })
+      ).map((rv) => rv.product)
+    : [];
+
+  const visibleIds = [...new Set([...products.slice(0, 30), ...newest, ...recentlyViewed].map((p) => p.id))];
   const ratingsMap = await getRatingsMap(visibleIds);
   const wishlistedIds = userId
     ? new Set(
@@ -47,7 +59,16 @@ export default async function HomePage() {
       )
     : new Set<string>();
 
-  const cardProps = (p: (typeof products)[number]) => ({
+  const cardProps = (p: {
+    id: string;
+    name: string;
+    price: number;
+    image: string;
+    shippingMinDays: number;
+    shippingMaxDays: number;
+    discountPercent: number;
+    stock: number;
+  }) => ({
     id: p.id,
     name: p.name,
     price: p.price,
@@ -61,7 +82,7 @@ export default async function HomePage() {
   });
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6 space-y-10">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-10">
       <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#ffffff] via-[#ffffff] to-[#fdeee8] border border-[#e5e5e8] p-6 sm:p-10 text-center">
         <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-[#ff5a1f] opacity-20 blur-3xl" />
         <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-[#1faa59] opacity-20 blur-3xl" />
@@ -135,6 +156,19 @@ export default async function HomePage() {
           ))}
         </div>
       </section>
+
+      {recentlyViewed.length > 0 && (
+        <section>
+          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+            <History size={20} className="text-[#6b6b76]" /> Zuletzt angesehen
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {recentlyViewed.map((p) => (
+              <ProductCard key={p.id} {...cardProps(p)} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section>
         <h2 className="text-xl font-bold mb-4 flex items-center gap-2">

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
-import { addToCart, toggleWishlist } from "@/lib/actions";
+import { addToCart, toggleWishlist, trackRecentlyViewed, hasDeliveredProduct, submitReview } from "@/lib/actions";
 import { auth } from "@/lib/auth";
 import { getProductRating } from "@/lib/reviews";
 import { getRatingsMap } from "@/lib/reviews";
@@ -8,7 +8,7 @@ import ProductImage from "@/components/ProductImage";
 import ProductCard from "@/components/ProductCard";
 import Link from "next/link";
 import { effectivePrice, hasDiscount } from "@/lib/pricing";
-import { Truck, Star, Heart, RotateCcw, Lock, ShieldCheck } from "lucide-react";
+import { Truck, Star, Heart, RotateCcw, Lock, ShieldCheck, BadgeCheck } from "lucide-react";
 
 export default async function ProductPage(props: { params: Promise<{ id: string }>; searchParams: Promise<{ qty?: string; img?: string }> }) {
   const { id } = await props.params;
@@ -25,6 +25,9 @@ export default async function ProductPage(props: { params: Promise<{ id: string 
   const session = await auth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
 
+  // "Zuletzt angesehen" für eingeloggte Nutzer aktualisieren (billig: 1 Upsert).
+  if (userId) await trackRecentlyViewed(userId, product.id);
+
   const [rating, reviews, isWishlisted, similarProducts] = await Promise.all([
     getProductRating(product.id),
     prisma.review.findMany({ where: { productId: product.id }, orderBy: { createdAt: "desc" } }),
@@ -39,6 +42,10 @@ export default async function ProductPage(props: { params: Promise<{ id: string 
   ]);
 
   const similarRatings = await getRatingsMap(similarProducts.map((p) => p.id));
+
+  // Bewertungsformular nur für Nutzer mit zugestellter Bestellung ohne bisherige Bewertung.
+  const alreadyReviewed = userId ? reviews.some((r) => r.userId === userId) : false;
+  const canReview = userId && !alreadyReviewed ? await hasDeliveredProduct(userId, product.id) : false;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -189,6 +196,40 @@ export default async function ProductPage(props: { params: Promise<{ id: string 
 
       <div className="mt-12">
         <h2 className="text-xl font-bold mb-4">Bewertungen</h2>
+
+        {canReview && (
+          <form
+            action={async (fd) => {
+              "use server";
+              await submitReview(product.id, fd);
+            }}
+            id="bewerten"
+            className="bg-white border border-[#e5e5e8] rounded-2xl p-4 mb-6 space-y-3 shadow-sm"
+          >
+            <p className="font-semibold text-sm flex items-center gap-2">
+              <BadgeCheck size={16} className="text-[#1faa59]" /> Produkt bewerten (verifizierter Kauf, +15 Coins)
+            </p>
+            <select name="rating" required defaultValue="5" className="bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-3 py-2 text-sm">
+              <option value="5">5 Sterne – Ausgezeichnet</option>
+              <option value="4">4 Sterne – Gut</option>
+              <option value="3">3 Sterne – Okay</option>
+              <option value="2">2 Sterne – Mäßig</option>
+              <option value="1">1 Stern – Schlecht</option>
+            </select>
+            <textarea
+              name="text"
+              required
+              rows={3}
+              maxLength={2000}
+              placeholder="Wie war das Produkt?"
+              className="w-full bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-3 py-2 text-sm"
+            />
+            <button className="bg-[#ff5a1f] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:opacity-90">
+              Bewertung abschicken
+            </button>
+          </form>
+        )}
+
         {reviews.length === 0 ? (
           <p className="text-[#6b6b76] text-sm">Noch keine Bewertungen für dieses Produkt.</p>
         ) : (
@@ -196,7 +237,14 @@ export default async function ProductPage(props: { params: Promise<{ id: string 
             {reviews.map((r) => (
               <div key={r.id} className="bg-white border border-[#e5e5e8] rounded-xl p-4">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-semibold text-sm">{r.authorName}</span>
+                  <span className="font-semibold text-sm flex items-center gap-1.5">
+                    {r.authorName}
+                    {r.verified && (
+                      <span className="flex items-center gap-0.5 text-[10px] font-bold text-[#1faa59] bg-[#eafbf1] px-1.5 py-0.5 rounded">
+                        <BadgeCheck size={12} /> Verifizierter Kauf
+                      </span>
+                    )}
+                  </span>
                   <span className="text-xs text-[#6b6b76]">
                     {r.createdAt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}
                   </span>

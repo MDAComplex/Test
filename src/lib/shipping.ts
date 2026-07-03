@@ -1,6 +1,8 @@
 // Simulierte Versandverfolgung: aus placedAt + Lieferfenster wird deterministisch
 // eine Sendungs-Timeline berechnet. Es wird nichts wirklich verschickt (Demo).
 
+import { COUNTRIES, EUROPE_CODES } from "@/lib/countries";
+
 export type ShipmentStatus =
   | "PLACED"
   | "PACKED"
@@ -23,9 +25,14 @@ export type OrderLike = {
   estDeliveryMin: Date;
   estDeliveryMax: Date;
   shippingAddress: string;
+  status?: string;
 };
 
-export const STATUS_LABELS: Record<ShipmentStatus, string> = {
+/** Berechneter Status inkl. Stornierung. */
+export type OrderStatus = ShipmentStatus | "CANCELLED";
+
+export const STATUS_LABELS: Record<OrderStatus, string> = {
+  CANCELLED: "Storniert",
   PLACED: "Bestellung eingegangen",
   PACKED: "Verpackt",
   SHIPPED: "Versendet",
@@ -42,15 +49,42 @@ export function getTrackingNumber(orderId: string): string {
   return "VS" + orderId.slice(-10).toUpperCase();
 }
 
-/** CH ist am schnellsten, DE/AT (und Rest) brauchen einen Tag länger. */
+/**
+ * CH ist am schnellsten (+0), DE/AT/LI +1 Tag, Rest von Europa +2 Tage,
+ * Übersee +4 Tage. Das Lieferfenster (estDeliveryMax) bleibt die Obergrenze.
+ */
 function countryTransitDelayMs(shippingAddress: string): number {
   const addr = shippingAddress.toLowerCase();
-  if (addr.includes("schweiz") || /\bch\b/.test(addr) || addr.includes("switzerland")) return 0;
-  if (addr.includes("deutschland") || addr.includes("österreich") || /\b(de|at)\b/.test(addr)) return DAY;
-  return 0;
+  const countryLine = addr.split("\n").pop() ?? addr;
+
+  const findCode = (): string | null => {
+    for (const c of COUNTRIES) {
+      if (countryLine.includes(c.name.toLowerCase())) return c.code;
+    }
+    // Fallback: 2-Buchstaben-Code direkt in der Adresse.
+    const m = countryLine.trim().toUpperCase().match(/^([A-Z]{2})$/);
+    return m ? m[1] : null;
+  };
+
+  const code = findCode();
+  if (!code || code === "CH") return 0;
+  if (code === "DE" || code === "AT" || code === "LI") return DAY;
+  if (EUROPE_CODES.has(code)) return 2 * DAY;
+  return 4 * DAY;
 }
 
 export function getShipmentProgress(order: OrderLike, now: Date = new Date()) {
+  // Stornierte Bestellungen haben keine Sendungs-Timeline mehr.
+  if (order.status === "CANCELLED") {
+    return {
+      stations: [] as ShipmentStation[],
+      currentStatus: "CANCELLED" as OrderStatus,
+      progressRatio: 0,
+      trackingNumber: getTrackingNumber(order.id),
+      estimatedDelivery: order.estDeliveryMax,
+    };
+  }
+
   const placed = order.placedAt.getTime();
   const delay = countryTransitDelayMs(order.shippingAddress);
 
@@ -90,7 +124,7 @@ export function getShipmentProgress(order: OrderLike, now: Date = new Date()) {
     state: i < currentIndex ? "done" : i === currentIndex ? "current" : "upcoming",
   }));
 
-  const currentStatus = defs[currentIndex].key;
+  const currentStatus: OrderStatus = defs[currentIndex].key;
   const totalSpan = defs[defs.length - 1].at - placed;
   const progressRatio =
     currentStatus === "DELIVERED"
@@ -108,6 +142,11 @@ export function getShipmentProgress(order: OrderLike, now: Date = new Date()) {
   };
 }
 
-export function isShippedOrLater(status: ShipmentStatus): boolean {
+export function isShippedOrLater(status: OrderStatus): boolean {
   return ["SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"].includes(status);
+}
+
+/** Stornierung ist nur möglich, bevor das Paket an die Post übergeben wurde. */
+export function isCancellable(status: OrderStatus): boolean {
+  return status === "PLACED" || status === "PACKED";
 }

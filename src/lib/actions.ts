@@ -7,6 +7,11 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { bumpQuest, setQuestProgressAbsolute, claimMysteryBox, getRank } from "@/lib/rewards";
 import { effectivePrice } from "@/lib/pricing";
+import { readGuestCart, writeGuestCart, clearGuestCart } from "@/lib/guestCart";
+import { countryName, isValidCountry } from "@/lib/countries";
+import { assertRateLimit } from "@/lib/rateLimit";
+import { getShipmentProgress, isCancellable } from "@/lib/shipping";
+import { randomUUID } from "crypto";
 
 async function requireUser() {
   const session = await auth();
@@ -30,18 +35,65 @@ export async function registerUser(formData: FormData) {
     throw new Error("Bitte gültige Email und ein Passwort mit mind. 6 Zeichen angeben.");
   }
 
+  assertRateLimit(`register:${email}`, 5, 60 * 60 * 1000);
+
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     throw new Error("Es existiert bereits ein Account mit dieser Email.");
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  await prisma.user.create({
+  const newUser = await prisma.user.create({
     // Onboarding ist optional: direkt als onboarded markieren, Präferenzen später im Account anpassbar.
     data: { email, name, passwordHash, role: "USER", coins: 25, onboarded: true },
   });
 
+  // Gast-Warenkorb in den frischen Account übernehmen (Cookie danach leer).
+  await mergeGuestCart(newUser.id);
+
   await signIn("credentials", { email, password, redirectTo: "/" });
+}
+
+/**
+ * Login-Server-Action: prüft Credentials (inkl. Blockierung + Rate-Limit),
+ * merged davor den Gast-Warenkorb in den DB-Warenkorb und meldet dann via
+ * NextAuth an. Wird von /login verwendet.
+ */
+export async function loginUser(formData: FormData, callbackUrl?: string) {
+  const email = String(formData.get("email") || "").trim().toLowerCase();
+  const password = String(formData.get("password") || "");
+  assertRateLimit(`login:${email}`, 10, 15 * 60 * 1000);
+
+  // Credentials vorab prüfen, damit der Gast-Warenkorb nur bei gültigem
+  // Login gemerged wird (signIn selbst wirft bei Erfolg einen Redirect).
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (user && !user.blocked && (await bcrypt.compare(password, user.passwordHash))) {
+    await mergeGuestCart(user.id);
+  }
+
+  await signIn("credentials", { email, password, redirectTo: callbackUrl || "/" });
+}
+
+/**
+ * Überträgt den Gast-Warenkorb (Cookie) in den DB-Warenkorb des Nutzers und
+ * leert das Cookie. Nur aus Server Actions aufrufbar (Cookie-Schreibzugriff).
+ */
+export async function mergeGuestCart(userId: string) {
+  const guestItems = await readGuestCart();
+  if (guestItems.length === 0) return;
+
+  for (const item of guestItems) {
+    const product = await prisma.product.findUnique({ where: { id: item.productId } });
+    if (!product || product.stock <= 0) continue;
+    await prisma.cartItem.upsert({
+      where: { userId_productId: { userId, productId: item.productId } },
+      update: { quantity: { increment: item.quantity } },
+      create: { userId, productId: item.productId, quantity: item.quantity },
+    });
+  }
+
+  await clearGuestCart();
+  revalidatePath("/cart");
 }
 
 export async function completeOnboarding(formData: FormData) {
@@ -95,11 +147,29 @@ export async function recordProductView() {
 }
 
 export async function addToCart(productId: string, quantity = 1) {
-  const user = await requireUser();
+  const session = await auth();
+  const user = session?.user as { id: string } | undefined;
 
   const product = await prisma.product.findUnique({ where: { id: productId } });
   if (!product) throw new Error("Produkt nicht gefunden.");
   if (product.stock <= 0) throw new Error("Dieser Artikel ist leider ausverkauft.");
+
+  // Gäste: Warenkorb im Cookie führen — kein Login-Zwang beim Shoppen.
+  if (!user?.id) {
+    const items = await readGuestCart();
+    const existingItem = items.find((i) => i.productId === productId);
+    if (existingItem) {
+      existingItem.quantity += quantity;
+    } else {
+      items.push({ productId, quantity });
+    }
+    await writeGuestCart(items);
+    revalidatePath("/cart");
+    return;
+  }
+
+  // Sicherheitsnetz: evtl. noch vorhandenen Gast-Warenkorb übernehmen.
+  await mergeGuestCart(user.id);
 
   const existing = await prisma.cartItem.findUnique({
     where: { userId_productId: { userId: user.id, productId } },
@@ -123,7 +193,21 @@ export async function addToCart(productId: string, quantity = 1) {
 }
 
 export async function updateCartQty(cartItemId: string, quantity: number) {
-  const user = await requireUser();
+  const session = await auth();
+  const user = session?.user as { id: string } | undefined;
+
+  // Gäste: cartItemId ist hier die productId (Cookie-Warenkorb).
+  if (!user?.id) {
+    const items = await readGuestCart();
+    const next =
+      quantity <= 0
+        ? items.filter((i) => i.productId !== cartItemId)
+        : items.map((i) => (i.productId === cartItemId ? { ...i, quantity } : i));
+    await writeGuestCart(next);
+    revalidatePath("/cart");
+    return;
+  }
+
   if (quantity <= 0) {
     await prisma.cartItem.deleteMany({ where: { id: cartItemId, userId: user.id } });
   } else {
@@ -136,16 +220,20 @@ export async function updateCartQty(cartItemId: string, quantity: number) {
 }
 
 export async function removeFromCart(cartItemId: string) {
-  const user = await requireUser();
+  const session = await auth();
+  const user = session?.user as { id: string } | undefined;
+
+  // Gäste: cartItemId ist hier die productId (Cookie-Warenkorb).
+  if (!user?.id) {
+    const items = await readGuestCart();
+    await writeGuestCart(items.filter((i) => i.productId !== cartItemId));
+    revalidatePath("/cart");
+    return;
+  }
+
   await prisma.cartItem.deleteMany({ where: { id: cartItemId, userId: user.id } });
   revalidatePath("/cart");
 }
-
-const COUNTRY_LABELS: Record<string, string> = {
-  CH: "Schweiz",
-  DE: "Deutschland",
-  AT: "Österreich",
-};
 
 /** Validiert einen Gutscheincode serverseitig (existiert, aktiv, nicht abgelaufen). */
 export async function validateCoupon(code: string) {
@@ -160,12 +248,38 @@ export async function validateCoupon(code: string) {
 export async function checkout(formData: FormData) {
   const user = await requireUser();
 
-  const shippingName = String(formData.get("shippingName") || "").trim();
-  const street = String(formData.get("shippingStreet") || "").trim();
-  const zip = String(formData.get("shippingZip") || "").trim();
-  const city = String(formData.get("shippingCity") || "").trim();
-  const country = String(formData.get("shippingCountry") || "CH").trim().toUpperCase();
-  const shippingAddress = `${street}\n${zip} ${city}\n${COUNTRY_LABELS[country] ?? country}`;
+  // Adresse: entweder eine gespeicherte Adresse (addressId) oder neue Felder.
+  let shippingName = String(formData.get("shippingName") || "").trim();
+  let street = String(formData.get("shippingStreet") || "").trim();
+  let zip = String(formData.get("shippingZip") || "").trim();
+  let city = String(formData.get("shippingCity") || "").trim();
+  let country = String(formData.get("shippingCountry") || "CH").trim().toUpperCase();
+
+  const addressId = String(formData.get("addressId") || "").trim();
+  if (addressId && addressId !== "new") {
+    const saved = await prisma.address.findUnique({ where: { id: addressId } });
+    if (!saved || saved.userId !== user.id) throw new Error("Adresse nicht gefunden.");
+    shippingName = saved.name;
+    street = saved.street;
+    zip = saved.zip;
+    city = saved.city;
+    country = saved.country;
+  } else {
+    if (!shippingName || !street || !zip || !city) {
+      throw new Error("Bitte die Lieferadresse vollständig ausfüllen.");
+    }
+    if (!isValidCountry(country)) country = "CH";
+    // Optional: neue Adresse im Adressbuch speichern.
+    if (formData.get("saveAddress") === "on") {
+      const count = await prisma.address.count({ where: { userId: user.id } });
+      await prisma.address.create({
+        data: { userId: user.id, name: shippingName, street, zip, city, country, isDefault: count === 0 },
+      });
+      revalidatePath("/account");
+    }
+  }
+
+  const shippingAddress = `${street}\n${zip} ${city}\n${countryName(country)}`;
   // Fiktive Zahlungsdaten (Kartennummer, Ablaufdatum, CVC): bewusst NICHT validiert,
   // NICHT gespeichert und NICHT verarbeitet — es passiert nichts mit ihnen (Demo, CHF 0.00).
 
@@ -191,8 +305,19 @@ export async function checkout(formData: FormData) {
     discountAmount = Math.round(subtotal * (coupon.percent / 100) * 100) / 100;
   }
 
-  const total = Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100);
   const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
+
+  // Coins einlösen: 100 Coins = 1 €. Serverseitig auf Guthaben und
+  // Zwischensumme (nach Gutschein) begrenzt — nie unter 0 €.
+  const afterCoupon = Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100);
+  const requestedCoins = Math.max(0, parseInt(String(formData.get("redeemCoins") || "0"), 10) || 0);
+  const maxByBalance = currentUser?.coins ?? 0;
+  const maxByTotal = Math.floor(afterCoupon * 100);
+  let coinsRedeemed = Math.min(requestedCoins, maxByBalance, maxByTotal);
+  if (coinsRedeemed < 100) coinsRedeemed = 0; // Einlösen erst ab 100 Coins
+  const coinsDiscount = Math.round(coinsRedeemed) / 100;
+
+  const total = Math.max(0, Math.round((afterCoupon - coinsDiscount) * 100) / 100);
 
   const minDays = Math.max(...cartItems.map((ci) => ci.product.shippingMinDays));
   const maxDays = Math.max(...cartItems.map((ci) => ci.product.shippingMaxDays));
@@ -206,6 +331,7 @@ export async function checkout(formData: FormData) {
       total,
       couponCode,
       discountAmount,
+      coinsRedeemed,
       shippingName,
       shippingAddress,
       estDeliveryMin,
@@ -237,7 +363,8 @@ export async function checkout(formData: FormData) {
   const rankBefore = getRank(currentUser?.coins ?? 0).current;
   const updatedUser = await prisma.user.update({
     where: { id: user.id },
-    data: { coins: { increment: coinsEarned }, totalSaved: { increment: total } },
+    // Bestellbonus gutschreiben, eingelöste Coins abziehen.
+    data: { coins: { increment: coinsEarned - coinsRedeemed }, totalSaved: { increment: total } },
   });
   const rankAfter = getRank(updatedUser.coins).current;
 
@@ -593,4 +720,206 @@ export async function changeOwnPassword(formData: FormData) {
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+}
+
+// --- Bewertungen (nur nach Zustellung) ---
+
+/** Prüft, ob der Nutzer das Produkt aus einer zugestellten Bestellung hat. */
+export async function hasDeliveredProduct(userId: string, productId: string): Promise<boolean> {
+  const orders = await prisma.order.findMany({
+    where: { userId, items: { some: { productId } } },
+  });
+  return orders.some((o) => getShipmentProgress(o).currentStatus === "DELIVERED");
+}
+
+export async function submitReview(productId: string, formData: FormData) {
+  const user = await requireUser();
+  assertRateLimit(`review:${user.id}`, 10, 60 * 60 * 1000);
+
+  const rating = Math.min(5, Math.max(1, parseInt(String(formData.get("rating") || "0"), 10) || 0));
+  const text = String(formData.get("text") || "").trim();
+  if (!rating || !text) throw new Error("Bitte Sternebewertung und Text angeben.");
+
+  // Nur verifizierte Käufe: Produkt muss aus einer zugestellten Bestellung stammen.
+  const delivered = await hasDeliveredProduct(user.id, productId);
+  if (!delivered) throw new Error("Du kannst nur Produkte bewerten, die dir bereits zugestellt wurden.");
+
+  const existing = await prisma.review.findFirst({ where: { userId: user.id, productId } });
+  if (existing) throw new Error("Du hast dieses Produkt bereits bewertet.");
+
+  const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
+  const authorName = dbUser?.name || user.email.split("@")[0];
+
+  await prisma.review.create({
+    data: { productId, userId: user.id, authorName, rating, text: text.slice(0, 2000), verified: true },
+  });
+
+  // Belohnung: +15 Coins pro Bewertung.
+  await prisma.user.update({ where: { id: user.id }, data: { coins: { increment: 15 } } });
+  await prisma.notification.create({
+    data: {
+      userId: user.id,
+      title: "Danke für deine Bewertung",
+      body: "Deine Produktbewertung wurde veröffentlicht. +15 Coins wurden gutgeschrieben.",
+    },
+  });
+
+  revalidatePath(`/product/${productId}`);
+  revalidatePath("/orders");
+}
+
+// --- Stornieren & erneut bestellen ---
+
+export async function cancelOrder(orderId: string) {
+  const user = await requireUser();
+  const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
+  if (!order || order.userId !== user.id) throw new Error("Bestellung nicht gefunden.");
+  if (order.status === "CANCELLED") return;
+
+  const { currentStatus } = getShipmentProgress(order);
+  if (!isCancellable(currentStatus)) {
+    throw new Error("Diese Bestellung wurde bereits an die Post übergeben und kann nicht mehr storniert werden.");
+  }
+
+  await prisma.order.update({ where: { id: orderId }, data: { status: "CANCELLED" } });
+
+  // Lagerbestand wiederherstellen.
+  for (const item of order.items) {
+    if (!item.productId) continue;
+    await prisma.product
+      .update({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } })
+      .catch(() => {});
+  }
+
+  // Eingelöste Coins zurückerstatten, 10-Coins-Bestellbonus zurücknehmen.
+  const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
+  const coinDelta = order.coinsRedeemed - 10;
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      coins: Math.max(0, (dbUser?.coins ?? 0) + coinDelta),
+      totalSaved: { decrement: Math.min(order.total, dbUser?.totalSaved ?? 0) },
+    },
+  });
+
+  await prisma.notification.create({
+    data: {
+      userId: user.id,
+      title: "Bestellung storniert",
+      body: `Deine Bestellung #${order.id.slice(-6).toUpperCase()} wurde storniert.${
+        order.coinsRedeemed > 0 ? ` ${order.coinsRedeemed} eingelöste Coins wurden zurückerstattet.` : ""
+      } (Ref: ${order.id})`,
+    },
+  });
+
+  revalidatePath(`/orders/${orderId}`);
+  revalidatePath("/orders");
+}
+
+/** Legt alle (noch existierenden) Artikel einer Bestellung erneut in den Warenkorb. */
+export async function reorder(orderId: string) {
+  const user = await requireUser();
+  const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
+  if (!order || order.userId !== user.id) throw new Error("Bestellung nicht gefunden.");
+
+  for (const item of order.items) {
+    if (!item.productId) continue;
+    const product = await prisma.product.findUnique({ where: { id: item.productId } });
+    if (!product || product.stock <= 0) continue;
+    const qty = Math.min(item.quantity, product.stock);
+    await prisma.cartItem.upsert({
+      where: { userId_productId: { userId: user.id, productId: item.productId } },
+      update: { quantity: { increment: qty } },
+      create: { userId: user.id, productId: item.productId, quantity: qty },
+    });
+  }
+
+  revalidatePath("/cart");
+  redirect("/cart");
+}
+
+// --- Adressbuch ---
+
+export async function addAddress(formData: FormData) {
+  const user = await requireUser();
+  const name = String(formData.get("name") || "").trim();
+  const street = String(formData.get("street") || "").trim();
+  const zip = String(formData.get("zip") || "").trim();
+  const city = String(formData.get("city") || "").trim();
+  let country = String(formData.get("country") || "CH").trim().toUpperCase();
+  if (!isValidCountry(country)) country = "CH";
+
+  if (!name || !street || !zip || !city) throw new Error("Bitte alle Adressfelder ausfüllen.");
+
+  const count = await prisma.address.count({ where: { userId: user.id } });
+  await prisma.address.create({
+    data: { userId: user.id, name, street, zip, city, country, isDefault: count === 0 },
+  });
+  revalidatePath("/account");
+  revalidatePath("/checkout");
+}
+
+export async function deleteAddress(addressId: string) {
+  const user = await requireUser();
+  await prisma.address.deleteMany({ where: { id: addressId, userId: user.id } });
+  revalidatePath("/account");
+  revalidatePath("/checkout");
+}
+
+export async function setDefaultAddress(addressId: string) {
+  const user = await requireUser();
+  const address = await prisma.address.findUnique({ where: { id: addressId } });
+  if (!address || address.userId !== user.id) throw new Error("Adresse nicht gefunden.");
+  await prisma.address.updateMany({ where: { userId: user.id }, data: { isDefault: false } });
+  await prisma.address.update({ where: { id: addressId }, data: { isDefault: true } });
+  revalidatePath("/account");
+  revalidatePath("/checkout");
+}
+
+// --- Passwort zurücksetzen (simuliert, ohne echten E-Mail-Versand) ---
+
+export async function requestPasswordReset(email: string): Promise<string | null> {
+  const normalized = email.trim().toLowerCase();
+  assertRateLimit(`pwreset:${normalized}`, 3, 15 * 60 * 1000);
+
+  const user = await prisma.user.findUnique({ where: { email: normalized } });
+  if (!user) return null;
+
+  const token = randomUUID();
+  await prisma.passwordResetToken.create({
+    data: { email: normalized, token, expiresAt: new Date(Date.now() + 60 * 60 * 1000) },
+  });
+  // Demo: kein echter Mail-Versand — der Link wird direkt auf der Seite angezeigt.
+  return token;
+}
+
+export async function resetPassword(formData: FormData) {
+  const token = String(formData.get("token") || "").trim();
+  const password = String(formData.get("password") || "");
+  if (!token) throw new Error("Ungültiger Link.");
+  if (password.length < 6) throw new Error("Passwort muss mind. 6 Zeichen haben.");
+
+  const record = await prisma.passwordResetToken.findUnique({ where: { token } });
+  if (!record || record.expiresAt.getTime() < Date.now()) {
+    throw new Error("Dieser Link ist ungültig oder abgelaufen. Bitte fordere einen neuen an.");
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  await prisma.user.update({ where: { email: record.email }, data: { passwordHash } });
+  await prisma.passwordResetToken.deleteMany({ where: { email: record.email } });
+
+  redirect("/login?reset=ok");
+}
+
+// --- Zuletzt angesehen ---
+
+/** Merkt sich ein angesehenes Produkt (für die "Zuletzt angesehen"-Sektion). */
+export async function trackRecentlyViewed(userId: string, productId: string) {
+  await prisma.recentlyViewed
+    .upsert({
+      where: { userId_productId: { userId, productId } },
+      update: { viewedAt: new Date() },
+      create: { userId, productId },
+    })
+    .catch(() => {}); // z.B. wenn das Produkt gerade gelöscht wurde
 }

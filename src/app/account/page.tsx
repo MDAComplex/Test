@@ -1,12 +1,13 @@
 import { auth, signOut } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-import { changeOwnPassword, updateOwnName } from "@/lib/actions";
+import { changeOwnPassword, updateOwnName, addAddress, deleteAddress, setDefaultAddress } from "@/lib/actions";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { getRank } from "@/lib/rewards";
+import { COUNTRIES, countryName } from "@/lib/countries";
 import Link from "next/link";
 import RewardIcon from "@/components/RewardIcon";
-import { Package, Flame, Wallet, PiggyBank, Pencil, KeyRound, LogOut, SlidersHorizontal } from "lucide-react";
+import { Package, Flame, Wallet, PiggyBank, Pencil, KeyRound, LogOut, SlidersHorizontal, MapPin, Trash2 } from "lucide-react";
 
 export default async function AccountPage(props: { searchParams: Promise<{ error?: string; ok?: string }> }) {
   const session = await auth();
@@ -14,9 +15,10 @@ export default async function AccountPage(props: { searchParams: Promise<{ error
   if (!userId) redirect("/login?callbackUrl=/account");
   const { error, ok } = await props.searchParams;
 
-  const [user, orders] = await Promise.all([
+  const [user, orders, addresses] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId } }),
     prisma.order.findMany({ where: { userId }, orderBy: { placedAt: "desc" }, take: 5 }),
+    prisma.address.findMany({ where: { userId }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] }),
   ]);
   if (!user) redirect("/login");
 
@@ -129,6 +131,66 @@ export default async function AccountPage(props: { searchParams: Promise<{ error
         >
           Präferenzen anpassen
         </Link>
+      </div>
+
+      <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6">
+        <h2 className="font-bold mb-3 flex items-center gap-2">
+          <MapPin size={18} /> Adressen
+        </h2>
+        {addresses.length === 0 ? (
+          <p className="text-sm text-[#6b6b76] mb-4">Noch keine Adressen gespeichert.</p>
+        ) : (
+          <div className="space-y-2 mb-4">
+            {addresses.map((a) => (
+              <div key={a.id} className="flex items-start justify-between gap-3 border border-[#e5e5e8] rounded-xl p-3">
+                <div className="text-sm">
+                  <p className="font-semibold">
+                    {a.name}
+                    {a.isDefault && (
+                      <span className="ml-2 text-[10px] font-bold text-[#1faa59] bg-[#eafbf1] px-1.5 py-0.5 rounded">
+                        Standard
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-[#6b6b76]">
+                    {a.street}, {a.zip} {a.city}, {countryName(a.country)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {!a.isDefault && (
+                    <form action={async () => { "use server"; await setDefaultAddress(a.id); }}>
+                      <button className="text-xs text-[#6b6b76] hover:text-[#ff5a1f] underline">
+                        Als Standard
+                      </button>
+                    </form>
+                  )}
+                  <form action={async () => { "use server"; await deleteAddress(a.id); }}>
+                    <button aria-label="Adresse löschen" className="text-red-400 hover:text-red-500 p-1">
+                      <Trash2 size={15} />
+                    </button>
+                  </form>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <form action={addAddress} className="space-y-3 border-t border-[#e5e5e8] pt-4">
+          <p className="text-sm font-semibold">Neue Adresse hinzufügen</p>
+          <input name="name" required placeholder="Vollständiger Name" className="w-full bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-3 py-2 text-sm" />
+          <input name="street" required placeholder="Straße und Hausnummer" className="w-full bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-3 py-2 text-sm" />
+          <div className="flex gap-3">
+            <input name="zip" required placeholder="PLZ" className="w-1/3 bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-3 py-2 text-sm" />
+            <input name="city" required placeholder="Ort" className="w-2/3 bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <select name="country" defaultValue="CH" className="w-full bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-3 py-2 text-sm">
+            {COUNTRIES.map((c) => (
+              <option key={c.code} value={c.code}>{c.name}</option>
+            ))}
+          </select>
+          <button className="bg-[#ff5a1f] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:opacity-90">
+            Adresse speichern
+          </button>
+        </form>
       </div>
 
       <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6">
