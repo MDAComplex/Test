@@ -1,12 +1,12 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-import { getRank, getTodayQuests, getUserBadges, canClaimMysteryBox, grantDeliveryRewards } from "@/lib/rewards";
-import { claimMysteryBoxAction, hasSpunWheelToday } from "@/lib/actions";
+import { getRank, getTodayQuests, getUserBadges, grantDeliveryRewards } from "@/lib/rewards";
+import { hasSpunWheelToday } from "@/lib/actions";
 import RewardIcon from "@/components/RewardIcon";
 import LuckyWheel from "@/components/LuckyWheel";
 import Link from "next/link";
-import { Gift, Flame, PiggyBank, Dices, ClipboardList, Award, BarChart3, CheckCircle, Hourglass, RefreshCw } from "lucide-react";
+import { Gift, Flame, PiggyBank, ClipboardList, Award, BarChart3, CheckCircle, RefreshCw } from "lucide-react";
 
 export default async function RewardsPage() {
   const session = await auth();
@@ -15,11 +15,10 @@ export default async function RewardsPage() {
 
   await grantDeliveryRewards(userId);
 
-  const [user, quests, badges, canClaim, alreadySpun] = await Promise.all([
+  const [user, quests, badges, alreadySpun] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId } }),
     getTodayQuests(userId),
     getUserBadges(userId),
-    canClaimMysteryBox(userId),
     hasSpunWheelToday(userId),
   ]);
   if (!user) redirect("/login");
@@ -104,26 +103,6 @@ export default async function RewardsPage() {
           Ein Gratis-Dreh pro Tag — gewinne bis zu 100 Coins!
         </p>
         <LuckyWheel alreadySpun={alreadySpun} />
-      </div>
-
-      <div className="bg-[#ffffff] border border-[#e5e5e8] rounded-2xl p-6">
-        <h2 className="font-bold mb-3 flex items-center gap-2"><Dices size={18} className="text-[#ff5a1f]" /> Mystery Box (täglich)</h2>
-        {canClaim ? (
-          <form
-            action={async () => {
-              "use server";
-              await claimMysteryBoxAction();
-            }}
-          >
-            <button className="w-full bg-gradient-to-r from-[#ff5a1f] to-[#1faa59] text-black font-bold py-3 rounded-lg glow-accent flex items-center justify-center gap-2">
-              <Gift size={18} /> Box öffnen
-            </button>
-          </form>
-        ) : (
-          <p className="text-sm text-[#6b6b76] flex items-center gap-1.5">
-            <Hourglass size={14} /> Heute schon geöffnet — komm morgen wieder!
-          </p>
-        )}
       </div>
 
       <div className="bg-[#ffffff] border border-[#e5e5e8] rounded-2xl p-6">

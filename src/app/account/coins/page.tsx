@@ -82,7 +82,7 @@ export default async function CoinsPage() {
       </div>
 
       <Link href="/rewards" className="text-sm text-[#ff5a1f] font-medium underline">
-        Alle Rewards, Quests & Mystery Box ansehen →
+        Alle Rewards, Quests & Glücksrad ansehen →
       </Link>
     </div>
   );

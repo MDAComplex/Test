@@ -5,7 +5,7 @@ import { auth, signIn } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { bumpQuest, setQuestProgressAbsolute, claimMysteryBox, getRank } from "@/lib/rewards";
+import { bumpQuest, setQuestProgressAbsolute, getRank } from "@/lib/rewards";
 import { effectivePrice } from "@/lib/pricing";
 import { readGuestCart, writeGuestCart, clearGuestCart } from "@/lib/guestCart";
 import { countryName, isValidCountry } from "@/lib/countries";
@@ -494,13 +494,6 @@ export async function updatePreferences(formData: FormData) {
   const preferences = formData.getAll("preferences").map(String).join(",");
   await prisma.user.update({ where: { id: user.id }, data: { preferences } });
   revalidatePath("/");
-}
-
-export async function claimMysteryBoxAction() {
-  const user = await requireUser();
-  const prize = await claimMysteryBox(user.id);
-  revalidatePath("/rewards");
-  return prize;
 }
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB pro Bild

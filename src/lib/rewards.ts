@@ -116,40 +116,6 @@ export async function getTodayQuests(userId: string) {
   });
 }
 
-export async function canClaimMysteryBox(userId: string) {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user?.lastMysteryBoxAt) return true;
-  const today = todayKey();
-  const lastDay = user.lastMysteryBoxAt.toISOString().slice(0, 10);
-  return lastDay !== today;
-}
-
-export async function claimMysteryBox(userId: string) {
-  const canClaim = await canClaimMysteryBox(userId);
-  if (!canClaim) throw new Error("Mystery Box wurde heute schon geöffnet.");
-
-  const prizes = [10, 15, 20, 25, 30, 50, 100];
-  const weights = [25, 25, 20, 15, 10, 4, 1];
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
-  let roll = Math.random() * totalWeight;
-  let prize = prizes[0];
-  for (let i = 0; i < prizes.length; i++) {
-    if (roll < weights[i]) {
-      prize = prizes[i];
-      break;
-    }
-    roll -= weights[i];
-  }
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: { lastMysteryBoxAt: new Date() },
-  });
-  await grantCoins(userId, prize, "Mystery Box");
-
-  return prize;
-}
-
 /**
  * Lazy-Check bei Seitenaufrufen: findet zugestellte Bestellungen ohne gutgeschriebenen
  * Lieferbonus, schreibt Coins gut und legt Benachrichtigungen (Versand + Zustellung) an.

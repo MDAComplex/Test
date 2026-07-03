@@ -91,7 +91,7 @@ export default async function AccountPage(props: { searchParams: Promise<{ error
         </div>
       </div>
       <Link href="/rewards" className="text-sm text-[#ff5a1f] font-medium underline">
-        Alle Rewards, Badges & Mystery Box ansehen →
+        Alle Rewards, Badges & Glücksrad ansehen →
       </Link>
 
       <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6">
