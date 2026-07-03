@@ -17,6 +17,7 @@ import { getBoughtTogether } from "@/lib/recommendations";
 import ProductImage from "@/components/ProductImage";
 import ProductCard from "@/components/ProductCard";
 import AddToCartButton from "@/components/AddToCartButton";
+import AdSlot from "@/components/AdSlot";
 import Countdown from "@/components/Countdown";
 import Link from "next/link";
 import { effectivePrice, hasDiscount } from "@/lib/pricing";
@@ -546,6 +547,8 @@ export default async function ProductPage(props: { params: Promise<{ id: string 
           </div>
         </div>
       )}
+
+      <AdSlot slot="product-bottom" className="mt-12" />
     </div>
   );
 }

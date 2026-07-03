@@ -7,7 +7,7 @@ import { getActiveDealsMap, dealUnitPrice } from "@/lib/deals";
 import { getRank } from "@/lib/rewards";
 import { COUNTRIES, countryName } from "@/lib/countries";
 import { geocodeAddress } from "@/lib/geocode";
-import AdBanner from "@/components/AdBanner";
+import AdSlot from "@/components/AdSlot";
 import DeliveryMapClient from "@/components/DeliveryMapClient";
 import { Package, CreditCard, Truck, RotateCcw, ShieldCheck, Lock, TicketPercent, Info, Coins, Map } from "lucide-react";
 
@@ -106,7 +106,7 @@ export default async function CheckoutPage(props: {
             <Info size={16} className="shrink-0 mt-0.5" />
             <span>
               Dies ist eine Demo — es werden keine echten Bestellungen ausgelöst und kein Geld
-              eingezogen. Die Belastung beträgt <strong>CHF 0.00</strong>. Trage beliebige Test-Daten ein.
+              eingezogen. Trage beliebige Test-Daten ein.
             </span>
           </div>
 
@@ -178,9 +178,9 @@ export default async function CheckoutPage(props: {
                 <input placeholder="CVC" autoComplete="off" className={`${inputClass} w-1/2`} />
               </div>
               <input placeholder="Name auf Karte" autoComplete="off" className={inputClass} />
-              <p className="text-xs text-[#6b6b76] flex items-center gap-1">
-                <Lock size={12} /> Demo-Zahlung: Es wird CHF 0.00 belastet. Diese Felder werden nicht
-                überprüft, nicht gespeichert und nicht verarbeitet.
+              <p className="text-[11px] text-[#9a9aa2] flex items-center gap-1">
+                <Lock size={12} /> Demo: Diese Felder werden nicht überprüft, nicht gespeichert und
+                nicht verarbeitet — es wird nichts abgebucht.
               </p>
             </div>
           </div>
@@ -189,7 +189,7 @@ export default async function CheckoutPage(props: {
           {effectiveRedeem > 0 && <input type="hidden" name="redeemCoins" value={effectiveRedeem} />}
 
           <button className="w-full bg-[#ff5a1f] text-white py-3 rounded-lg font-semibold hover:opacity-90 glow-accent">
-            Jetzt kaufen — CHF 0.00 zahlen
+            Jetzt kaufen — {total.toFixed(2)} €
           </button>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-[#6b6b76] pt-2 border-t border-[#e5e5e8]">
@@ -283,14 +283,13 @@ export default async function CheckoutPage(props: {
               <span>Versand</span>
               <span className="text-[#1faa59] font-medium">Kostenlos</span>
             </div>
-            <div className="flex justify-between font-semibold border-t border-[#e5e5e8] pt-2">
-              <span>Warenwert</span>
-              <span className="line-through text-[#6b6b76]">{total.toFixed(2)} €</span>
+            <div className="flex justify-between font-extrabold text-lg border-t border-[#e5e5e8] pt-2">
+              <span>Gesamtsumme</span>
+              <span>{total.toFixed(2)} €</span>
             </div>
-            <div className="flex justify-between font-extrabold text-lg">
-              <span>Heute zu zahlen</span>
-              <span className="text-[#1faa59]">CHF 0.00</span>
-            </div>
+            <p className="text-[11px] text-[#9a9aa2]">
+              Demo-Modus: Es wird nichts abgebucht (Belastung 0.00).
+            </p>
           </div>
         </div>
 
@@ -371,7 +370,7 @@ export default async function CheckoutPage(props: {
           )}
         </div>
 
-        <AdBanner slot="checkout-sidebar" />
+        <AdSlot slot="checkout-sidebar" />
       </div>
     </div>
   );

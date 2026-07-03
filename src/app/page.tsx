@@ -2,7 +2,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
 import RewardIcon from "@/components/RewardIcon";
-import AdBanner from "@/components/AdBanner";
+import AdSlot from "@/components/AdSlot";
+import { extractImageUrl } from "@/lib/adSlots";
 import Countdown from "@/components/Countdown";
 import ProductImage from "@/components/ProductImage";
 import { getRank, grantDeliveryRewards } from "@/lib/rewards";
@@ -25,14 +26,19 @@ export default async function HomePage() {
     preferredSlugs = (dbUser?.preferences || "").split(",").filter(Boolean);
   }
 
-  const [allProducts, categories, liveDeals] = await Promise.all([
+  const [allProducts, categories, liveDeals, heroSlot] = await Promise.all([
     prisma.product.findMany({
       include: { category: true },
       orderBy: { createdAt: "desc" },
     }),
     prisma.category.findMany({ orderBy: { name: "asc" } }),
     getCurrentDeals(8),
+    prisma.adSlot.findUnique({ where: { slot: "hero-background" } }),
   ]);
+
+  // Saisonales Hero-Hintergrundbild (Admin-Werbeplatz): nur wenn aktiviert
+  // und eine nutzbare Bild-URL hinterlegt ist — sonst rendert der Hero wie bisher.
+  const heroBgUrl = heroSlot?.enabled ? extractImageUrl(heroSlot.html) : null;
 
   // Glücksrad-Teaser nur zeigen, wenn heute noch nicht gedreht wurde.
   const wheelAvailable =
@@ -98,14 +104,25 @@ export default async function HomePage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-10">
       <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#ffffff] via-[#ffffff] to-[#fdeee8] border border-[#e5e5e8] p-6 sm:p-10 text-center">
+        {heroBgUrl && (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={heroBgUrl}
+              alt=""
+              aria-hidden="true"
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-white/85 via-white/70 to-white/40" />
+          </>
+        )}
         <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-[#ff5a1f] opacity-20 blur-3xl" />
         <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-[#1faa59] opacity-20 blur-3xl" />
         <h1 className="text-2xl sm:text-4xl font-extrabold mb-3 relative">
           {dbUser ? `Willkommen zurück${dbUser.name ? `, ${dbUser.name}` : ""}` : "Willkommen bei Viralo.shop"}
         </h1>
         <p className="text-[#6b6b76] relative max-w-lg mx-auto">
-          Entdecke Top-Artikel, bestelle mit vollem Checkout-Erlebnis und verfolge deine Pakete —
-          bezahlt wird <span className="text-[#1faa59] font-semibold">CHF 0.00</span> (Demo).
+          Entdecke Top-Artikel, bestelle mit vollem Checkout-Erlebnis und verfolge deine Pakete.
           Sammle Coins bei jeder Zustellung und steig im Rang auf.
         </p>
         {dbUser ? (
@@ -147,7 +164,7 @@ export default async function HomePage() {
         </Link>
       )}
 
-      <AdBanner slot="home-top" />
+      <AdSlot slot="home-top" />
 
       {liveDeals.length > 0 && (
         <section>
@@ -235,6 +252,8 @@ export default async function HomePage() {
         </div>
       </section>
 
+      <AdSlot slot="home-mid" />
+
       {recentlyViewed.length > 0 && (
         <section>
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
@@ -259,7 +278,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <AdBanner slot="home-feed" />
+      <AdSlot slot="home-feed" />
 
       <section>
         <h2 className="text-xl font-bold mb-4">Mehr entdecken</h2>
@@ -269,6 +288,8 @@ export default async function HomePage() {
           ))}
         </div>
       </section>
+
+      <AdSlot slot="home-bottom" />
     </div>
   );
 }

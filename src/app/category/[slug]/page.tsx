@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import ProductCard from "@/components/ProductCard";
 import FilterBar from "@/components/FilterBar";
+import AdSlot from "@/components/AdSlot";
 import Pagination from "@/components/Pagination";
 import { notFound } from "next/navigation";
 import { applySortAndFilter } from "@/lib/productFilters";
@@ -55,6 +56,7 @@ export default async function CategoryPage(
         minPrice={searchParams.minPrice}
         maxPrice={searchParams.maxPrice}
       />
+      <AdSlot slot="category-top" className="mb-6" />
       {products.length === 0 ? (
         <p className="text-[#6b6b76]">Noch keine Artikel in dieser Kategorie.</p>
       ) : (

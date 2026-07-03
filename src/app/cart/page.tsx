@@ -4,6 +4,7 @@ import Link from "next/link";
 import { updateCartQty, removeFromCart, saveForLater, moveToCart } from "@/lib/actions";
 import { readGuestCart } from "@/lib/guestCart";
 import ProductImage from "@/components/ProductImage";
+import AdSlot from "@/components/AdSlot";
 import { effectivePrice, hasDiscount } from "@/lib/pricing";
 import { getActiveDealsMap, dealUnitPrice } from "@/lib/deals";
 import { Truck, Plus, Minus, Trash2, Info, Bookmark, ShoppingCart } from "lucide-react";
@@ -258,6 +259,8 @@ export default async function CartPage() {
           </div>
         </div>
       )}
+
+      <AdSlot slot="cart-below" className="mt-8" />
     </div>
   );
 }

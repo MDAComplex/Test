@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import ProductCard from "@/components/ProductCard";
 import FilterBar from "@/components/FilterBar";
+import AdSlot from "@/components/AdSlot";
 import Pagination from "@/components/Pagination";
 import { applySortAndFilter } from "@/lib/productFilters";
 
@@ -57,6 +58,7 @@ export default async function SearchPage(
         minPrice={searchParams.minPrice}
         maxPrice={searchParams.maxPrice}
       />
+      <AdSlot slot="search-top" className="mb-6" />
       {!q ? (
         <p className="text-[#6b6b76]">Bitte gib einen Suchbegriff ein.</p>
       ) : products.length === 0 ? (

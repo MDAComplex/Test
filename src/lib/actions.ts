@@ -753,6 +753,28 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
+const MAX_AD_DATA_URL_CHARS = 2_800_000; // ≈ 2 MB Base64
+
+// Liest die Bildquelle einer Slot-Form aus: bevorzugt das im Client zugeschnittene
+// Bild (Data-URI aus dem Canvas-Editor), dann die hochgeladene Original-Datei,
+// zuletzt die manuell eingegebene URL.
+async function resolveAdImageSrc(formData: FormData): Promise<string> {
+  const cropped = String(formData.get("croppedImage") || "").trim();
+  if (cropped.startsWith("data:image/") && cropped.length <= MAX_AD_DATA_URL_CHARS) {
+    return cropped;
+  }
+
+  const file = formData.get("adImageFile") as File | null;
+  if (file && file.size > 0) {
+    if (file.size > MAX_IMAGE_BYTES) {
+      throw new Error("Das Werbebild ist zu groß (max. 4 MB).");
+    }
+    return storeFile(file, "ads");
+  }
+
+  return String(formData.get("imageUrl") || "").trim();
+}
+
 export async function updateAdSlot(slotId: string, formData: FormData) {
   await requireAdmin();
   const enabled = formData.get("enabled") === "on";
@@ -760,19 +782,23 @@ export async function updateAdSlot(slotId: string, formData: FormData) {
 
   let html = String(formData.get("html") || "");
 
-  if (mode === "simple") {
+  if (mode === "background") {
+    // Hintergrund-Slots (z.B. Hero): NUR die nackte Bild-URL/Data-URI speichern,
+    // kein generiertes Markup — die Seite nutzt den Wert direkt als src.
+    const imageSrc = await resolveAdImageSrc(formData);
+
+    // Ohne neue Eingabe bleibt das bisherige Bild erhalten (nur Toggle ändern).
+    const existing = await prisma.adSlot.findUnique({ where: { id: slotId } });
+    html = imageSrc || existing?.html || "";
+
+    if (enabled && !html.trim()) {
+      throw new Error("Bitte ein Bild hochladen oder eine Bild-URL angeben, bevor der Slot aktiviert wird.");
+    }
+  } else if (mode === "simple") {
     // Einfacher Modus: Banner-HTML serverseitig aus Feldern generieren.
     const targetUrl = String(formData.get("targetUrl") || "").trim();
     const title = String(formData.get("title") || "").trim();
-    let imageSrc = String(formData.get("imageUrl") || "").trim();
-
-    const file = formData.get("adImageFile") as File | null;
-    if (file && file.size > 0) {
-      if (file.size > MAX_IMAGE_BYTES) {
-        throw new Error("Das Werbebild ist zu groß (max. 4 MB).");
-      }
-      imageSrc = await storeFile(file, "ads");
-    }
+    const imageSrc = await resolveAdImageSrc(formData);
 
     if (!imageSrc && !title) {
       throw new Error("Bitte im einfachen Modus mindestens ein Bild oder einen Titeltext angeben.");

@@ -8,7 +8,7 @@ export const RANKS = [
   { key: "window-shopper", min: 0, label: "Window Shopper", iconKey: "store" },
   { key: "trendsetter", min: 100, label: "Trendsetter", iconKey: "sparkles" },
   { key: "drip-lord", min: 300, label: "Drip Lord", iconKey: "gem" },
-  { key: "icon", min: 700, label: "Icon", iconKey: "crown" },
+  { key: "icon", min: 700, label: "Ikone", iconKey: "crown" },
 ] as const;
 
 export function getRank(coins: number) {

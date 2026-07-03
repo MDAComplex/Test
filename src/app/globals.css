@@ -74,6 +74,13 @@ body {
   animation: pop 0.25s ease-out;
 }
 
+/* Werbeplätze: eingebettetes Admin-HTML nie über den Container hinauslaufen lassen. */
+.ad-slot-html img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
 /* Leaflet-Karte unter der sticky Navbar (z-50) halten. */
 .leaflet-container {
   z-index: 0;

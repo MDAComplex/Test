@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { CATEGORIES } from "../src/lib/categories";
 import { prisma } from "../src/lib/prisma";
+import { AD_SLOTS } from "../src/lib/adSlots";
 
 const REVIEW_NAMES = [
   "Julia M.", "Tom K.", "Sarah W.", "Lukas B.", "Nina S.", "Felix R.", "Laura H.",
@@ -194,15 +195,11 @@ async function main() {
     }
   }
 
-  const adSlots = [
-    { slot: "home-top", label: "Werbebanner – Startseite oben" },
-    { slot: "home-feed", label: "Werbeanzeige – im Produkt-Feed" },
-    { slot: "checkout-sidebar", label: "Werbung – Checkout Seitenleiste" },
-  ];
-  for (const a of adSlots) {
+  // Werbeplätze aus dem zentralen Register (src/lib/adSlots.ts) anlegen.
+  for (const a of AD_SLOTS) {
     await prisma.adSlot.upsert({
       where: { slot: a.slot },
-      update: {},
+      update: { label: a.label },
       create: { slot: a.slot, label: a.label, enabled: false, html: "" },
     });
   }

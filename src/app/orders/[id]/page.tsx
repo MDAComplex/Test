@@ -315,13 +315,10 @@ export default async function OrderDetailPage(props: {
             </div>
           )}
           <div className="flex justify-between font-bold">
-            <span>Gesamt (Warenwert)</span>
+            <span>Gesamtsumme</span>
             <span className="text-[#ff5a1f]">{order.total.toFixed(2)} €</span>
           </div>
-          <div className="flex justify-between font-semibold text-[#1faa59]">
-            <span>Bezahlt</span>
-            <span>CHF 0.00 (Demo)</span>
-          </div>
+          <p className="text-[11px] text-[#9a9aa2] text-right">Demo: keine echte Abbuchung erfolgt.</p>
         </div>
       </div>
 

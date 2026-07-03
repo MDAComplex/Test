@@ -1,10 +1,12 @@
 import Link from "next/link";
 import Logo from "@/components/Logo";
+import AdSlot from "@/components/AdSlot";
 
 export default function Footer() {
   return (
     <footer className="bg-[#f7f7f8] text-[#6b6b76] text-sm px-4 pt-10 pb-24 sm:pb-10">
       <div className="max-w-6xl mx-auto">
+        <AdSlot slot="footer-banner" className="mb-8" />
         <div className="flex flex-col sm:flex-row sm:justify-between gap-8">
           <div className="flex items-center gap-2 text-lg font-extrabold text-[#1c1c1f]">
             <Logo />
