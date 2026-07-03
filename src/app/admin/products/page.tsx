@@ -5,10 +5,11 @@ import { createProduct, deleteProduct, deleteAllSampleProducts, importProducts }
 import ProductImage from "@/components/ProductImage";
 import ProductForm from "./ProductForm";
 import Link from "next/link";
-import { Trash2, Search, Download, Upload, Plus, Pencil, Star, CheckCircle2 } from "lucide-react";
+import { TEMPLATES, getTemplate } from "@/lib/productTemplates";
+import { Trash2, Search, Download, Upload, Plus, Pencil, Star, CheckCircle2, LayoutTemplate } from "lucide-react";
 
 export default async function AdminProductsPage(props: {
-  searchParams: Promise<{ q?: string; imported?: string; skipped?: string; ok?: string }>;
+  searchParams: Promise<{ q?: string; imported?: string; skipped?: string; ok?: string; template?: string }>;
 }) {
   const session = await auth();
   const role = (session?.user as { role?: string } | undefined)?.role;
@@ -25,6 +26,19 @@ export default async function AdminProductsPage(props: {
     }),
     prisma.category.findMany({ orderBy: { name: "asc" } }),
   ]);
+
+  // Vorlage aus ?template=key auflösen; Kategorie-Slug serverseitig in eine ID übersetzen.
+  const template = getTemplate(searchParams.template);
+  const templateDefaults = template
+    ? {
+        description: template.description,
+        stock: template.stock,
+        shippingMinDays: template.shippingMinDays,
+        shippingMaxDays: template.shippingMaxDays,
+        discountPercent: template.discountPercent,
+        categoryId: categories.find((c) => c.slug === template.categorySlug)?.id,
+      }
+    : undefined;
 
   const sampleCount = products.filter((p) => p.isSample).length;
   const imported = searchParams.imported ? parseInt(searchParams.imported, 10) : null;
@@ -93,13 +107,53 @@ export default async function AdminProductsPage(props: {
         </form>
       </div>
 
-      {/* Neues Produkt anlegen (einklappbar) */}
-      <details className="bg-white border border-[#e5e5e8] rounded-2xl">
+      {/* Neues Produkt anlegen (einklappbar; bei gewählter Vorlage direkt geöffnet) */}
+      <details className="bg-white border border-[#e5e5e8] rounded-2xl" open={!!template}>
         <summary className="cursor-pointer p-4 font-bold text-[#1c1c1f] flex items-center gap-2 select-none">
           <Plus size={18} className="text-[#ff5a1f]" /> Neuen Artikel anlegen
         </summary>
-        <div className="p-4 pt-0">
-          <ProductForm action={createProduct} categories={categories} submitLabel="Artikel hinzufügen" />
+        <div className="p-4 pt-0 space-y-4">
+          <div className="border border-[#e5e5e8] rounded-xl p-3 bg-[#f7f7f8]">
+            <p className="text-sm font-semibold text-[#1c1c1f] mb-2 flex items-center gap-1.5">
+              <LayoutTemplate size={15} className="text-[#ff5a1f]" /> Vorlagen – füllt typische Werte vor
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {TEMPLATES.map((t) => (
+                <Link
+                  key={t.key}
+                  href={`/admin/products?template=${t.key}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                    template?.key === t.key
+                      ? "bg-[#ff5a1f] border-[#ff5a1f] text-white"
+                      : "bg-white border-[#e5e5e8] text-[#1c1c1f] hover:border-[#ff5a1f] hover:text-[#ff5a1f]"
+                  }`}
+                >
+                  {t.label}
+                </Link>
+              ))}
+              {template && (
+                <Link
+                  href="/admin/products"
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium text-[#6b6b76] underline"
+                >
+                  Vorlage entfernen
+                </Link>
+              )}
+            </div>
+            {template && (
+              <p className="text-xs text-[#6b6b76] mt-2">
+                Vorlage „{template.label}" aktiv: Lager {template.stock}, Versand {template.shippingMinDays}–{template.shippingMaxDays} Tage,
+                Rabatt {template.discountPercent}% und ein Beschreibungs-Gerüst sind vorbefüllt.
+              </p>
+            )}
+          </div>
+          <ProductForm
+            key={template?.key ?? "blank"}
+            action={createProduct}
+            categories={categories}
+            defaults={templateDefaults}
+            submitLabel="Artikel hinzufügen"
+          />
         </div>
       </details>
 

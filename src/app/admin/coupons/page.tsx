@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createCoupon, toggleCoupon, deleteCoupon, applyCategoryDiscount, resetAllDiscounts } from "@/lib/actions";
-import { TicketPercent, Trash2, Percent, RotateCcw } from "lucide-react";
+import { TicketPercent, Trash2, Percent, RotateCcw, Mail } from "lucide-react";
 
 const inputCls = "w-full bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2 text-sm";
 const labelCls = "block text-xs font-medium text-[#6b6b76] mb-1";
@@ -45,6 +45,7 @@ export default async function AdminCouponsPage() {
                     <th className="p-3 font-medium">Code</th>
                     <th className="p-3 font-medium">Rabatt</th>
                     <th className="p-3 font-medium">Status</th>
+                    <th className="p-3 font-medium">Nur für</th>
                     <th className="p-3 font-medium">Gültig bis</th>
                     <th className="p-3 font-medium">Erstellt</th>
                     <th className="p-3 font-medium text-right">Aktionen</th>
@@ -64,6 +65,15 @@ export default async function AdminCouponsPage() {
                             <span className="inline-block px-2 py-0.5 rounded-lg text-xs font-semibold bg-[#1faa59]/10 text-[#1faa59]">Aktiv</span>
                           ) : (
                             <span className="inline-block px-2 py-0.5 rounded-lg text-xs font-semibold bg-[#f4f4f5] text-[#6b6b76]">Inaktiv</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-[#6b6b76]">
+                          {c.restrictedToEmail ? (
+                            <span className="inline-flex items-center gap-1 text-xs">
+                              <Mail size={12} /> {c.restrictedToEmail}
+                            </span>
+                          ) : (
+                            "Alle"
                           )}
                         </td>
                         <td className="p-3 text-[#6b6b76]">
@@ -116,6 +126,11 @@ export default async function AdminCouponsPage() {
               <div>
                 <label className={labelCls}>Gültig bis (optional)</label>
                 <input name="expiresAt" type="date" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Nur für E-Mail (optional)</label>
+                <input name="restrictedToEmail" type="email" placeholder="kunde@example.com" className={inputCls} />
+                <p className="text-xs text-[#6b6b76] mt-1">Wenn gesetzt, gilt der Gutschein nur für den Account mit dieser E-Mail.</p>
               </div>
               <button className="w-full bg-[#ff5a1f] text-white py-2 rounded-xl font-semibold hover:opacity-90 text-sm">
                 Gutschein erstellen

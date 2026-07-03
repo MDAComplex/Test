@@ -14,6 +14,8 @@ import {
   ArrowRight,
   TicketPercent,
   Megaphone,
+  BarChart3,
+  Trophy,
 } from "lucide-react";
 
 export default async function AdminDashboard() {
@@ -35,10 +37,44 @@ export default async function AdminDashboard() {
     }),
   ]);
 
-  const revenue = orders.reduce((s, o) => s + o.total, 0);
-  const withProgress = orders.map((o) => ({ order: o, progress: getShipmentProgress(o) }));
+  // Stornierte Bestellungen fließen nicht in Umsatz/Statistiken ein.
+  const activeOrders = orders.filter((o) => o.status !== "CANCELLED");
+  const revenue = activeOrders.reduce((s, o) => s + o.total, 0);
+  const withProgress = activeOrders.map((o) => ({ order: o, progress: getShipmentProgress(o) }));
   const openDeliveries = withProgress.filter((w) => w.progress.currentStatus !== "DELIVERED").length;
   const recent = withProgress.slice(0, 5);
+
+  // Umsatz der letzten 14 Tage (pro Kalendertag, ohne stornierte Bestellungen).
+  const days: { key: string; label: string; total: number }[] = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    days.push({
+      key: d.toDateString(),
+      label: d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }),
+      total: 0,
+    });
+  }
+  const byDay = new Map(days.map((d) => [d.key, d]));
+  for (const o of activeOrders) {
+    const day = byDay.get(new Date(o.placedAt).toDateString());
+    if (day) day.total += o.total;
+  }
+  const maxDay = Math.max(...days.map((d) => d.total), 0.01);
+
+  // Topseller: Top 5 nach verkaufter Stückzahl (Summe der OrderItem-Mengen).
+  const sellerMap = new Map<string, { name: string; productId: string | null; quantity: number; revenue: number }>();
+  for (const o of activeOrders) {
+    for (const item of o.items) {
+      const key = item.productId ?? item.productName;
+      const entry = sellerMap.get(key) ?? { name: item.productName, productId: item.productId, quantity: 0, revenue: 0 };
+      entry.quantity += item.quantity;
+      entry.revenue += item.priceAtPurchase * item.quantity;
+      sellerMap.set(key, entry);
+    }
+  }
+  const topSellers = [...sellerMap.values()].sort((a, b) => b.quantity - a.quantity).slice(0, 5);
 
   return (
     <div className="space-y-8">
@@ -49,10 +85,62 @@ export default async function AdminDashboard() {
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Stat icon={<Package size={18} />} label="Produkte" value={productCount} href="/admin/products" />
-        <Stat icon={<Receipt size={18} />} label="Bestellungen" value={orders.length} href="/admin/orders" />
+        <Stat icon={<Receipt size={18} />} label="Bestellungen" value={activeOrders.length} href="/admin/orders" />
         <Stat icon={<Users size={18} />} label="Nutzer" value={userCount} />
         <Stat icon={<Euro size={18} />} label="Gesamtumsatz" value={`${revenue.toFixed(2)} €`} />
         <Stat icon={<Truck size={18} />} label="Offene Lieferungen" value={openDeliveries} href="/admin/orders" />
+      </div>
+
+      {/* Umsatz & Topseller */}
+      <div className="grid lg:grid-cols-3 gap-6 items-start">
+        <div className="lg:col-span-2 bg-white border border-[#e5e5e8] rounded-2xl p-4">
+          <h2 className="font-bold mb-4 flex items-center gap-2 text-[#1c1c1f]">
+            <BarChart3 size={18} className="text-[#ff5a1f]" /> Umsatz letzte 14 Tage
+          </h2>
+          <div className="flex items-end gap-1.5 h-36">
+            {days.map((d) => (
+              <div key={d.key} className="flex-1 flex flex-col items-center gap-1 min-w-0 h-full justify-end">
+                <span className="text-[10px] text-[#6b6b76] tabular-nums">{d.total > 0 ? d.total.toFixed(0) : ""}</span>
+                <div
+                  className={`w-full rounded-t-md ${d.total > 0 ? "bg-[#ff5a1f]" : "bg-[#f4f4f5]"}`}
+                  style={{ height: `${Math.max(d.total > 0 ? 6 : 2, Math.round((d.total / maxDay) * 100))}%` }}
+                  title={`${d.label}: ${d.total.toFixed(2)} €`}
+                />
+                <span className="text-[10px] text-[#6b6b76] whitespace-nowrap">{d.label}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-[#6b6b76] mt-2">Ohne stornierte Bestellungen.</p>
+        </div>
+
+        <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4">
+          <h2 className="font-bold mb-3 flex items-center gap-2 text-[#1c1c1f]">
+            <Trophy size={18} className="text-[#ff5a1f]" /> Topseller
+          </h2>
+          {topSellers.length === 0 ? (
+            <p className="text-sm text-[#6b6b76]">Noch keine Verkäufe.</p>
+          ) : (
+            <ol className="text-sm divide-y divide-[#e5e5e8]">
+              {topSellers.map((t, i) => (
+                <li key={t.productId ?? t.name} className="flex items-center gap-2 py-2">
+                  <span className="w-5 h-5 rounded-full bg-[#f4f4f5] text-[#6b6b76] text-xs font-bold flex items-center justify-center shrink-0">
+                    {i + 1}
+                  </span>
+                  {t.productId ? (
+                    <Link href={`/admin/products/${t.productId}`} className="flex-1 truncate text-[#1c1c1f] hover:text-[#ff5a1f]">
+                      {t.name}
+                    </Link>
+                  ) : (
+                    <span className="flex-1 truncate text-[#1c1c1f]">{t.name}</span>
+                  )}
+                  <span className="text-xs text-[#6b6b76] shrink-0">
+                    {t.quantity} Stk. · <span className="text-[#1faa59] font-semibold">{t.revenue.toFixed(2)} €</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">

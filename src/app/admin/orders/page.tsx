@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { updateOrderStatus } from "@/lib/actions";
 import { getShipmentProgress, getTrackingNumber, STATUS_LABELS, type ShipmentStatus } from "@/lib/shipping";
-import { Truck } from "lucide-react";
+import Link from "next/link";
+import { Truck, ArrowRight } from "lucide-react";
 
 const STATUSES: ShipmentStatus[] = ["PLACED", "PACKED", "SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"];
 
@@ -35,7 +36,9 @@ export default async function AdminOrdersPage() {
               <div className="flex justify-between items-start flex-wrap gap-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-semibold text-[#1c1c1f]">#{o.id.slice(-6).toUpperCase()}</p>
+                    <Link href={`/admin/orders/${o.id}`} className="font-semibold text-[#1c1c1f] hover:text-[#ff5a1f]">
+                      #{o.id.slice(-6).toUpperCase()}
+                    </Link>
                     <span
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold ${
                         delivered ? "bg-[#1faa59]/10 text-[#1faa59]" : "bg-[#ff5a1f]/10 text-[#ff5a1f]"
@@ -76,6 +79,14 @@ export default async function AdminOrdersPage() {
                   </select>
                   <button className="text-sm bg-[#ff5a1f] text-white px-3 py-1.5 rounded-lg font-medium">Status setzen</button>
                 </form>
+              </div>
+              <div className="mt-2">
+                <Link
+                  href={`/admin/orders/${o.id}`}
+                  className="inline-flex items-center gap-1 text-sm text-[#ff5a1f] font-medium hover:underline"
+                >
+                  Details ansehen <ArrowRight size={14} />
+                </Link>
               </div>
             </div>
           );

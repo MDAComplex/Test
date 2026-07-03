@@ -235,13 +235,23 @@ export async function removeFromCart(cartItemId: string) {
   revalidatePath("/cart");
 }
 
-/** Validiert einen Gutscheincode serverseitig (existiert, aktiv, nicht abgelaufen). */
+/**
+ * Validiert einen Gutscheincode serverseitig (existiert, aktiv, nicht abgelaufen).
+ * Account-gebundene Gutscheine (restrictedToEmail) sind nur für den eingeloggten
+ * Nutzer mit passender E-Mail gültig; die E-Mail wird aus der Session gelesen,
+ * damit die Aufrufer-Schnittstelle (nur der Code) unverändert bleibt.
+ */
 export async function validateCoupon(code: string) {
   const trimmed = code.trim().toUpperCase();
   if (!trimmed) return null;
   const coupon = await prisma.coupon.findUnique({ where: { code: trimmed } });
   if (!coupon || !coupon.active) return null;
   if (coupon.expiresAt && coupon.expiresAt.getTime() < Date.now()) return null;
+  if (coupon.restrictedToEmail) {
+    const session = await auth();
+    const email = (session?.user as { email?: string } | undefined)?.email?.toLowerCase();
+    if (!email || email !== coupon.restrictedToEmail.toLowerCase()) return null;
+  }
   return coupon;
 }
 
@@ -586,12 +596,16 @@ export async function createCoupon(formData: FormData) {
   const code = String(formData.get("code") || "").trim().toUpperCase();
   const percent = parseInt(String(formData.get("percent") || "0"), 10);
   const expiresRaw = String(formData.get("expiresAt") || "").trim();
+  const restrictedToEmail = String(formData.get("restrictedToEmail") || "").trim().toLowerCase() || null;
 
   if (!code || !/^[A-Z0-9_-]{2,32}$/.test(code)) {
     throw new Error("Bitte einen gültigen Code angeben (2-32 Zeichen, Buchstaben/Zahlen).");
   }
   if (isNaN(percent) || percent < 1 || percent > 90) {
     throw new Error("Rabatt muss zwischen 1 und 90 Prozent liegen.");
+  }
+  if (restrictedToEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(restrictedToEmail)) {
+    throw new Error("Bitte eine gültige E-Mail-Adresse für die Beschränkung angeben.");
   }
   const expiresAt = expiresRaw ? new Date(expiresRaw) : null;
   if (expiresAt && isNaN(expiresAt.getTime())) {
@@ -601,7 +615,7 @@ export async function createCoupon(formData: FormData) {
   const existing = await prisma.coupon.findUnique({ where: { code } });
   if (existing) throw new Error("Ein Gutschein mit diesem Code existiert bereits.");
 
-  await prisma.coupon.create({ data: { code, percent, expiresAt, active: true } });
+  await prisma.coupon.create({ data: { code, percent, expiresAt, active: true, restrictedToEmail } });
   revalidatePath("/admin/coupons");
 }
 
@@ -701,6 +715,117 @@ export async function updateOrderStatus(orderId: string, status: string) {
   if (!ORDER_STATUSES.includes(status)) throw new Error("Ungültiger Status.");
   await prisma.order.update({ where: { id: orderId }, data: { status } });
   revalidatePath("/admin/orders");
+  revalidatePath(`/admin/orders/${orderId}`);
+}
+
+// --- Nutzerverwaltung (Admin) ---
+
+/** Passt das Coin-Guthaben eines Nutzers um ein Delta an (nie unter 0). */
+export async function adjustUserCoins(userId: string, formData: FormData) {
+  await requireAdmin();
+  const delta = parseInt(String(formData.get("delta") || "0"), 10);
+  if (isNaN(delta) || delta === 0) throw new Error("Bitte eine Coin-Änderung ungleich 0 angeben.");
+
+  const target = await prisma.user.findUnique({ where: { id: userId } });
+  if (!target) throw new Error("Nutzer nicht gefunden.");
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { coins: Math.max(0, target.coins + delta) },
+  });
+  revalidatePath("/admin/users");
+}
+
+/** Blockiert/entsperrt einen Nutzer. Sich selbst und andere Admins nicht blockierbar. */
+export async function toggleUserBlocked(userId: string) {
+  const admin = await requireAdmin();
+  const target = await prisma.user.findUnique({ where: { id: userId } });
+  if (!target) throw new Error("Nutzer nicht gefunden.");
+  if (!target.blocked) {
+    if (target.id === admin.id) throw new Error("Du kannst dich nicht selbst blockieren.");
+    if (target.role === "ADMIN") throw new Error("Admins können nicht blockiert werden.");
+  }
+  await prisma.user.update({ where: { id: userId }, data: { blocked: !target.blocked } });
+  revalidatePath("/admin/users");
+}
+
+/** Setzt die Rolle eines Nutzers (USER/ADMIN). Eigene Admin-Rolle nicht entziehbar. */
+export async function setUserRole(userId: string, role: string) {
+  const admin = await requireAdmin();
+  if (role !== "USER" && role !== "ADMIN") throw new Error("Ungültige Rolle.");
+  if (userId === admin.id && role !== "ADMIN") {
+    throw new Error("Du kannst dir nicht selbst die Admin-Rolle entziehen.");
+  }
+  const target = await prisma.user.findUnique({ where: { id: userId } });
+  if (!target) throw new Error("Nutzer nicht gefunden.");
+  await prisma.user.update({ where: { id: userId }, data: { role } });
+  revalidatePath("/admin/users");
+}
+
+// --- Kategorien (Admin) ---
+
+/** Erzeugt aus einem Namen einen URL-tauglichen Slug (Umlaute inkl.). */
+function slugify(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replaceAll("ä", "ae")
+    .replaceAll("ö", "oe")
+    .replaceAll("ü", "ue")
+    .replaceAll("ß", "ss")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export async function createCategory(formData: FormData) {
+  await requireAdmin();
+  const name = String(formData.get("name") || "").trim();
+  const emoji = String(formData.get("emoji") || "").trim();
+  if (!name) throw new Error("Bitte einen Kategorienamen angeben.");
+
+  let slug = slugify(name);
+  if (!slug) throw new Error("Aus diesem Namen lässt sich kein gültiger Slug erzeugen.");
+  // Slug eindeutig machen, falls schon vergeben.
+  if (await prisma.category.findUnique({ where: { slug } })) {
+    let i = 2;
+    while (await prisma.category.findUnique({ where: { slug: `${slug}-${i}` } })) i++;
+    slug = `${slug}-${i}`;
+  }
+
+  await prisma.category.create({ data: { name, slug, ...(emoji ? { emoji } : {}) } });
+  revalidatePath("/admin/categories");
+  revalidatePath("/kategorien");
+}
+
+export async function renameCategory(categoryId: string, formData: FormData) {
+  await requireAdmin();
+  const name = String(formData.get("name") || "").trim();
+  if (!name) throw new Error("Bitte einen Namen angeben.");
+  await prisma.category.update({ where: { id: categoryId }, data: { name } });
+  revalidatePath("/admin/categories");
+  revalidatePath("/kategorien");
+}
+
+export async function deleteCategory(categoryId: string) {
+  await requireAdmin();
+  const count = await prisma.product.count({ where: { categoryId } });
+  if (count > 0) throw new Error("Kategorie enthält noch Produkte und kann nicht gelöscht werden.");
+  await prisma.category.delete({ where: { id: categoryId } });
+  revalidatePath("/admin/categories");
+  revalidatePath("/kategorien");
+}
+
+// --- Bewertungs-Moderation (Admin) ---
+
+export async function deleteReview(reviewId: string) {
+  await requireAdmin();
+  const review = await prisma.review.findUnique({ where: { id: reviewId } });
+  if (!review) return;
+  await prisma.review.delete({ where: { id: reviewId } });
+  revalidatePath("/admin/reviews");
+  revalidatePath(`/product/${review.productId}`);
 }
 
 export async function changeOwnPassword(formData: FormData) {

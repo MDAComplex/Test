@@ -17,15 +17,27 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  * Gemeinsames Produktformular für Anlegen und Bearbeiten.
  * Die umgebende Seite liefert die passende Server-Action als `action`.
  */
+export type ProductFormDefaults = {
+  description?: string;
+  stock?: number;
+  shippingMinDays?: number;
+  shippingMaxDays?: number;
+  discountPercent?: number;
+  categoryId?: string;
+};
+
 export default function ProductForm({
   action,
   categories,
   product,
+  defaults,
   submitLabel,
 }: {
   action: (formData: FormData) => Promise<void>;
   categories: Category[];
   product?: Product;
+  /** Vorbefüllung (z.B. aus Vorlagen); `product` hat immer Vorrang. */
+  defaults?: ProductFormDefaults;
   submitLabel: string;
 }) {
   return (
@@ -37,7 +49,7 @@ export default function ProductForm({
         </div>
         <div>
           <label className={labelCls}>Kategorie *</label>
-          <select name="categoryId" required defaultValue={product?.categoryId ?? ""} className={inputCls}>
+          <select name="categoryId" required defaultValue={product?.categoryId ?? defaults?.categoryId ?? ""} className={inputCls}>
             <option value="">Kategorie wählen…</option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
@@ -52,11 +64,11 @@ export default function ProductForm({
         </div>
         <div>
           <label className={labelCls}>Rabatt (%)</label>
-          <input name="discountPercent" type="number" min={0} max={90} defaultValue={product?.discountPercent ?? 0} className={inputCls} />
+          <input name="discountPercent" type="number" min={0} max={90} defaultValue={product?.discountPercent ?? defaults?.discountPercent ?? 0} className={inputCls} />
         </div>
         <div className="md:col-span-2">
           <label className={labelCls}>Beschreibung</label>
-          <textarea name="description" rows={3} defaultValue={product?.description ?? ""} className={inputCls} />
+          <textarea name="description" rows={3} defaultValue={product?.description ?? defaults?.description ?? ""} className={inputCls} />
         </div>
       </Section>
 
@@ -125,16 +137,16 @@ export default function ProductForm({
       <Section title="Lager & Versand">
         <div>
           <label className={labelCls}>Lagerbestand</label>
-          <input name="stock" type="number" min={0} defaultValue={product?.stock ?? 99} className={inputCls} />
+          <input name="stock" type="number" min={0} defaultValue={product?.stock ?? defaults?.stock ?? 99} className={inputCls} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls}>Versand min. Tage</label>
-            <input name="shippingMinDays" type="number" min={0} defaultValue={product?.shippingMinDays ?? 2} className={inputCls} />
+            <input name="shippingMinDays" type="number" min={0} defaultValue={product?.shippingMinDays ?? defaults?.shippingMinDays ?? 2} className={inputCls} />
           </div>
           <div>
             <label className={labelCls}>Versand max. Tage</label>
-            <input name="shippingMaxDays" type="number" min={0} defaultValue={product?.shippingMaxDays ?? 5} className={inputCls} />
+            <input name="shippingMaxDays" type="number" min={0} defaultValue={product?.shippingMaxDays ?? defaults?.shippingMaxDays ?? 5} className={inputCls} />
           </div>
         </div>
       </Section>

@@ -1,13 +1,26 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { LayoutDashboard, Package, Receipt, TicketPercent, Megaphone, Store } from "lucide-react";
+import {
+  LayoutDashboard,
+  Package,
+  Receipt,
+  TicketPercent,
+  Megaphone,
+  Store,
+  Users,
+  FolderTree,
+  MessageSquare,
+} from "lucide-react";
 
 const NAV = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/products", label: "Produkte", icon: Package },
+  { href: "/admin/categories", label: "Kategorien", icon: FolderTree },
   { href: "/admin/orders", label: "Bestellungen", icon: Receipt },
-  { href: "/admin/coupons", label: "Gutscheine & Rabatte", icon: TicketPercent },
+  { href: "/admin/users", label: "Nutzer", icon: Users },
+  { href: "/admin/reviews", label: "Bewertungen", icon: MessageSquare },
+  { href: "/admin/coupons", label: "Gutscheine", icon: TicketPercent },
   { href: "/admin/ads", label: "Werbung", icon: Megaphone },
 ];
 
