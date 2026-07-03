@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getShipmentProgress, getTrackingNumber, isShippedOrLater } from "@/lib/shipping";
 import { grantCoins } from "@/lib/coins";
+import { sendShopEmail, shopEmailHtml } from "@/lib/email";
 
 // iconKey wird im UI auf lucide-Icons gemappt (siehe components/RewardIcon.tsx) — keine Emojis im UI.
 export const RANKS = [
@@ -155,9 +156,10 @@ export async function claimMysteryBox(userId: string) {
  * Gibt die frisch gutgeschriebenen Boni zurück (für Erfolgs-Banner).
  */
 export async function grantDeliveryRewards(userId: string) {
-  const [orders, notifications] = await Promise.all([
+  const [orders, notifications, user] = await Promise.all([
     prisma.order.findMany({ where: { userId }, orderBy: { placedAt: "desc" }, take: 30 }),
     prisma.notification.findMany({ where: { userId } }),
+    prisma.user.findUnique({ where: { id: userId } }),
   ]);
 
   const granted: { orderId: string; coins: number }[] = [];
@@ -177,6 +179,21 @@ export async function grantDeliveryRewards(userId: string) {
             body: `Deine Bestellung #${shortId} wurde an den Versanddienstleister übergeben. Sendungsnummer: ${getTrackingNumber(order.id)}. (Ref: ${order.id})`,
           },
         });
+        // Echte Mail nur, wenn RESEND_API_KEY gesetzt ist; darf nie blockieren.
+        if (user?.email) {
+          try {
+            await sendShopEmail(
+              user.email,
+              `Versandbestätigung #${shortId} – Viralo.shop`,
+              shopEmailHtml(
+                "Deine Bestellung ist unterwegs",
+                `Bestellung #${shortId} wurde an den Versanddienstleister übergeben. Sendungsnummer: ${getTrackingNumber(order.id)}.`
+              )
+            );
+          } catch (error) {
+            console.error("Versand-Mail fehlgeschlagen (ignoriert):", error);
+          }
+        }
       }
     }
 
@@ -191,6 +208,20 @@ export async function grantDeliveryRewards(userId: string) {
           body: `Bestellung #${shortId} wurde zugestellt. Dein Lieferbonus von ${coins} Coins wurde gutgeschrieben. (Ref: ${order.id})`,
         },
       });
+      if (user?.email) {
+        try {
+          await sendShopEmail(
+            user.email,
+            `Zugestellt: Bestellung #${shortId} – Viralo.shop`,
+            shopEmailHtml(
+              "Deine Bestellung wurde zugestellt",
+              `Bestellung #${shortId} wurde zugestellt. Dein Lieferbonus von ${coins} Coins wurde gutgeschrieben.`
+            )
+          );
+        } catch (error) {
+          console.error("Zustell-Mail fehlgeschlagen (ignoriert):", error);
+        }
+      }
       granted.push({ orderId: order.id, coins });
     }
   }

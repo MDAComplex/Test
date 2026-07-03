@@ -1,11 +1,11 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { updateOrderStatus } from "@/lib/actions";
+import { updateOrderStatus, completeReturn } from "@/lib/actions";
 import { getShipmentProgress, getTrackingNumber, STATUS_LABELS, type ShipmentStatus } from "@/lib/shipping";
 import ProductImage from "@/components/ProductImage";
 import Link from "next/link";
-import { ArrowLeft, Truck, MapPin, User, Check, Circle } from "lucide-react";
+import { ArrowLeft, Truck, MapPin, User, Check, Circle, RotateCcw } from "lucide-react";
 
 const STATUSES: ShipmentStatus[] = ["PLACED", "PACKED", "SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"];
 
@@ -20,6 +20,11 @@ export default async function AdminOrderDetailPage(props: { params: Promise<{ id
     include: { user: true, items: true },
   });
   if (!order) notFound();
+
+  const returnRequest = await prisma.returnRequest.findFirst({
+    where: { orderId: order.id },
+    orderBy: { createdAt: "desc" },
+  });
 
   const progress = getShipmentProgress(order);
   const cancelled = progress.currentStatus === "CANCELLED";
@@ -174,6 +179,36 @@ export default async function AdminOrderDetailPage(props: { params: Promise<{ id
               Sendungsnummer: <span className="font-mono text-[#1c1c1f]">{getTrackingNumber(order.id)}</span>
             </div>
           </div>
+
+          {/* Rücksendung */}
+          {returnRequest && (
+            <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4">
+              <h2 className="font-bold mb-2 flex items-center gap-2 text-[#1c1c1f]">
+                <RotateCcw size={16} /> Rücksendung
+                <span
+                  className={`inline-block px-2 py-0.5 rounded-lg text-xs font-semibold ${
+                    returnRequest.status === "COMPLETED"
+                      ? "bg-[#1faa59]/10 text-[#1faa59]"
+                      : "bg-amber-50 text-amber-600"
+                  }`}
+                >
+                  {returnRequest.status === "COMPLETED" ? "Abgeschlossen" : "Angemeldet"}
+                </span>
+              </h2>
+              <p className="text-sm text-[#1c1c1f]">Grund: {returnRequest.reason}</p>
+              <p className="text-xs text-[#6b6b76] mb-3">
+                Angemeldet am {returnRequest.createdAt.toLocaleDateString("de-DE")},{" "}
+                {returnRequest.createdAt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr
+              </p>
+              {returnRequest.status === "REQUESTED" && (
+                <form action={async () => { "use server"; await completeReturn(returnRequest.id); }}>
+                  <button className="text-sm bg-[#1faa59] text-white px-3 py-1.5 rounded-lg font-medium">
+                    Rücksendung abschließen
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
 
           {/* Status-Override */}
           <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4">

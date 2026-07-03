@@ -11,6 +11,8 @@ import {
   Users,
   FolderTree,
   MessageSquare,
+  Zap,
+  MessageCircleQuestion,
 } from "lucide-react";
 
 const NAV = [
@@ -19,6 +21,8 @@ const NAV = [
   { href: "/admin/categories", label: "Kategorien", icon: FolderTree },
   { href: "/admin/orders", label: "Bestellungen", icon: Receipt },
   { href: "/admin/users", label: "Nutzer", icon: Users },
+  { href: "/admin/deals", label: "Deals", icon: Zap },
+  { href: "/admin/questions", label: "Fragen", icon: MessageCircleQuestion },
   { href: "/admin/reviews", label: "Bewertungen", icon: MessageSquare },
   { href: "/admin/coupons", label: "Gutscheine", icon: TicketPercent },
   { href: "/admin/ads", label: "Werbung", icon: Megaphone },

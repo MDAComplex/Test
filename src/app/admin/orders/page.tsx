@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { updateOrderStatus } from "@/lib/actions";
 import { getShipmentProgress, getTrackingNumber, STATUS_LABELS, type ShipmentStatus } from "@/lib/shipping";
 import Link from "next/link";
-import { Truck, ArrowRight } from "lucide-react";
+import { Truck, ArrowRight, Download, RotateCcw } from "lucide-react";
 
 const STATUSES: ShipmentStatus[] = ["PLACED", "PACKED", "SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"];
 
@@ -13,18 +13,30 @@ export default async function AdminOrdersPage() {
   const role = (session?.user as { role?: string } | undefined)?.role;
   if (role !== "ADMIN") redirect("/");
 
-  const orders = await prisma.order.findMany({
-    include: { user: true, items: true },
-    orderBy: { placedAt: "desc" },
-  });
+  const [orders, returnRequests] = await Promise.all([
+    prisma.order.findMany({
+      include: { user: true, items: true },
+      orderBy: { placedAt: "desc" },
+    }),
+    prisma.returnRequest.findMany(),
+  ]);
+  const openReturnOrderIds = new Set(returnRequests.filter((r) => r.status === "REQUESTED").map((r) => r.orderId));
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-[#1c1c1f]">Bestellungen</h1>
-        <p className="text-sm text-[#6b6b76]">
-          {orders.length} Bestellungen. Der Live-Status wird aus dem Bestelldatum berechnet; der gespeicherte Status kann manuell überschrieben werden.
-        </p>
+      <div className="flex justify-between items-start flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-[#1c1c1f]">Bestellungen</h1>
+          <p className="text-sm text-[#6b6b76]">
+            {orders.length} Bestellungen. Der Live-Status wird aus dem Bestelldatum berechnet; der gespeicherte Status kann manuell überschrieben werden.
+          </p>
+        </div>
+        <a
+          href="/admin/orders/export"
+          className="flex items-center gap-1.5 px-3 py-2 bg-[#f7f7f8] border border-[#e5e5e8] rounded-xl text-sm font-medium hover:border-[#ff5a1f]"
+        >
+          <Download size={15} /> Export (CSV)
+        </a>
       </div>
 
       <div className="space-y-4">
@@ -46,6 +58,11 @@ export default async function AdminOrdersPage() {
                     >
                       <Truck size={12} /> Live: {STATUS_LABELS[progress.currentStatus]}
                     </span>
+                    {openReturnOrderIds.has(o.id) && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-600">
+                        <RotateCcw size={12} /> Rücksendung
+                      </span>
+                    )}
                     <span className="text-xs text-[#6b6b76]">Gespeichert: {STATUS_LABELS[o.status as ShipmentStatus] ?? o.status}</span>
                   </div>
                   <p className="text-sm text-[#6b6b76]">

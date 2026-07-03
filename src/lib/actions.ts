@@ -13,6 +13,8 @@ import { assertRateLimit } from "@/lib/rateLimit";
 import { getShipmentProgress, isCancellable, getTrackingNumber } from "@/lib/shipping";
 import { grantCoins, spendCoins } from "@/lib/coins";
 import { getActiveDealsMap, dealUnitPrice } from "@/lib/deals";
+import { storeFile } from "@/lib/storage";
+import { sendShopEmail, shopEmailHtml } from "@/lib/email";
 import { randomUUID } from "crypto";
 
 async function requireUser() {
@@ -465,6 +467,18 @@ export async function checkout(formData: FormData) {
     },
   });
 
+  // Echte E-Mail (nur wenn RESEND_API_KEY gesetzt ist; sonst No-op).
+  await sendShopEmail(
+    user.email,
+    `Bestellbestätigung #${shortId} – Viralo.shop`,
+    shopEmailHtml(
+      `Bestellbestätigung #${shortId}`,
+      `Danke für deine Bestellung! ${itemCount} Artikel, Warenwert ${total.toFixed(2)} €.` +
+        (discountParts.length > 0 ? ` ${discountParts.join(" · ")}.` : "") +
+        ` Sendungsnummer: ${getTrackingNumber(order.id)}. Voraussichtliche Zustellung: ${estDeliveryMin.toLocaleDateString("de-DE")} – ${estDeliveryMax.toLocaleDateString("de-DE")}.`
+    )
+  );
+
   const leveledUp = rankAfter.key !== rankBefore.key;
   redirect(`/orders/${order.id}${leveledUp ? `?levelup=${encodeURIComponent(rankAfter.label)}` : ""}`);
 }
@@ -492,18 +506,13 @@ export async function claimMysteryBoxAction() {
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB pro Bild
 const MAX_VIDEO_BYTES = 20 * 1024 * 1024; // 20 MB pro Video
 
-async function fileToDataUri(file: File): Promise<string> {
-  const buffer = Buffer.from(await file.arrayBuffer());
-  return `data:${file.type};base64,${buffer.toString("base64")}`;
-}
-
 async function imageFromFormData(formData: FormData, fallback: string) {
   const file = formData.get("imageFile") as File | null;
   if (file && file.size > 0) {
     if (file.size > MAX_IMAGE_BYTES) {
       throw new Error("Das Hauptbild ist zu groß (max. 4 MB pro Bild).");
     }
-    return fileToDataUri(file);
+    return storeFile(file, "products");
   }
   const urlOrEmoji = String(formData.get("image") || "").trim();
   return urlOrEmoji || fallback;
@@ -517,7 +526,7 @@ async function galleryFromFormData(formData: FormData): Promise<string[]> {
     if (file.size > MAX_IMAGE_BYTES) {
       throw new Error(`Galerie-Bild "${file.name}" ist zu groß (max. 4 MB pro Bild).`);
     }
-    uris.push(await fileToDataUri(file));
+    uris.push(await storeFile(file, "products"));
   }
   return uris;
 }
@@ -529,7 +538,7 @@ async function videoFromFormData(formData: FormData): Promise<string | null> {
   if (file.size > MAX_VIDEO_BYTES) {
     throw new Error("Das Video ist zu groß (max. 20 MB).");
   }
-  return fileToDataUri(file);
+  return storeFile(file, "videos");
 }
 
 /** Gemeinsame validierte Felder für create/update von Produkten. */
@@ -767,7 +776,7 @@ export async function updateAdSlot(slotId: string, formData: FormData) {
       if (file.size > MAX_IMAGE_BYTES) {
         throw new Error("Das Werbebild ist zu groß (max. 4 MB).");
       }
-      imageSrc = await fileToDataUri(file);
+      imageSrc = await storeFile(file, "ads");
     }
 
     if (!imageSrc && !title) {
@@ -968,7 +977,7 @@ export async function submitReview(productId: string, formData: FormData) {
     if (file.size > 2 * 1024 * 1024) {
       throw new Error(`Foto "${file.name}" ist zu groß (max. 2 MB pro Foto).`);
     }
-    images.push(await fileToDataUri(file));
+    images.push(await storeFile(file, "reviews"));
   }
 
   await prisma.review.create({
@@ -1107,6 +1116,15 @@ export async function requestReturn(orderId: string, formData: FormData) {
       body: `Deine Rücksendung für Bestellung #${shortId} wurde angemeldet. Rückschein-Code: RET-${getTrackingNumber(order.id)}. Grund: ${reason}. Demo: keine echte Rücksendung nötig. (Ref: ${order.id})`,
     },
   });
+
+  await sendShopEmail(
+    user.email,
+    `Rücksendung angemeldet #${shortId} – Viralo.shop`,
+    shopEmailHtml(
+      "Rücksendung angemeldet",
+      `Deine Rücksendung für Bestellung #${shortId} wurde angemeldet. Rückschein-Code: RET-${getTrackingNumber(order.id)}. Grund: ${reason}. Demo: keine echte Rücksendung nötig.`
+    )
+  );
 
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/orders");
@@ -1288,5 +1306,148 @@ export async function askQuestion(productId: string, formData: FormData) {
     data: { productId, userId: user.id, authorName, question: question.slice(0, 1000) },
   });
 
+  revalidatePath(`/product/${productId}`);
+}
+
+// --- Blitzangebote (Admin) ---
+
+/** Legt einen neuen Deal an (Prozent 5–90, Kontingent >= 1, Start vor Ende). */
+export async function createDeal(formData: FormData) {
+  await requireAdmin();
+
+  const productId = String(formData.get("productId") || "");
+  const percent = parseInt(String(formData.get("percent") || ""), 10);
+  const quantity = parseInt(String(formData.get("quantity") || ""), 10);
+  const startsAt = new Date(String(formData.get("startsAt") || ""));
+  const endsAt = new Date(String(formData.get("endsAt") || ""));
+
+  const product = await prisma.product.findUnique({ where: { id: productId } });
+  if (!product) throw new Error("Produkt nicht gefunden.");
+  if (!Number.isFinite(percent) || percent < 5 || percent > 90) {
+    throw new Error("Rabatt muss zwischen 5% und 90% liegen.");
+  }
+  if (!Number.isFinite(quantity) || quantity < 1) {
+    throw new Error("Kontingent muss mindestens 1 sein.");
+  }
+  if (isNaN(startsAt.getTime()) || isNaN(endsAt.getTime()) || startsAt >= endsAt) {
+    throw new Error("Der Start muss vor dem Ende liegen.");
+  }
+
+  await prisma.deal.create({
+    data: { productId, percent, quantity, startsAt, endsAt, active: true },
+  });
+
+  revalidatePath("/admin/deals");
+  revalidatePath("/");
+}
+
+/** Schaltet einen Deal aktiv/inaktiv. */
+export async function toggleDeal(dealId: string) {
+  await requireAdmin();
+  const deal = await prisma.deal.findUnique({ where: { id: dealId } });
+  if (!deal) throw new Error("Deal nicht gefunden.");
+  await prisma.deal.update({ where: { id: dealId }, data: { active: !deal.active } });
+  revalidatePath("/admin/deals");
+  revalidatePath("/");
+}
+
+/** Löscht einen Deal endgültig. */
+export async function deleteDeal(dealId: string) {
+  await requireAdmin();
+  await prisma.deal.deleteMany({ where: { id: dealId } });
+  revalidatePath("/admin/deals");
+  revalidatePath("/");
+}
+
+// --- Fragen & Antworten (Admin) ---
+
+/** Beantwortet eine Produktfrage und benachrichtigt ggf. die fragende Person. */
+export async function answerQuestion(questionId: string, formData: FormData) {
+  await requireAdmin();
+
+  const answer = String(formData.get("answer") || "").trim();
+  if (!answer) throw new Error("Bitte eine Antwort eingeben.");
+
+  const question = await prisma.productQuestion.findUnique({
+    where: { id: questionId },
+    include: { product: true },
+  });
+  if (!question) throw new Error("Frage nicht gefunden.");
+
+  await prisma.productQuestion.update({
+    where: { id: questionId },
+    data: { answer: answer.slice(0, 2000), answeredAt: new Date() },
+  });
+
+  if (question.userId) {
+    await prisma.notification.create({
+      data: {
+        userId: question.userId,
+        title: "Deine Frage wurde beantwortet",
+        body: `Das Viralo Team hat deine Frage zu "${question.product.name}" beantwortet. Schau auf der Produktseite vorbei!`,
+      },
+    });
+  }
+
+  revalidatePath("/admin/questions");
+  revalidatePath(`/product/${question.productId}`);
+}
+
+/** Löscht eine Produktfrage (z.B. Spam). */
+export async function deleteQuestion(questionId: string) {
+  await requireAdmin();
+  const question = await prisma.productQuestion.findUnique({ where: { id: questionId } });
+  await prisma.productQuestion.deleteMany({ where: { id: questionId } });
+  revalidatePath("/admin/questions");
+  if (question) revalidatePath(`/product/${question.productId}`);
+}
+
+// --- Rücksendungen (Admin) ---
+
+/** Schließt eine angemeldete Rücksendung ab und benachrichtigt den Kunden. */
+export async function completeReturn(returnId: string) {
+  await requireAdmin();
+
+  const request = await prisma.returnRequest.findUnique({ where: { id: returnId } });
+  if (!request) throw new Error("Rücksendung nicht gefunden.");
+  if (request.status === "COMPLETED") return;
+
+  await prisma.returnRequest.update({
+    where: { id: returnId },
+    data: { status: "COMPLETED" },
+  });
+
+  const shortId = request.orderId.slice(-6).toUpperCase();
+  await prisma.notification.create({
+    data: {
+      userId: request.userId,
+      title: "Rücksendung abgeschlossen",
+      body: `Deine Rücksendung für Bestellung #${shortId} wurde abgeschlossen. Demo: Es wurde keine echte Erstattung ausgelöst. (Ref: ${request.orderId})`,
+    },
+  });
+
+  revalidatePath("/admin/orders");
+  revalidatePath(`/admin/orders/${request.orderId}`);
+  revalidatePath("/admin");
+}
+
+// --- Lagerbestand (Admin, Inline-Bearbeitung) ---
+
+/** Setzt den Lagerbestand eines Produkts direkt aus der Produkttabelle. */
+export async function updateProductStock(productId: string, formData: FormData) {
+  await requireAdmin();
+
+  const stock = parseInt(String(formData.get("stock") || ""), 10);
+  if (!Number.isFinite(stock) || stock < 0) {
+    throw new Error("Lagerbestand muss 0 oder größer sein.");
+  }
+
+  const product = await prisma.product.findUnique({ where: { id: productId } });
+  if (!product) throw new Error("Produkt nicht gefunden.");
+
+  await prisma.product.update({ where: { id: productId }, data: { stock } });
+
+  revalidatePath("/admin/products");
+  revalidatePath("/admin");
   revalidatePath(`/product/${productId}`);
 }

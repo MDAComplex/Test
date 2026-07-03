@@ -23,19 +23,27 @@ export default async function AdminDashboard() {
   const role = (session?.user as { role?: string } | undefined)?.role;
   if (role !== "ADMIN") redirect("/");
 
-  const [productCount, userCount, orders, lowStock] = await Promise.all([
-    prisma.product.count(),
-    prisma.user.count(),
-    prisma.order.findMany({
-      include: { user: true, items: true },
-      orderBy: { placedAt: "desc" },
-    }),
-    prisma.product.findMany({
-      where: { stock: { lt: 10 } },
-      orderBy: { stock: "asc" },
-      take: 8,
-    }),
-  ]);
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const [productCount, userCount, orders, lowStock, ordersToday, openReturns, openQuestions, criticalStock] =
+    await Promise.all([
+      prisma.product.count(),
+      prisma.user.count(),
+      prisma.order.findMany({
+        include: { user: true, items: true },
+        orderBy: { placedAt: "desc" },
+      }),
+      prisma.product.findMany({
+        where: { stock: { lt: 10 } },
+        orderBy: { stock: "asc" },
+        take: 8,
+      }),
+      prisma.order.count({ where: { placedAt: { gte: todayStart } } }),
+      prisma.returnRequest.count({ where: { status: "REQUESTED" } }),
+      prisma.productQuestion.count({ where: { answer: null } }),
+      prisma.product.count({ where: { stock: { lt: 5 } } }),
+    ]);
 
   // Stornierte Bestellungen fließen nicht in Umsatz/Statistiken ein.
   const activeOrders = orders.filter((o) => o.status !== "CANCELLED");
@@ -82,6 +90,40 @@ export default async function AdminDashboard() {
         <h1 className="text-2xl font-bold text-[#1c1c1f]">Dashboard</h1>
         <p className="text-sm text-[#6b6b76]">Überblick über Shop, Bestellungen und Lager.</p>
       </div>
+
+      {/* Hinweise: nur anzeigen, wenn es etwas zu tun gibt */}
+      {(ordersToday > 0 || openReturns > 0 || openQuestions > 0 || criticalStock > 0) && (
+        <div className="space-y-2">
+          {ordersToday > 0 && (
+            <AlertBanner
+              href="/admin/orders"
+              tone="green"
+              text={`${ordersToday} neue Bestellung${ordersToday === 1 ? "" : "en"} heute`}
+            />
+          )}
+          {openReturns > 0 && (
+            <AlertBanner
+              href="/admin/orders"
+              tone="orange"
+              text={`${openReturns} offene Rücksendung${openReturns === 1 ? "" : "en"} wartet${openReturns === 1 ? "" : "en"} auf Abschluss`}
+            />
+          )}
+          {openQuestions > 0 && (
+            <AlertBanner
+              href="/admin/questions"
+              tone="orange"
+              text={`${openQuestions} unbeantwortete Produktfrage${openQuestions === 1 ? "" : "n"}`}
+            />
+          )}
+          {criticalStock > 0 && (
+            <AlertBanner
+              href="/admin/products"
+              tone="red"
+              text={`${criticalStock} Produkt${criticalStock === 1 ? "" : "e"} mit kritischem Lagerbestand (unter 5 Stück)`}
+            />
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Stat icon={<Package size={18} />} label="Produkte" value={productCount} href="/admin/products" />
@@ -231,6 +273,24 @@ export default async function AdminDashboard() {
         </div>
       </div>
     </div>
+  );
+}
+
+function AlertBanner({ href, text, tone }: { href: string; text: string; tone: "green" | "orange" | "red" }) {
+  const tones = {
+    green: "bg-[#1faa59]/10 border-[#1faa59]/30 text-[#1faa59]",
+    orange: "bg-[#ff5a1f]/10 border-[#ff5a1f]/30 text-[#ff5a1f]",
+    red: "bg-red-50 border-red-200 text-red-600",
+  } as const;
+  return (
+    <Link
+      href={href}
+      className={`flex items-center gap-2 px-3 py-2 border rounded-xl text-sm font-medium ${tones[tone]}`}
+    >
+      <AlertTriangle size={15} className="shrink-0" />
+      <span className="flex-1">{text}</span>
+      <ArrowRight size={14} className="shrink-0" />
+    </Link>
   );
 }
 

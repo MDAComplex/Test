@@ -1,12 +1,12 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { createProduct, deleteProduct, deleteAllSampleProducts, importProducts } from "@/lib/actions";
+import { createProduct, deleteProduct, deleteAllSampleProducts, importProducts, updateProductStock } from "@/lib/actions";
 import ProductImage from "@/components/ProductImage";
 import ProductForm from "./ProductForm";
 import Link from "next/link";
 import { TEMPLATES, getTemplate } from "@/lib/productTemplates";
-import { Trash2, Search, Download, Upload, Plus, Pencil, Star, CheckCircle2, LayoutTemplate } from "lucide-react";
+import { Trash2, Search, Download, Upload, Plus, Pencil, Star, CheckCircle2, LayoutTemplate, Check } from "lucide-react";
 
 export default async function AdminProductsPage(props: {
   searchParams: Promise<{ q?: string; imported?: string; skipped?: string; ok?: string; template?: string }>;
@@ -196,13 +196,35 @@ export default async function AdminProductsPage(props: {
                   )}
                 </td>
                 <td className="p-3">
-                  {p.stock === 0 ? (
-                    <span className="inline-block px-2 py-0.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600">Ausverkauft</span>
-                  ) : p.stock < 10 ? (
-                    <span className="inline-block px-2 py-0.5 rounded-lg text-xs font-semibold bg-[#ff5a1f]/10 text-[#ff5a1f]">{p.stock} Stk.</span>
-                  ) : (
-                    <span>{p.stock}</span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {p.stock === 0 ? (
+                      <span className="inline-block px-2 py-0.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600">Ausverkauft</span>
+                    ) : p.stock < 10 ? (
+                      <span className="inline-block px-2 py-0.5 rounded-lg text-xs font-semibold bg-[#ff5a1f]/10 text-[#ff5a1f]">{p.stock} Stk.</span>
+                    ) : null}
+                    <form
+                      action={async (fd) => {
+                        "use server";
+                        await updateProductStock(p.id, fd);
+                      }}
+                      className="flex items-center gap-1"
+                    >
+                      <input
+                        name="stock"
+                        type="number"
+                        min={0}
+                        defaultValue={p.stock}
+                        className="w-16 bg-[#f4f4f5] border border-[#e5e5e8] rounded-lg px-2 py-1 text-sm tabular-nums"
+                        aria-label={`Lagerbestand für ${p.name}`}
+                      />
+                      <button
+                        className="p-1.5 rounded-lg bg-[#f7f7f8] border border-[#e5e5e8] text-[#1faa59] hover:border-[#1faa59]"
+                        title="Lagerbestand speichern"
+                      >
+                        <Check size={13} />
+                      </button>
+                    </form>
+                  </div>
                 </td>
                 <td className="p-3 text-[#6b6b76]">
                   <span className="inline-flex items-center gap-1">
