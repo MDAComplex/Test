@@ -6,6 +6,7 @@ import { getRatingsMap } from "@/lib/reviews";
 import { addToCart } from "@/lib/actions";
 import Link from "next/link";
 import { ShoppingCart } from "lucide-react";
+import AddToCartButton from "@/components/AddToCartButton";
 
 export default async function FavoritenPage() {
   const session = await auth();
@@ -59,9 +60,10 @@ export default async function FavoritenPage() {
                     await addToCart(w.product.id, 1);
                   }}
                 >
-                  <button className="w-full flex items-center justify-center gap-1.5 bg-[#ff5a1f] text-white py-2 rounded-xl text-xs font-semibold hover:opacity-90">
-                    <ShoppingCart size={13} /> In den Warenkorb
-                  </button>
+                  <AddToCartButton
+                    iconSize={13}
+                    className="w-full bg-[#ff5a1f] text-white py-2 rounded-xl text-xs font-semibold hover:opacity-90"
+                  />
                 </form>
               )}
             </div>

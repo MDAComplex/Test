@@ -162,7 +162,9 @@ export async function addToCart(productId: string, quantity = 1, variant = "") {
   if (!product) throw new Error("Produkt nicht gefunden.");
   if (product.stock <= 0) throw new Error("Dieser Artikel ist leider ausverkauft.");
   if (product.sizes.length > 0 && !variant) {
-    throw new Error("Bitte zuerst eine Größe auswählen.");
+    // Größenpflichtig, aber ohne Auswahl geklickt (z. B. Karten-Button):
+    // zur Produktseite mit Größenwahl statt Fehler.
+    redirect(`/product/${productId}`);
   }
 
   // Gäste: Warenkorb im Cookie führen — kein Login-Zwang beim Shoppen.

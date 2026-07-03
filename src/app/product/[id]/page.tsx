@@ -16,6 +16,7 @@ import { getActiveDeal } from "@/lib/deals";
 import { getBoughtTogether } from "@/lib/recommendations";
 import ProductImage from "@/components/ProductImage";
 import ProductCard from "@/components/ProductCard";
+import AddToCartButton from "@/components/AddToCartButton";
 import Countdown from "@/components/Countdown";
 import Link from "next/link";
 import { effectivePrice, hasDiscount } from "@/lib/pricing";
@@ -251,12 +252,10 @@ export default async function ProductPage(props: { params: Promise<{ id: string 
                 className="w-16 text-center py-2 border-l border-[#e5e5e8] focus:outline-none"
               />
             </div>
-            <button
+            <AddToCartButton
               disabled={product.stock <= 0}
-              className="bg-[#ff5a1f] text-white px-6 py-3 rounded-lg font-semibold hover:opacity-90 glow-accent disabled:bg-[#e5e5e8] disabled:text-[#6b6b76] disabled:hover:opacity-100"
-            >
-              {product.stock <= 0 ? "Ausverkauft" : "In den Warenkorb"}
-            </button>
+              className="bg-[#ff5a1f] text-white px-6 py-3 rounded-lg font-semibold hover:opacity-90 glow-accent disabled:bg-[#e5e5e8] disabled:text-[#6b6b76]"
+            />
           </form>
 
           <div className="grid grid-cols-2 gap-2 text-xs text-[#6b6b76] border-t border-[#e5e5e8] pt-4">

@@ -3,6 +3,7 @@ import { Star, Heart, Truck } from "lucide-react";
 import { addToCart, toggleWishlist } from "@/lib/actions";
 import { effectivePrice } from "@/lib/pricing";
 import ProductImage from "./ProductImage";
+import AddToCartButton from "./AddToCartButton";
 
 type Props = {
   id: string;
@@ -102,12 +103,11 @@ export default function ProductCard({
         </div>
       </Link>
       <form action={async () => { "use server"; await addToCart(id, 1); }} className="p-3 pt-0">
-        <button
+        <AddToCartButton
           disabled={soldOut}
-          className="w-full bg-[#ff5a1f] text-white text-sm py-2 rounded-lg font-semibold hover:opacity-90 active:scale-95 transition disabled:bg-[#e5e5e8] disabled:text-[#6b6b76] disabled:active:scale-100"
-        >
-          {soldOut ? "Ausverkauft" : "In den Warenkorb"}
-        </button>
+          iconSize={14}
+          className="w-full bg-[#ff5a1f] text-white text-sm py-2 rounded-lg font-semibold hover:opacity-90 active:scale-95 disabled:bg-[#e5e5e8] disabled:text-[#6b6b76] disabled:active:scale-100"
+        />
       </form>
     </div>
   );
