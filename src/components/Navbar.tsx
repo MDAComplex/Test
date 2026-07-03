@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { CATEGORIES } from "@/lib/categories";
 import { touchDailyLogin } from "@/lib/rewards";
 import { guestCartCount } from "@/lib/guestCart";
 import { ShoppingCart, Home, Gift, Package, Settings, User, Heart, Coins, Bell, ChevronDown } from "lucide-react";
@@ -35,8 +34,10 @@ export default async function Navbar() {
     cartCount = await guestCartCount();
   }
 
-  const visible = CATEGORIES.slice(0, VISIBLE_CATEGORIES);
-  const overflow = CATEGORIES.slice(VISIBLE_CATEGORIES);
+  // Kategorien live aus der DB (Admin kann sie anlegen/umbenennen/löschen).
+  const categories = await prisma.category.findMany({ orderBy: { name: "asc" } });
+  const visible = categories.slice(0, VISIBLE_CATEGORIES);
+  const overflow = categories.slice(VISIBLE_CATEGORIES);
 
   return (
     <>

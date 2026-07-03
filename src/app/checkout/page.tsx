@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { checkout, validateCoupon } from "@/lib/actions";
 import { effectivePrice, hasDiscount } from "@/lib/pricing";
+import { getActiveDealsMap, dealUnitPrice } from "@/lib/deals";
 import { getRank } from "@/lib/rewards";
 import { COUNTRIES, countryName } from "@/lib/countries";
 import { geocodeAddress } from "@/lib/geocode";
@@ -39,7 +40,11 @@ export default async function CheckoutPage(props: {
 
   if (items.length === 0) redirect("/cart");
 
-  const subtotal = items.reduce((s, i) => s + effectivePrice(i.product) * i.quantity, 0);
+  // Blitzangebote: gleiche Preislogik wie in der checkout-Action (Kontingent beachten).
+  const dealsMap = await getActiveDealsMap(items.map((i) => i.productId));
+  const unitPrice = (i: (typeof items)[number]) => dealUnitPrice(i.product, dealsMap.get(i.productId), i.quantity);
+
+  const subtotal = items.reduce((s, i) => s + unitPrice(i) * i.quantity, 0);
 
   // Gutschein aus dem GET-Parameter serverseitig prüfen (existiert, aktiv, nicht abgelaufen).
   const couponInvalid = couponParam === "invalid";
@@ -248,12 +253,12 @@ export default async function CheckoutPage(props: {
                 {i.variant && <span className="text-[#6b6b76]"> (Größe: {i.variant})</span>} × {i.quantity}
               </span>
               <span className="font-semibold whitespace-nowrap">
-                {hasDiscount(i.product) && (
+                {(hasDiscount(i.product) || unitPrice(i) < i.product.price) && (
                   <span className="text-[#6b6b76] line-through mr-1 font-normal">
                     {(i.product.price * i.quantity).toFixed(2)} €
                   </span>
                 )}
-                {(effectivePrice(i.product) * i.quantity).toFixed(2)} €
+                {(unitPrice(i) * i.quantity).toFixed(2)} €
               </span>
             </div>
           ))}

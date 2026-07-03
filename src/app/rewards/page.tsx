@@ -2,10 +2,11 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { getRank, getTodayQuests, getUserBadges, canClaimMysteryBox, grantDeliveryRewards } from "@/lib/rewards";
-import { claimMysteryBoxAction } from "@/lib/actions";
+import { claimMysteryBoxAction, hasSpunWheelToday } from "@/lib/actions";
 import RewardIcon from "@/components/RewardIcon";
+import LuckyWheel from "@/components/LuckyWheel";
 import Link from "next/link";
-import { Gift, Flame, PiggyBank, Dices, ClipboardList, Award, BarChart3, CheckCircle, Hourglass } from "lucide-react";
+import { Gift, Flame, PiggyBank, Dices, ClipboardList, Award, BarChart3, CheckCircle, Hourglass, RefreshCw } from "lucide-react";
 
 export default async function RewardsPage() {
   const session = await auth();
@@ -14,11 +15,12 @@ export default async function RewardsPage() {
 
   await grantDeliveryRewards(userId);
 
-  const [user, quests, badges, canClaim] = await Promise.all([
+  const [user, quests, badges, canClaim, alreadySpun] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId } }),
     getTodayQuests(userId),
     getUserBadges(userId),
     canClaimMysteryBox(userId),
+    hasSpunWheelToday(userId),
   ]);
   if (!user) redirect("/login");
 
@@ -92,6 +94,16 @@ export default async function RewardsPage() {
           <PiggyBank size={16} className="text-[#1faa59]" />
           Gespart gesamt: <span className="text-[#1faa59] font-bold">{user.totalSaved.toFixed(2)} €</span>
         </div>
+      </div>
+
+      <div className="bg-[#ffffff] border border-[#e5e5e8] rounded-2xl p-6">
+        <h2 className="font-bold mb-1 flex items-center gap-2">
+          <RefreshCw size={18} className="text-[#ff5a1f]" /> Glücksrad (täglich)
+        </h2>
+        <p className="text-sm text-[#6b6b76] mb-4">
+          Ein Gratis-Dreh pro Tag — gewinne bis zu 100 Coins!
+        </p>
+        <LuckyWheel alreadySpun={alreadySpun} />
       </div>
 
       <div className="bg-[#ffffff] border border-[#e5e5e8] rounded-2xl p-6">

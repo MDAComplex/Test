@@ -5,6 +5,7 @@ import { updateCartQty, removeFromCart, saveForLater, moveToCart } from "@/lib/a
 import { readGuestCart } from "@/lib/guestCart";
 import ProductImage from "@/components/ProductImage";
 import { effectivePrice, hasDiscount } from "@/lib/pricing";
+import { getActiveDealsMap, dealUnitPrice } from "@/lib/deals";
 import { Truck, Plus, Minus, Trash2, Info, Bookmark, ShoppingCart } from "lucide-react";
 
 type CartRow = {
@@ -74,7 +75,17 @@ export default async function CartPage() {
     }
   }
 
-  const subtotal = rows.reduce((s, i) => s + effectivePrice(i.product) * i.quantity, 0);
+  // Blitzangebote: Deal-Preis, wenn das Restkontingent die Menge abdeckt (wie im Checkout).
+  const dealsMap = await getActiveDealsMap(rows.map((r) => r.productId));
+  const rowUnitPrice = (r: CartRow) => dealUnitPrice(r.product, dealsMap.get(r.productId), r.quantity);
+  const rowBadgePercent = (r: CartRow) => {
+    const deal = dealsMap.get(r.productId);
+    return deal && deal.quantity - deal.sold >= r.quantity
+      ? Math.max(deal.percent, r.product.discountPercent)
+      : r.product.discountPercent;
+  };
+
+  const subtotal = rows.reduce((s, i) => s + rowUnitPrice(i) * i.quantity, 0);
   const total = subtotal;
   // 10 Coins Bestellbonus sofort + Lieferbonus (~10% des Warenwerts) bei Zustellung.
   const deliveryBonus = Math.max(5, Math.round(total * 0.1));
@@ -106,12 +117,12 @@ export default async function CartPage() {
                   </span>
                 )}
                 <p className="flex items-baseline gap-2">
-                  <span className="text-[#ff5a1f] font-bold">{effectivePrice(item.product).toFixed(2)} €</span>
-                  {hasDiscount(item.product) && (
+                  <span className="text-[#ff5a1f] font-bold">{rowUnitPrice(item).toFixed(2)} €</span>
+                  {rowBadgePercent(item) > 0 && (
                     <>
                       <span className="text-xs text-[#6b6b76] line-through">{item.product.price.toFixed(2)} €</span>
                       <span className="text-[10px] font-bold text-white bg-[#ff5a1f] rounded px-1 py-0.5">
-                        -{item.product.discountPercent}%
+                        -{rowBadgePercent(item)}%
                       </span>
                     </>
                   )}

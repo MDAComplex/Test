@@ -12,6 +12,7 @@ import { countryName, isValidCountry } from "@/lib/countries";
 import { assertRateLimit } from "@/lib/rateLimit";
 import { getShipmentProgress, isCancellable, getTrackingNumber } from "@/lib/shipping";
 import { grantCoins, spendCoins } from "@/lib/coins";
+import { getActiveDealsMap, dealUnitPrice } from "@/lib/deals";
 import { randomUUID } from "crypto";
 
 async function requireUser() {
@@ -345,7 +346,12 @@ export async function checkout(formData: FormData) {
     throw new Error("Warenkorb ist leer.");
   }
 
-  const subtotal = cartItems.reduce((sum, ci) => sum + effectivePrice(ci.product) * ci.quantity, 0);
+  // Blitzangebote: Deal-Preis gilt, wenn das Restkontingent die Menge abdeckt.
+  const dealsMap = await getActiveDealsMap(cartItems.map((ci) => ci.productId));
+  const unitPrice = (ci: (typeof cartItems)[number]) =>
+    dealUnitPrice(ci.product, dealsMap.get(ci.productId), ci.quantity);
+
+  const subtotal = cartItems.reduce((sum, ci) => sum + unitPrice(ci) * ci.quantity, 0);
 
   // Gutschein serverseitig prüfen; ungültige Codes führen zurück zum Checkout mit Fehlermeldung.
   const couponInput = String(formData.get("couponCode") || "").trim();
@@ -397,7 +403,7 @@ export async function checkout(formData: FormData) {
           productImage: ci.product.image,
           quantity: ci.quantity,
           variant: ci.variant,
-          priceAtPurchase: effectivePrice(ci.product),
+          priceAtPurchase: unitPrice(ci),
         })),
       },
     },
@@ -408,6 +414,18 @@ export async function checkout(formData: FormData) {
     await prisma.product.update({
       where: { id: ci.productId },
       data: { stock: Math.max(0, ci.product.stock - ci.quantity) },
+    });
+  }
+
+  // Deal-Kontingent verbrauchen (sold erhöhen, nie über quantity).
+  for (const ci of cartItems) {
+    const deal = dealsMap.get(ci.productId);
+    if (!deal) continue;
+    const remaining = deal.quantity - deal.sold;
+    if (remaining <= 0) continue;
+    await prisma.deal.update({
+      where: { id: deal.id },
+      data: { sold: { increment: Math.min(ci.quantity, remaining) } },
     });
   }
 
@@ -943,8 +961,18 @@ export async function submitReview(productId: string, formData: FormData) {
   const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
   const authorName = dbUser?.name || user.email.split("@")[0];
 
+  // Bis zu 3 Fotos (max. 2 MB je Foto) als Data-URIs speichern.
+  const photoFiles = (formData.getAll("photos") as File[]).filter((f) => f && f.size > 0).slice(0, 3);
+  const images: string[] = [];
+  for (const file of photoFiles) {
+    if (file.size > 2 * 1024 * 1024) {
+      throw new Error(`Foto "${file.name}" ist zu groß (max. 2 MB pro Foto).`);
+    }
+    images.push(await fileToDataUri(file));
+  }
+
   await prisma.review.create({
-    data: { productId, userId: user.id, authorName, rating, text: text.slice(0, 2000), verified: true },
+    data: { productId, userId: user.id, authorName, rating, text: text.slice(0, 2000), verified: true, images },
   });
 
   // Belohnung: +15 Coins pro Bewertung.
@@ -1168,4 +1196,97 @@ export async function trackRecentlyViewed(userId: string, productId: string) {
       create: { userId, productId },
     })
     .catch(() => {}); // z.B. wenn das Produkt gerade gelöscht wurde
+}
+
+// --- Glücksrad (täglich ein Gratis-Dreh) ---
+
+// Segment-Reihenfolge muss zu SEGMENTS in components/LuckyWheel.tsx passen.
+const WHEEL_PRIZES = [5, 10, 15, 20, 25, 50, 0, 100]; // 0 = Niete
+const WHEEL_WEIGHTS = [25, 20, 15, 12, 10, 8, 8, 2];
+
+/** Prüft, ob der Nutzer heute schon am Glücksrad gedreht hat (Kalendertag, wie Mystery Box). */
+export async function hasSpunWheelToday(userId: string): Promise<boolean> {
+  const dbUser = await prisma.user.findUnique({ where: { id: userId } });
+  if (!dbUser?.lastWheelSpinAt) return false;
+  return dbUser.lastWheelSpinAt.toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Dreht das Glücksrad: einmal pro Kalendertag, Gewinn wird serverseitig
+ * gewichtet ausgewürfelt und via grantCoins gutgeschrieben.
+ */
+export async function spinWheel(): Promise<{ prize: number; segmentIndex: number }> {
+  const user = await requireUser();
+
+  if (await hasSpunWheelToday(user.id)) {
+    throw new Error("Du hast heute schon gedreht — komm morgen wieder!");
+  }
+
+  const totalWeight = WHEEL_WEIGHTS.reduce((a, b) => a + b, 0);
+  let roll = Math.random() * totalWeight;
+  let segmentIndex = 0;
+  for (let i = 0; i < WHEEL_PRIZES.length; i++) {
+    if (roll < WHEEL_WEIGHTS[i]) {
+      segmentIndex = i;
+      break;
+    }
+    roll -= WHEEL_WEIGHTS[i];
+  }
+  const prize = WHEEL_PRIZES[segmentIndex];
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastWheelSpinAt: new Date() },
+  });
+  if (prize > 0) {
+    await grantCoins(user.id, prize, "Glücksrad");
+  }
+
+  revalidatePath("/rewards");
+  return { prize, segmentIndex };
+}
+
+// --- "Hilfreich"-Votes für Bewertungen ---
+
+/** Markiert eine Bewertung als hilfreich — max. eine Stimme pro Nutzer und Bewertung. */
+export async function markReviewHelpful(reviewId: string) {
+  const user = await requireUser();
+  const review = await prisma.review.findUnique({ where: { id: reviewId } });
+  if (!review) return;
+
+  const existing = await prisma.reviewVote.findUnique({
+    where: { reviewId_userId: { reviewId, userId: user.id } },
+  });
+  if (existing) return; // schon abgestimmt — nichts tun
+
+  await prisma.reviewVote.create({ data: { reviewId, userId: user.id } });
+  await prisma.review.update({
+    where: { id: reviewId },
+    data: { helpfulCount: { increment: 1 } },
+  });
+
+  revalidatePath(`/product/${review.productId}`);
+}
+
+// --- Fragen & Antworten ---
+
+/** Stellt eine Produktfrage (max. 5 pro Stunde). Antworten kommen vom Viralo Team. */
+export async function askQuestion(productId: string, formData: FormData) {
+  const user = await requireUser();
+  assertRateLimit(`question:${user.id}`, 5, 60 * 60 * 1000);
+
+  const question = String(formData.get("question") || "").trim();
+  if (!question) throw new Error("Bitte eine Frage eingeben.");
+
+  const product = await prisma.product.findUnique({ where: { id: productId } });
+  if (!product) throw new Error("Produkt nicht gefunden.");
+
+  const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
+  const authorName = dbUser?.name || user.email.split("@")[0];
+
+  await prisma.productQuestion.create({
+    data: { productId, userId: user.id, authorName, question: question.slice(0, 1000) },
+  });
+
+  revalidatePath(`/product/${productId}`);
 }
