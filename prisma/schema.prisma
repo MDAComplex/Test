@@ -19,6 +19,7 @@ model User {
   name             String?
   passwordHash     String
   role             String         @default("USER")
+  blocked          Boolean        @default(false)
   onboarded        Boolean        @default(false)
   preferences      String?
   style            String?
@@ -34,6 +35,41 @@ model User {
   questProgress    QuestProgress[]
   wishlist         Wishlist[]
   notifications    Notification[]
+  addresses        Address[]
+  recentlyViewed   RecentlyViewed[]
+  reviews          Review[]
+}
+
+model Address {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  street    String
+  zip       String
+  city      String
+  country   String   @default("CH")
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model RecentlyViewed {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  viewedAt  DateTime @default(now())
+
+  @@unique([userId, productId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }
 
 model QuestProgress {
@@ -77,6 +113,7 @@ model Product {
   orderItems      OrderItem[]
   reviews         Review[]
   wishlist        Wishlist[]
+  recentlyViewed  RecentlyViewed[]
 }
 
 model Review {
@@ -86,6 +123,9 @@ model Review {
   authorName String
   rating     Int
   text       String
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  verified   Boolean  @default(false)
   createdAt  DateTime @default(now())
 }
 
@@ -124,16 +164,18 @@ model Order {
   shippingAddress String
   couponCode      String?
   discountAmount  Float       @default(0)
+  coinsRedeemed   Int         @default(0)
   rewardGranted   Boolean     @default(false)
   items           OrderItem[]
 }
 
 model Coupon {
-  id        String    @id @default(cuid())
-  code      String    @unique
-  percent   Int
-  active    Boolean   @default(true)
-  expiresAt DateTime?
+  id                String    @id @default(cuid())
+  code              String    @unique
+  percent           Int
+  active            Boolean   @default(true)
+  restrictedToEmail String?
+  expiresAt         DateTime?
   createdAt DateTime  @default(now())
 }
 
