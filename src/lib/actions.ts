@@ -10,7 +10,8 @@ import { effectivePrice } from "@/lib/pricing";
 import { readGuestCart, writeGuestCart, clearGuestCart } from "@/lib/guestCart";
 import { countryName, isValidCountry } from "@/lib/countries";
 import { assertRateLimit } from "@/lib/rateLimit";
-import { getShipmentProgress, isCancellable } from "@/lib/shipping";
+import { getShipmentProgress, isCancellable, getTrackingNumber } from "@/lib/shipping";
+import { grantCoins, spendCoins } from "@/lib/coins";
 import { randomUUID } from "crypto";
 
 async function requireUser() {
@@ -45,8 +46,11 @@ export async function registerUser(formData: FormData) {
   const passwordHash = await bcrypt.hash(password, 10);
   const newUser = await prisma.user.create({
     // Onboarding ist optional: direkt als onboarded markieren, Präferenzen später im Account anpassbar.
-    data: { email, name, passwordHash, role: "USER", coins: 25, onboarded: true },
+    data: { email, name, passwordHash, role: "USER", onboarded: true },
   });
+
+  // Willkommensbonus (inkl. Eintrag im Coins-Verlauf).
+  await grantCoins(newUser.id, 25, "Willkommensbonus");
 
   // Gast-Warenkorb in den frischen Account übernehmen (Cookie danach leer).
   await mergeGuestCart(newUser.id);
@@ -85,10 +89,11 @@ export async function mergeGuestCart(userId: string) {
   for (const item of guestItems) {
     const product = await prisma.product.findUnique({ where: { id: item.productId } });
     if (!product || product.stock <= 0) continue;
+    const variant = item.variant ?? "";
     await prisma.cartItem.upsert({
-      where: { userId_productId: { userId, productId: item.productId } },
+      where: { userId_productId_variant: { userId, productId: item.productId, variant } },
       update: { quantity: { increment: item.quantity } },
-      create: { userId, productId: item.productId, quantity: item.quantity },
+      create: { userId, productId: item.productId, quantity: item.quantity, variant },
     });
   }
 
@@ -146,22 +151,25 @@ export async function recordProductView() {
   await bumpQuest(userId, "browse5", 1);
 }
 
-export async function addToCart(productId: string, quantity = 1) {
+export async function addToCart(productId: string, quantity = 1, variant = "") {
   const session = await auth();
   const user = session?.user as { id: string } | undefined;
 
   const product = await prisma.product.findUnique({ where: { id: productId } });
   if (!product) throw new Error("Produkt nicht gefunden.");
   if (product.stock <= 0) throw new Error("Dieser Artikel ist leider ausverkauft.");
+  if (product.sizes.length > 0 && !variant) {
+    throw new Error("Bitte zuerst eine Größe auswählen.");
+  }
 
   // Gäste: Warenkorb im Cookie führen — kein Login-Zwang beim Shoppen.
   if (!user?.id) {
     const items = await readGuestCart();
-    const existingItem = items.find((i) => i.productId === productId);
+    const existingItem = items.find((i) => i.productId === productId && (i.variant ?? "") === variant);
     if (existingItem) {
       existingItem.quantity += quantity;
     } else {
-      items.push({ productId, quantity });
+      items.push({ productId, quantity, ...(variant ? { variant } : {}) });
     }
     await writeGuestCart(items);
     revalidatePath("/cart");
@@ -172,37 +180,50 @@ export async function addToCart(productId: string, quantity = 1) {
   await mergeGuestCart(user.id);
 
   const existing = await prisma.cartItem.findUnique({
-    where: { userId_productId: { userId: user.id, productId } },
+    where: { userId_productId_variant: { userId: user.id, productId, variant } },
   });
 
   await prisma.cartItem.upsert({
-    where: { userId_productId: { userId: user.id, productId } },
-    update: { quantity: { increment: quantity } },
-    create: { userId: user.id, productId, quantity },
+    where: { userId_productId_variant: { userId: user.id, productId, variant } },
+    update: { quantity: { increment: quantity }, savedForLater: false },
+    create: { userId: user.id, productId, quantity, variant },
   });
 
   if (!existing) {
     await bumpQuest(user.id, "cart3", 1);
   }
 
-  const cartItems = await prisma.cartItem.findMany({ where: { userId: user.id }, include: { product: true } });
+  const cartItems = await prisma.cartItem.findMany({
+    where: { userId: user.id, savedForLater: false },
+    include: { product: true },
+  });
   const cartTotal = cartItems.reduce((s, i) => s + effectivePrice(i.product) * i.quantity, 0);
   await setQuestProgressAbsolute(user.id, "cart50", cartTotal);
 
   revalidatePath("/cart");
 }
 
+/** Gast-Warenkorb: mutationId ist "productId::variant" (Variante optional). */
+function parseGuestCartKey(key: string): { productId: string; variant: string } {
+  const idx = key.indexOf("::");
+  if (idx === -1) return { productId: key, variant: "" };
+  return { productId: key.slice(0, idx), variant: key.slice(idx + 2) };
+}
+
 export async function updateCartQty(cartItemId: string, quantity: number) {
   const session = await auth();
   const user = session?.user as { id: string } | undefined;
 
-  // Gäste: cartItemId ist hier die productId (Cookie-Warenkorb).
+  // Gäste: cartItemId ist hier "productId::variant" (Cookie-Warenkorb).
   if (!user?.id) {
+    const { productId, variant } = parseGuestCartKey(cartItemId);
+    const matches = (i: { productId: string; variant?: string }) =>
+      i.productId === productId && (i.variant ?? "") === variant;
     const items = await readGuestCart();
     const next =
       quantity <= 0
-        ? items.filter((i) => i.productId !== cartItemId)
-        : items.map((i) => (i.productId === cartItemId ? { ...i, quantity } : i));
+        ? items.filter((i) => !matches(i))
+        : items.map((i) => (matches(i) ? { ...i, quantity } : i));
     await writeGuestCart(next);
     revalidatePath("/cart");
     return;
@@ -223,15 +244,36 @@ export async function removeFromCart(cartItemId: string) {
   const session = await auth();
   const user = session?.user as { id: string } | undefined;
 
-  // Gäste: cartItemId ist hier die productId (Cookie-Warenkorb).
+  // Gäste: cartItemId ist hier "productId::variant" (Cookie-Warenkorb).
   if (!user?.id) {
+    const { productId, variant } = parseGuestCartKey(cartItemId);
     const items = await readGuestCart();
-    await writeGuestCart(items.filter((i) => i.productId !== cartItemId));
+    await writeGuestCart(items.filter((i) => !(i.productId === productId && (i.variant ?? "") === variant)));
     revalidatePath("/cart");
     return;
   }
 
   await prisma.cartItem.deleteMany({ where: { id: cartItemId, userId: user.id } });
+  revalidatePath("/cart");
+}
+
+// --- Für später speichern (nur eingeloggte Nutzer) ---
+
+export async function saveForLater(cartItemId: string) {
+  const user = await requireUser();
+  await prisma.cartItem.updateMany({
+    where: { id: cartItemId, userId: user.id },
+    data: { savedForLater: true },
+  });
+  revalidatePath("/cart");
+}
+
+export async function moveToCart(cartItemId: string) {
+  const user = await requireUser();
+  await prisma.cartItem.updateMany({
+    where: { id: cartItemId, userId: user.id },
+    data: { savedForLater: false },
+  });
   revalidatePath("/cart");
 }
 
@@ -293,8 +335,9 @@ export async function checkout(formData: FormData) {
   // Fiktive Zahlungsdaten (Kartennummer, Ablaufdatum, CVC): bewusst NICHT validiert,
   // NICHT gespeichert und NICHT verarbeitet — es passiert nichts mit ihnen (Demo, CHF 0.00).
 
+  // "Für später gespeicherte" Artikel bleiben im Warenkorb liegen und werden nicht bestellt.
   const cartItems = await prisma.cartItem.findMany({
-    where: { userId: user.id },
+    where: { userId: user.id, savedForLater: false },
     include: { product: true },
   });
 
@@ -353,6 +396,7 @@ export async function checkout(formData: FormData) {
           productName: ci.product.name,
           productImage: ci.product.image,
           quantity: ci.quantity,
+          variant: ci.variant,
           priceAtPurchase: effectivePrice(ci.product),
         })),
       },
@@ -370,15 +414,38 @@ export async function checkout(formData: FormData) {
   // Kleiner Bestellbonus sofort — der große Coin-Payout ("Lieferbonus") kommt erst
   // bei Zustellung via grantDeliveryRewards (macht den Loop spannender).
   const coinsEarned = 10;
+  const shortId = order.id.slice(-6).toUpperCase();
   const rankBefore = getRank(currentUser?.coins ?? 0).current;
-  const updatedUser = await prisma.user.update({
+  // Eingelöste Coins abziehen, Bestellbonus gutschreiben (je mit Verlaufs-Eintrag).
+  if (coinsRedeemed > 0) {
+    await spendCoins(user.id, coinsRedeemed, "Coins eingelöst");
+  }
+  const coinsAfter = await grantCoins(user.id, coinsEarned, "Bestellbonus");
+  await prisma.user.update({
     where: { id: user.id },
-    // Bestellbonus gutschreiben, eingelöste Coins abziehen.
-    data: { coins: { increment: coinsEarned - coinsRedeemed }, totalSaved: { increment: total } },
+    data: { totalSaved: { increment: total } },
   });
-  const rankAfter = getRank(updatedUser.coins).current;
+  const rankAfter = getRank(coinsAfter).current;
 
-  await prisma.cartItem.deleteMany({ where: { userId: user.id } });
+  await prisma.cartItem.deleteMany({ where: { userId: user.id, savedForLater: false } });
+
+  // Bestellbestätigung als Benachrichtigung (simulierte E-Mail; echter Versand kommt später).
+  const itemCount = cartItems.reduce((s, ci) => s + ci.quantity, 0);
+  const discountParts = [
+    discountAmount > 0 ? `Gutschein ${couponCode}: −${discountAmount.toFixed(2)} €` : "",
+    coinsRedeemed > 0 ? `Coins-Rabatt: −${coinsDiscount.toFixed(2)} € (${coinsRedeemed} Coins)` : "",
+  ].filter(Boolean);
+  await prisma.notification.create({
+    data: {
+      userId: user.id,
+      title: `Bestellbestätigung #${shortId}`,
+      body:
+        `Danke für deine Bestellung! ${itemCount} Artikel, Warenwert ${total.toFixed(2)} €.` +
+        (discountParts.length > 0 ? ` ${discountParts.join(" · ")}.` : "") +
+        ` Sendungsnummer: ${getTrackingNumber(order.id)}.` +
+        ` Voraussichtliche Zustellung: ${estDeliveryMin.toLocaleDateString("de-DE")} – ${estDeliveryMax.toLocaleDateString("de-DE")}. (Ref: ${order.id})`,
+    },
+  });
 
   const leveledUp = rankAfter.key !== rankBefore.key;
   redirect(`/orders/${order.id}${leveledUp ? `?levelup=${encodeURIComponent(rankAfter.label)}` : ""}`);
@@ -729,10 +796,11 @@ export async function adjustUserCoins(userId: string, formData: FormData) {
   const target = await prisma.user.findUnique({ where: { id: userId } });
   if (!target) throw new Error("Nutzer nicht gefunden.");
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: { coins: Math.max(0, target.coins + delta) },
-  });
+  if (delta > 0) {
+    await grantCoins(userId, delta, "Anpassung durch Shop-Team");
+  } else {
+    await spendCoins(userId, -delta, "Anpassung durch Shop-Team");
+  }
   revalidatePath("/admin/users");
 }
 
@@ -880,7 +948,7 @@ export async function submitReview(productId: string, formData: FormData) {
   });
 
   // Belohnung: +15 Coins pro Bewertung.
-  await prisma.user.update({ where: { id: user.id }, data: { coins: { increment: 15 } } });
+  await grantCoins(user.id, 15, "Bewertung verfasst");
   await prisma.notification.create({
     data: {
       userId: user.id,
@@ -918,11 +986,13 @@ export async function cancelOrder(orderId: string) {
 
   // Eingelöste Coins zurückerstatten, 10-Coins-Bestellbonus zurücknehmen.
   const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
-  const coinDelta = order.coinsRedeemed - 10;
+  if (order.coinsRedeemed > 0) {
+    await grantCoins(user.id, order.coinsRedeemed, "Storno-Rückerstattung");
+  }
+  await spendCoins(user.id, 10, "Storno Bestellbonus");
   await prisma.user.update({
     where: { id: user.id },
     data: {
-      coins: Math.max(0, (dbUser?.coins ?? 0) + coinDelta),
       totalSaved: { decrement: Math.min(order.total, dbUser?.totalSaved ?? 0) },
     },
   });
@@ -953,14 +1023,65 @@ export async function reorder(orderId: string) {
     if (!product || product.stock <= 0) continue;
     const qty = Math.min(item.quantity, product.stock);
     await prisma.cartItem.upsert({
-      where: { userId_productId: { userId: user.id, productId: item.productId } },
-      update: { quantity: { increment: qty } },
-      create: { userId: user.id, productId: item.productId, quantity: qty },
+      where: {
+        userId_productId_variant: { userId: user.id, productId: item.productId, variant: item.variant },
+      },
+      update: { quantity: { increment: qty }, savedForLater: false },
+      create: { userId: user.id, productId: item.productId, quantity: qty, variant: item.variant },
     });
   }
 
   revalidatePath("/cart");
   redirect("/cart");
+}
+
+// --- Rücksendungen (simuliert) ---
+
+const RETURN_REASONS = ["Passt nicht", "Gefällt nicht", "Defekt", "Falscher Artikel", "Sonstiges"];
+
+/**
+ * Meldet eine Rücksendung für eine zugestellte Bestellung an (Demo: keine echte
+ * Rücksendung nötig). Zieht den Lieferbonus wieder ab und setzt den Status auf RETURNED.
+ */
+export async function requestReturn(orderId: string, formData: FormData) {
+  const user = await requireUser();
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order || order.userId !== user.id) throw new Error("Bestellung nicht gefunden.");
+
+  const reason = String(formData.get("reason") || "").trim();
+  if (!RETURN_REASONS.includes(reason)) throw new Error("Bitte einen Rücksendegrund auswählen.");
+
+  const { currentStatus } = getShipmentProgress(order);
+  if (currentStatus !== "DELIVERED") {
+    throw new Error("Nur zugestellte Bestellungen können zurückgesendet werden.");
+  }
+
+  const existing = await prisma.returnRequest.findFirst({ where: { orderId } });
+  if (existing) throw new Error("Für diese Bestellung wurde bereits eine Rücksendung angemeldet.");
+
+  const shortId = order.id.slice(-6).toUpperCase();
+
+  await prisma.returnRequest.create({
+    data: { orderId, userId: user.id, reason },
+  });
+  await prisma.order.update({ where: { id: orderId }, data: { status: "RETURNED" } });
+
+  // Lieferbonus wieder abziehen (nie unter 0), falls er gutgeschrieben wurde.
+  if (order.rewardGranted) {
+    const deliveryBonus = Math.max(5, Math.round(order.total * 0.1));
+    await spendCoins(user.id, deliveryBonus, `Rücksendung Bestellung #${shortId}`);
+  }
+
+  await prisma.notification.create({
+    data: {
+      userId: user.id,
+      title: "Rücksendung angemeldet",
+      body: `Deine Rücksendung für Bestellung #${shortId} wurde angemeldet. Rückschein-Code: RET-${getTrackingNumber(order.id)}. Grund: ${reason}. Demo: keine echte Rücksendung nötig. (Ref: ${order.id})`,
+    },
+  });
+
+  revalidatePath(`/orders/${orderId}`);
+  revalidatePath("/orders");
 }
 
 // --- Adressbuch ---

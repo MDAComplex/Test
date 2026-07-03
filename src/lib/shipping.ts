@@ -28,11 +28,12 @@ export type OrderLike = {
   status?: string;
 };
 
-/** Berechneter Status inkl. Stornierung. */
-export type OrderStatus = ShipmentStatus | "CANCELLED";
+/** Berechneter Status inkl. Stornierung und Rücksendung. */
+export type OrderStatus = ShipmentStatus | "CANCELLED" | "RETURNED";
 
 export const STATUS_LABELS: Record<OrderStatus, string> = {
   CANCELLED: "Storniert",
+  RETURNED: "Zurückgesendet",
   PLACED: "Bestellung eingegangen",
   PACKED: "Verpackt",
   SHIPPED: "Versendet",
@@ -74,11 +75,11 @@ function countryTransitDelayMs(shippingAddress: string): number {
 }
 
 export function getShipmentProgress(order: OrderLike, now: Date = new Date()) {
-  // Stornierte Bestellungen haben keine Sendungs-Timeline mehr.
-  if (order.status === "CANCELLED") {
+  // Stornierte oder zurückgesendete Bestellungen haben keine Sendungs-Timeline mehr.
+  if (order.status === "CANCELLED" || order.status === "RETURNED") {
     return {
       stations: [] as ShipmentStation[],
-      currentStatus: "CANCELLED" as OrderStatus,
+      currentStatus: order.status as OrderStatus,
       progressRatio: 0,
       trackingNumber: getTrackingNumber(order.id),
       estimatedDelivery: order.estDeliveryMax,

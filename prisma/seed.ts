@@ -63,7 +63,10 @@ function randomReviewsForProduct() {
   return reviews;
 }
 
-const PRODUCTS: Record<string, { name: string; description: string; price: number; image: string; shippingMinDays?: number; shippingMaxDays?: number }[]> = {
+const CLOTHING_SIZES = ["S", "M", "L", "XL"];
+const SHOE_SIZES = ["38", "39", "40", "41", "42", "43", "44"];
+
+const PRODUCTS: Record<string, { name: string; description: string; price: number; image: string; shippingMinDays?: number; shippingMaxDays?: number; sizes?: string[] }[]> = {
   elektronik: [
     { name: "Wireless Bluetooth Kopfhörer Pro", description: "Over-Ear Kopfhörer mit aktivem Noise Cancelling und 40h Akkulaufzeit.", price: 79.99, image: "🎧" },
     { name: "4K Smart Action Cam", description: "Wasserdichte Action-Kamera mit 4K60fps und Bildstabilisierung.", price: 129.0, image: "📷" },
@@ -79,11 +82,11 @@ const PRODUCTS: Record<string, { name: string; description: string; price: numbe
     { name: "Parfum Eau de Parfum 50ml", description: "Blumig-orientalischer Damenduft mit langanhaltender Sillage.", price: 39.0, image: "🌸" },
   ],
   mode: [
-    { name: "Oversized Hoodie Unisex", description: "Kuscheliger Hoodie aus Bio-Baumwolle, perfekt für den Alltag.", price: 39.99, image: "👕" },
-    { name: "Slim Fit Jeans Herren", description: "Stretch-Jeans mit modernem Slim-Fit-Schnitt.", price: 44.0, image: "👖" },
-    { name: "Sommerkleid Blumenprint", description: "Luftiges Midikleid mit floralem Muster, ideal für den Sommer.", price: 29.99, image: "👗" },
-    { name: "Sneaker Classic White", description: "Zeitlose weiße Sneaker aus veganem Leder.", price: 54.99, image: "👟" },
-    { name: "Wollmantel Damen", description: "Eleganter Wollmantel mit Gürtel für die kalte Jahreszeit.", price: 89.0, image: "🧥" },
+    { name: "Oversized Hoodie Unisex", description: "Kuscheliger Hoodie aus Bio-Baumwolle, perfekt für den Alltag.", price: 39.99, image: "👕", sizes: CLOTHING_SIZES },
+    { name: "Slim Fit Jeans Herren", description: "Stretch-Jeans mit modernem Slim-Fit-Schnitt.", price: 44.0, image: "👖", sizes: CLOTHING_SIZES },
+    { name: "Sommerkleid Blumenprint", description: "Luftiges Midikleid mit floralem Muster, ideal für den Sommer.", price: 29.99, image: "👗", sizes: CLOTHING_SIZES },
+    { name: "Sneaker Classic White", description: "Zeitlose weiße Sneaker aus veganem Leder.", price: 54.99, image: "👟", sizes: SHOE_SIZES },
+    { name: "Wollmantel Damen", description: "Eleganter Wollmantel mit Gürtel für die kalte Jahreszeit.", price: 89.0, image: "🧥", sizes: CLOTHING_SIZES },
   ],
   haushalt: [
     { name: "Roboter-Staubsauger SmartClean", description: "App-gesteuerter Saugroboter mit Kartierungsfunktion.", price: 199.0, image: "🤖" },
@@ -95,7 +98,7 @@ const PRODUCTS: Record<string, { name: string; description: string; price: numbe
   sport: [
     { name: "Yogamatte Premium 6mm", description: "Rutschfeste Yogamatte mit Tragegurt, ideal für Yoga & Pilates.", price: 21.99, image: "🧘" },
     { name: "Verstellbare Kurzhantel-Set 2x10kg", description: "Platzsparende Hantel mit verstellbarem Gewicht.", price: 59.0, image: "🏋️" },
-    { name: "Laufschuhe AirFlex", description: "Leichte Laufschuhe mit atmungsaktivem Mesh-Obermaterial.", price: 64.99, image: "👟" },
+    { name: "Laufschuhe AirFlex", description: "Leichte Laufschuhe mit atmungsaktivem Mesh-Obermaterial.", price: 64.99, image: "👟", sizes: SHOE_SIZES },
     { name: "Fahrradhelm Aero", description: "Aerodynamischer Fahrradhelm mit verstellbarem Verschlusssystem.", price: 34.0, image: "🚴" },
     { name: "Fitness Tracker Armband", description: "Wasserdichtes Fitnessarmband mit Schrittzähler und Schlaftracking.", price: 27.5, image: "📿" },
   ],
@@ -175,6 +178,7 @@ async function main() {
             categoryId: category.id,
             shippingMinDays: p.shippingMinDays ?? Math.floor(Math.random() * 2) + 1,
             shippingMaxDays: p.shippingMaxDays ?? Math.floor(Math.random() * 3) + 4,
+            sizes: p.sizes ?? [],
             isSample: true,
           },
         });

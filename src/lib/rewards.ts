@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getShipmentProgress, getTrackingNumber, isShippedOrLater } from "@/lib/shipping";
+import { grantCoins } from "@/lib/coins";
 
 // iconKey wird im UI auf lucide-Icons gemappt (siehe components/RewardIcon.tsx) — keine Emojis im UI.
 export const RANKS = [
@@ -50,8 +51,9 @@ export async function touchDailyLogin(userId: string) {
 
   await prisma.user.update({
     where: { id: userId },
-    data: { streak: newStreak, lastLoginDate: today, coins: { increment: bonus } },
+    data: { streak: newStreak, lastLoginDate: today },
   });
+  await grantCoins(userId, bonus, "Täglicher Login-Bonus");
 }
 
 export async function bumpQuest(userId: string, questKey: "cart3" | "browse5", incrementBy = 1) {
@@ -75,7 +77,7 @@ export async function bumpQuest(userId: string, questKey: "cart3" | "browse5", i
   });
 
   if (completed) {
-    await prisma.user.update({ where: { id: userId }, data: { coins: { increment: quest.reward } } });
+    await grantCoins(userId, quest.reward, "Tagesquest");
   }
 }
 
@@ -99,7 +101,7 @@ export async function setQuestProgressAbsolute(userId: string, questKey: "cart50
   });
 
   if (completed) {
-    await prisma.user.update({ where: { id: userId }, data: { coins: { increment: quest.reward } } });
+    await grantCoins(userId, quest.reward, "Tagesquest");
   }
 }
 
@@ -140,8 +142,9 @@ export async function claimMysteryBox(userId: string) {
 
   await prisma.user.update({
     where: { id: userId },
-    data: { coins: { increment: prize }, lastMysteryBoxAt: new Date() },
+    data: { lastMysteryBoxAt: new Date() },
   });
+  await grantCoins(userId, prize, "Mystery Box");
 
   return prize;
 }
@@ -180,7 +183,7 @@ export async function grantDeliveryRewards(userId: string) {
     if (currentStatus === "DELIVERED" && !order.rewardGranted) {
       const coins = Math.max(5, Math.round(order.total * 0.1));
       await prisma.order.update({ where: { id: order.id }, data: { rewardGranted: true } });
-      await prisma.user.update({ where: { id: userId }, data: { coins: { increment: coins } } });
+      await grantCoins(userId, coins, `Lieferbonus Bestellung #${shortId}`);
       await prisma.notification.create({
         data: {
           userId,

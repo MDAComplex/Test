@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getRank, getTodayQuests, getUserBadges, canClaimMysteryBox, grantDeliveryRewards } from "@/lib/rewards";
 import { claimMysteryBoxAction } from "@/lib/actions";
 import RewardIcon from "@/components/RewardIcon";
+import Link from "next/link";
 import { Gift, Flame, PiggyBank, Dices, ClipboardList, Award, BarChart3, CheckCircle, Hourglass } from "lucide-react";
 
 export default async function RewardsPage() {
@@ -55,6 +56,9 @@ export default async function RewardsPage() {
           <div>
             <p className="text-xs text-[#6b6b76]">Coins</p>
             <p className="text-3xl font-extrabold text-[#1faa59]">{user.coins}</p>
+            <Link href="/account/coins" className="text-xs text-[#ff5a1f] font-medium underline">
+              Coins-Verlauf ansehen
+            </Link>
           </div>
           <div className="text-right">
             <p className="text-xs text-[#6b6b76]">Rang</p>

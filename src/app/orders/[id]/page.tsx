@@ -9,7 +9,7 @@ import { COUNTRIES } from "@/lib/countries";
 import { geocodeAddress } from "@/lib/geocode";
 import DeliveryMapClient from "@/components/DeliveryMapClient";
 import { grantDeliveryRewards } from "@/lib/rewards";
-import { cancelOrder, reorder } from "@/lib/actions";
+import { cancelOrder, reorder, requestReturn } from "@/lib/actions";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import {
   Receipt,
@@ -23,6 +23,8 @@ import {
   Star,
   XCircle,
   RotateCcw,
+  Undo2,
+  PackageOpen,
   type LucideIcon,
 } from "lucide-react";
 
@@ -83,9 +85,13 @@ export default async function OrderDetailPage(props: {
 
   const { stations, currentStatus, progressRatio, trackingNumber, estimatedDelivery } = getShipmentProgress(order);
   const cancelled = currentStatus === "CANCELLED";
+  const returned = currentStatus === "RETURNED";
+
+  // Rücksendung: existiert bereits eine Anmeldung für diese Bestellung?
+  const returnRequest = await prisma.returnRequest.findFirst({ where: { orderId: order.id } });
 
   // Lieferrouten-Karte: Adresse best-effort parsen und geocoden; bei Fehlern keine Karte.
-  const parsedAddress = cancelled ? null : parseShippingAddress(order.shippingAddress);
+  const parsedAddress = cancelled || returned ? null : parseShippingAddress(order.shippingAddress);
   const routeGeo = parsedAddress
     ? await geocodeAddress(parsedAddress.zip, parsedAddress.city, parsedAddress.country)
     : null;
@@ -115,6 +121,17 @@ export default async function OrderDetailPage(props: {
     }
   }
 
+  async function submitReturn(formData: FormData) {
+    "use server";
+    try {
+      await requestReturn(id, formData);
+    } catch (err) {
+      if (isRedirectError(err)) throw err;
+      const message = err instanceof Error ? err.message : "Rücksendung fehlgeschlagen.";
+      redirect(`/orders/${id}?error=${encodeURIComponent(message)}`);
+    }
+  }
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
       {levelup && <LevelUpConfetti rank={levelup} />}
@@ -140,7 +157,22 @@ export default async function OrderDetailPage(props: {
         </div>
       )}
 
-      {cancelled ? (
+      {returned ? (
+        <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-[#f4f4f5] border border-[#e5e5e8] flex items-center justify-center shrink-0">
+              <Undo2 size={18} className="text-[#6b6b76]" />
+            </div>
+            <div>
+              <h2 className="font-bold">Zurückgesendet</h2>
+              <p className="text-sm text-[#6b6b76]">
+                Diese Bestellung wurde zurückgesendet.
+                {returnRequest && ` Rückschein: RET-${trackingNumber}.`} Demo: keine echte Rücksendung nötig.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : cancelled ? (
         <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6 mb-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-[#f4f4f5] border border-[#e5e5e8] flex items-center justify-center shrink-0">
@@ -246,7 +278,8 @@ export default async function OrderDetailPage(props: {
               <ProductImage image={i.productImage} className="w-full h-full object-cover flex items-center justify-center text-xl" />
             </div>
             <span className="flex-1">
-              {i.productName} × {i.quantity}
+              {i.productName}
+              {i.variant && <span className="text-xs text-[#6b6b76]"> (Größe: {i.variant})</span>} × {i.quantity}
               {delivered && i.productId && !reviewedProductIds.has(i.productId) && (
                 <Link
                   href={`/product/${i.productId}#bewerten`}
@@ -291,6 +324,53 @@ export default async function OrderDetailPage(props: {
           </div>
         </div>
       </div>
+
+      {returnRequest ? (
+        <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6 mb-6">
+          <h2 className="font-bold mb-2 flex items-center gap-2">
+            <Undo2 size={18} /> Rücksendung
+          </h2>
+          <p className="text-sm text-[#1c1c1f]">
+            Rücksendung angemeldet – Rückschein:{" "}
+            <span className="font-mono font-semibold">RET-{trackingNumber}</span>
+          </p>
+          <p className="text-sm text-[#6b6b76] mt-1">
+            Grund: {returnRequest.reason} · Angemeldet am {returnRequest.createdAt.toLocaleDateString("de-DE")} · Status:{" "}
+            {returnRequest.status === "REQUESTED" ? "Angemeldet" : returnRequest.status}
+          </p>
+          <p className="text-xs text-[#6b6b76] mt-2">Demo: keine echte Rücksendung nötig.</p>
+        </div>
+      ) : delivered ? (
+        <div className="bg-white border border-[#e5e5e8] rounded-2xl p-6 mb-6">
+          <h2 className="font-bold mb-2 flex items-center gap-2">
+            <PackageOpen size={18} /> Artikel zurücksenden
+          </h2>
+          <p className="text-sm text-[#6b6b76] mb-3">
+            Etwas passt nicht? Melde deine Rücksendung an — du erhältst sofort einen Rückschein-Code.
+            Der Lieferbonus dieser Bestellung wird dabei wieder abgezogen.
+          </p>
+          <form action={submitReturn} className="flex flex-wrap gap-2">
+            <select
+              name="reason"
+              required
+              defaultValue=""
+              className="flex-1 min-w-48 bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2 text-sm"
+            >
+              <option value="" disabled>
+                Grund auswählen
+              </option>
+              <option value="Passt nicht">Passt nicht</option>
+              <option value="Gefällt nicht">Gefällt nicht</option>
+              <option value="Defekt">Defekt</option>
+              <option value="Falscher Artikel">Falscher Artikel</option>
+              <option value="Sonstiges">Sonstiges</option>
+            </select>
+            <button className="flex items-center gap-2 bg-white border border-[#e5e5e8] text-[#1c1c1f] px-4 py-2 rounded-xl text-sm font-semibold hover:border-[#ff5a1f]">
+              <Undo2 size={15} /> Rücksendung anmelden
+            </button>
+          </form>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap gap-3">
         <form action={async () => { "use server"; await reorder(id); }}>

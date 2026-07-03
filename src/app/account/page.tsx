@@ -69,11 +69,11 @@ export default async function AccountPage(props: { searchParams: Promise<{ error
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4 text-center">
+        <Link href="/account/coins" className="bg-white border border-[#e5e5e8] rounded-2xl p-4 text-center hover:border-[#ff5a1f]/60">
           <Wallet size={18} className="mx-auto mb-1 text-[#ff5a1f]" />
           <p className="text-lg font-extrabold">{user.coins}</p>
-          <p className="text-xs text-[#6b6b76]">Coins</p>
-        </div>
+          <p className="text-xs text-[#6b6b76]">Coins · Verlauf ansehen</p>
+        </Link>
         <div className="bg-white border border-[#e5e5e8] rounded-2xl p-4 text-center">
           <RewardIcon iconKey={current.iconKey} size={18} className="mx-auto mb-1 text-[#ff5a1f]" />
           <p className="text-sm font-bold">{current.label}</p>

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { checkout, validateCoupon } from "@/lib/actions";
 import { effectivePrice, hasDiscount } from "@/lib/pricing";
+import { getRank } from "@/lib/rewards";
 import { COUNTRIES, countryName } from "@/lib/countries";
 import { geocodeAddress } from "@/lib/geocode";
 import AdBanner from "@/components/AdBanner";
@@ -31,7 +32,7 @@ export default async function CheckoutPage(props: {
   } = await props.searchParams;
 
   const [items, dbUser, addresses] = await Promise.all([
-    prisma.cartItem.findMany({ where: { userId }, include: { product: true } }),
+    prisma.cartItem.findMany({ where: { userId, savedForLater: false }, include: { product: true } }),
     prisma.user.findUnique({ where: { id: userId } }),
     prisma.address.findMany({ where: { userId }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] }),
   ]);
@@ -57,6 +58,21 @@ export default async function CheckoutPage(props: {
   const coinsDiscount = effectiveRedeem / 100;
 
   const total = Math.max(0, afterCoupon - coinsDiscount);
+
+  // Level-Fortschritt: erwartete Coins nach Zustellung (Bestellbonus + Lieferbonus − eingelöste Coins).
+  const deliveryBonusCoins = Math.max(5, Math.round(total * 0.1));
+  const projectedCoins = Math.max(0, coinBalance + 10 + deliveryBonusCoins - effectiveRedeem);
+  const projectedRank = getRank(projectedCoins);
+  const rankProgressPercent = projectedRank.next
+    ? Math.min(
+        100,
+        Math.round(
+          ((projectedCoins - projectedRank.current.min) /
+            (projectedRank.next.min - projectedRank.current.min)) *
+            100
+        )
+      )
+    : 100;
 
   // --- Lieferrouten-Vorschau (fiktiv, ab Viralo Fulfillment Center, Los Angeles) ---
   // Basis: Standard-/erste gespeicherte Adresse, sonst manuelle Vorschau via GET-Parameter.
@@ -227,7 +243,10 @@ export default async function CheckoutPage(props: {
           <h2 className="font-bold mb-3">Bestellübersicht</h2>
           {items.map((i) => (
             <div key={i.id} className="flex justify-between gap-2 text-sm py-1">
-              <span className="text-[#1c1c1f]">{i.product.name} × {i.quantity}</span>
+              <span className="text-[#1c1c1f]">
+                {i.product.name}
+                {i.variant && <span className="text-[#6b6b76]"> (Größe: {i.variant})</span>} × {i.quantity}
+              </span>
               <span className="font-semibold whitespace-nowrap">
                 {hasDiscount(i.product) && (
                   <span className="text-[#6b6b76] line-through mr-1 font-normal">
@@ -267,6 +286,19 @@ export default async function CheckoutPage(props: {
               <span>Heute zu zahlen</span>
               <span className="text-[#1faa59]">CHF 0.00</span>
             </div>
+          </div>
+        </div>
+
+        <div className="bg-[#eafbf1] border border-[#bfe9d1] rounded-2xl p-3">
+          <p className="text-xs text-[#1c1c1f]">
+            Mit dieser Bestellung: <span className="font-bold text-[#1faa59]">+{10 + deliveryBonusCoins} Coins</span> bei
+            Zustellung{" "}
+            {projectedRank.next
+              ? `— damit bist du bei ${rankProgressPercent} % zum Rang ${projectedRank.next.label}`
+              : `— du hast bereits den höchsten Rang (${projectedRank.current.label}) erreicht`}
+          </p>
+          <div className="w-full h-1 bg-white rounded-full overflow-hidden mt-2">
+            <div className="h-full bg-[#1faa59]" style={{ width: `${rankProgressPercent}%` }} />
           </div>
         </div>
 

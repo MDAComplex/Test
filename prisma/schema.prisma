@@ -29,6 +29,7 @@ model User {
   streak           Int            @default(0)
   lastLoginDate    String?
   lastMysteryBoxAt DateTime?
+  lastWheelSpinAt  DateTime?
   createdAt        DateTime       @default(now())
   cartItems        CartItem[]
   orders           Order[]
@@ -38,6 +39,19 @@ model User {
   addresses        Address[]
   recentlyViewed   RecentlyViewed[]
   reviews          Review[]
+  coinTransactions CoinTransaction[]
+  reviewVotes      ReviewVote[]
+  questions        ProductQuestion[]
+  returnRequests   ReturnRequest[]
+}
+
+model CoinTransaction {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Int
+  reason    String
+  createdAt DateTime @default(now())
 }
 
 model Address {
@@ -111,9 +125,58 @@ model Product {
   createdAt       DateTime    @default(now())
   cartItems       CartItem[]
   orderItems      OrderItem[]
+  sizes           String[]    @default([])
   reviews         Review[]
   wishlist        Wishlist[]
   recentlyViewed  RecentlyViewed[]
+  deals           Deal[]
+  questions       ProductQuestion[]
+}
+
+model Deal {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  percent   Int
+  quantity  Int
+  sold      Int      @default(0)
+  startsAt  DateTime
+  endsAt    DateTime
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model ProductQuestion {
+  id         String    @id @default(cuid())
+  productId  String
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  authorName String
+  question   String
+  answer     String?
+  answeredAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model ReturnRequest {
+  id        String   @id @default(cuid())
+  orderId   String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason    String
+  status    String   @default("REQUESTED")
+  createdAt DateTime @default(now())
+}
+
+model ReviewVote {
+  id       String @id @default(cuid())
+  reviewId String
+  review   Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, userId])
 }
 
 model Review {
@@ -126,6 +189,9 @@ model Review {
   userId     String?
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   verified   Boolean  @default(false)
+  images     String[] @default([])
+  helpfulCount Int    @default(0)
+  votes      ReviewVote[]
   createdAt  DateTime @default(now())
 }
 
@@ -144,11 +210,13 @@ model CartItem {
   id        String  @id @default(cuid())
   userId    String
   user      User    @relation(fields: [userId], references: [id])
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
-  quantity  Int     @default(1)
+  productId     String
+  product       Product @relation(fields: [productId], references: [id])
+  quantity      Int     @default(1)
+  variant       String  @default("")
+  savedForLater Boolean @default(false)
 
-  @@unique([userId, productId])
+  @@unique([userId, productId, variant])
 }
 
 model Order {
@@ -198,6 +266,7 @@ model OrderItem {
   productName     String
   productImage    String
   quantity        Int
+  variant         String   @default("")
   priceAtPurchase Float
 }
 

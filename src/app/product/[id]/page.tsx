@@ -163,10 +163,26 @@ export default async function ProductPage(props: { params: Promise<{ id: string 
             action={async (fd) => {
               "use server";
               const q = Math.max(1, parseInt(String(fd.get("quantity")), 10) || 1);
-              await addToCart(product.id, q);
+              const variant = String(fd.get("variant") || "");
+              await addToCart(product.id, q, variant);
             }}
-            className="flex items-center gap-3"
+            className="flex flex-wrap items-center gap-3"
           >
+            {product.sizes.length > 0 && (
+              <fieldset className="w-full">
+                <legend className="text-sm font-semibold mb-2">Größe wählen</legend>
+                <div className="flex flex-wrap gap-2">
+                  {product.sizes.map((size) => (
+                    <label key={size} className="cursor-pointer">
+                      <input type="radio" name="variant" value={size} required className="peer sr-only" />
+                      <span className="inline-flex min-w-11 items-center justify-center px-3 py-2 rounded-xl border border-[#e5e5e8] bg-white text-sm font-semibold text-[#1c1c1f] hover:border-[#ff5a1f]/60 peer-checked:border-[#ff5a1f] peer-checked:bg-[#fff7ed] peer-checked:text-[#ff5a1f]">
+                        {size}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            )}
             <div className="flex items-center border border-[#e5e5e8] rounded-lg overflow-hidden">
               <span className="px-3 text-[#6b6b76] text-sm">Menge</span>
               <input

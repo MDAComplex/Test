@@ -6,7 +6,7 @@ import { cookies } from "next/headers";
 export const GUEST_CART_COOKIE = "guest_cart";
 const MAX_AGE = 30 * 24 * 60 * 60; // 30 Tage
 
-export type GuestCartItem = { productId: string; quantity: number };
+export type GuestCartItem = { productId: string; quantity: number; variant?: string };
 
 /** Liest den Gast-Warenkorb aus dem Cookie (Pages + Server Actions). */
 export async function readGuestCart(): Promise<GuestCartItem[]> {
@@ -19,7 +19,11 @@ export async function readGuestCart(): Promise<GuestCartItem[]> {
     return parsed
       .filter(
         (i): i is GuestCartItem =>
-          !!i && typeof i.productId === "string" && typeof i.quantity === "number" && i.quantity > 0
+          !!i &&
+          typeof i.productId === "string" &&
+          typeof i.quantity === "number" &&
+          i.quantity > 0 &&
+          (i.variant === undefined || typeof i.variant === "string")
       )
       .slice(0, 50);
   } catch {
