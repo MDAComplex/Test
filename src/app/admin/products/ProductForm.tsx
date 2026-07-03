@@ -1,4 +1,4 @@
-import ProductImage from "@/components/ProductImage";
+import ProductMediaUpload from "@/components/ProductMediaUpload";
 import type { Category, Product } from "@prisma/client";
 
 const inputCls = "w-full bg-[#f4f4f5] border border-[#e5e5e8] rounded-xl px-3 py-2 text-sm";
@@ -73,65 +73,7 @@ export default function ProductForm({
       </Section>
 
       <Section title="Medien">
-        <div>
-          <label className={labelCls}>Hauptbild hochladen</label>
-          <input name="imageFile" type="file" accept="image/*" className="block w-full text-sm" />
-          <p className="text-xs text-[#6b6b76] mt-1">Max. 4 MB. Ersetzt Bild-URL/Emoji.</p>
-        </div>
-        <div>
-          <label className={labelCls}>Oder Bild-URL / Emoji</label>
-          <input
-            name="image"
-            defaultValue={product && !product.image.startsWith("data:") ? product.image : ""}
-            placeholder="https://… oder Emoji"
-            className={inputCls}
-          />
-        </div>
-        {product && (
-          <div className="md:col-span-2 flex items-center gap-3">
-            <span className="text-xs text-[#6b6b76]">Aktuelles Hauptbild:</span>
-            <span className="w-14 h-14 rounded-xl bg-[#f4f4f5] border border-[#e5e5e8] flex items-center justify-center overflow-hidden">
-              <ProductImage image={product.image} className="w-full h-full object-cover flex items-center justify-center text-2xl" />
-            </span>
-          </div>
-        )}
-
-        <div className="md:col-span-2">
-          <label className={labelCls}>Galerie-Bilder hinzufügen (Mehrfachauswahl)</label>
-          <input name="galleryFiles" type="file" accept="image/*" multiple className="block w-full text-sm" />
-          <p className="text-xs text-[#6b6b76] mt-1">Max. 4 MB pro Bild.</p>
-        </div>
-        {product && product.images.length > 0 && (
-          <div className="md:col-span-2">
-            <p className={labelCls}>Aktuelle Galerie (zum Entfernen ankreuzen):</p>
-            <div className="flex flex-wrap gap-3">
-              {product.images.map((img, i) => (
-                <label key={i} className="flex flex-col items-center gap-1 cursor-pointer">
-                  <span className="w-16 h-16 rounded-xl bg-[#f4f4f5] border border-[#e5e5e8] flex items-center justify-center overflow-hidden">
-                    <ProductImage image={img} className="w-full h-full object-cover flex items-center justify-center text-2xl" />
-                  </span>
-                  <span className="flex items-center gap-1 text-xs text-[#6b6b76]">
-                    <input type="checkbox" name="removeGalleryIndex" value={i} /> Bild entfernen
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="md:col-span-2">
-          <label className={labelCls}>Produktvideo hochladen</label>
-          <input name="videoFile" type="file" accept="video/*" className="block w-full text-sm" />
-          <p className="text-xs text-[#6b6b76] mt-1">Max. 20 MB. Ersetzt ein vorhandenes Video.</p>
-        </div>
-        {product?.videoUrl && (
-          <div className="md:col-span-2 space-y-2">
-            <video src={product.videoUrl} controls className="max-w-xs rounded-xl border border-[#e5e5e8]" />
-            <label className="flex items-center gap-2 text-sm text-[#6b6b76]">
-              <input type="checkbox" name="removeVideo" /> Video entfernen
-            </label>
-          </div>
-        )}
+        <ProductMediaUpload image={product?.image} images={product?.images ?? []} videoUrl={product?.videoUrl} />
       </Section>
 
       <Section title="Lager & Versand">
