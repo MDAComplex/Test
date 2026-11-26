@@ -295,3 +295,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
 
 .lbl .dn { width: 50px; margin: 2px auto 0; }
 .lbl .dn i { background: #ff3b3b; }
+
+/* Fallschirm-Design im Spind */
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.sw { width: 28px; height: 28px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.3); background: var(--c); cursor: pointer; padding: 0; }
+.sw.on { border-color: #fff; box-shadow: 0 0 0 3px var(--gold); }
+.logos button { flex: 1 1 70px; padding: 7px 8px; }
+.chutetext { font: inherit; font-size: 15px; color: #fff; background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.25); border-radius: 12px; padding: 9px 12px; }
+.chutetext:focus { outline: none; border-color: var(--gold); }
+.lockopts { max-height: min(62vh, 520px); overflow-y: auto; padding-right: 4px; }

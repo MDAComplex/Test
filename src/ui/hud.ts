@@ -6,6 +6,7 @@ import { Settings, loadSettings, saveSettings } from '../settings';
 import { Sfx } from '../sfx';
 import { WEAPONS, TIER_COLORS, WeaponId } from '../weapons';
 import { Preview } from './preview';
+import { CHUTE_COLORS, CHUTE_LOGOS } from '../chute';
 import { Profile, loadProfile, saveProfile, levelInfo, SKINS, skinColor, taskText, awardRound, RoundReward } from '../profile';
 
 const $ = <T extends HTMLElement>(html: string) => {
@@ -152,6 +153,10 @@ export class Hud {
               <div class="row"><span>Outfit</span><div class="seg" data-lock="outfit"><button data-v="none">Normal</button><button data-v="astronaut">Astronaut</button><button data-v="skeleton">Skelett</button><button data-v="office">Büro</button><button data-v="jogger">Jogger</button></div></div>
               <div class="row"><span>Farbe</span><div class="skins" aria-label="Farbe deiner Figur"></div></div>
               <div class="row"><span>Fallschirm</span><div class="seg" data-lock="chute"><button data-v="round">Rundkappe</button><button data-v="wing">Gleitschirm</button></div></div>
+              <div class="row"><span>Schirmfarbe</span><div class="swatches" data-cd="color"></div></div>
+              <div class="row"><span>Streifen</span><div class="swatches" data-cd="accent"></div></div>
+              <div class="row"><span>Logo</span><div class="seg logos">${CHUTE_LOGOS.map((l) => `<button data-logo="${l.id}">${l.name}</button>`).join('')}</div></div>
+              <div class="row"><label for="chute-text">Text auf dem Schirm</label><input id="chute-text" class="chutetext" maxlength="12" placeholder="z. B. dein Name" autocomplete="off"></div>
             </div>
           </div>
           <div class="actions"><button class="btn closelocker">FERTIG</button></div>
@@ -188,6 +193,24 @@ export class Hud {
     this.menu.querySelector('.opensettings')!.addEventListener('click', () => this.openSettings(false));
     this.menu.querySelector('.openlocker')!.addEventListener('click', () => this.openLocker());
     this.lockerEl.querySelector('.closelocker')!.addEventListener('click', () => this.closeLocker());
+    // Fallschirm-Design: Farben, Logo, Text
+    this.lockerEl.querySelectorAll<HTMLElement>('.swatches').forEach((box) => {
+      const key = box.dataset.cd as 'color' | 'accent';
+      for (const c of CHUTE_COLORS) {
+        const b = document.createElement('button');
+        b.className = 'sw';
+        b.dataset.c = String(c);
+        b.style.setProperty('--c', '#' + c.toString(16).padStart(6, '0'));
+        b.setAttribute('aria-label', key === 'color' ? 'Schirmfarbe' : 'Streifenfarbe');
+        b.addEventListener('click', () => { this.profile.chuteDesign[key] = c; this.previewChute = true; saveProfile(this.profile); this.renderProfile(); });
+        box.append(b);
+      }
+    });
+    this.lockerEl.querySelectorAll<HTMLButtonElement>('.logos button').forEach((b) =>
+      b.addEventListener('click', () => { this.profile.chuteDesign.logo = b.dataset.logo as never; this.previewChute = true; saveProfile(this.profile); this.renderProfile(); }));
+    const txt = this.lockerEl.querySelector('.chutetext') as HTMLInputElement;
+    txt.addEventListener('input', () => { this.profile.chuteDesign.text = txt.value.slice(0, 12); this.previewChute = true; saveProfile(this.profile); this.renderProfile(); });
+    txt.addEventListener('keydown', (ev) => ev.stopPropagation());
     this.lockerEl.querySelectorAll<HTMLElement>('[data-lock]').forEach((seg) =>
       seg.querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
         b.addEventListener('click', () => {
@@ -366,7 +389,7 @@ export class Hud {
   }
 
   get playerColor() { return skinColor(this.profile); }
-  get playerLook() { return { char: this.profile.char, chute: this.profile.chute, outfit: this.profile.outfit }; }
+  get playerLook() { return { char: this.profile.char, chute: this.profile.chute, outfit: this.profile.outfit, design: { ...this.profile.chuteDesign } }; }
 
   private openLocker() {
     this.menu.classList.add('hidden');
@@ -416,7 +439,13 @@ export class Hud {
       const cur = (pr as unknown as Record<string, string>)[seg.dataset.lock!];
       seg.querySelectorAll<HTMLElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.v === cur));
     });
-    this.preview?.set(pr.char, skinColor(pr), pr.chute, this.previewChute, pr.outfit);
+    const cd = pr.chuteDesign;
+    this.lockerEl.querySelectorAll<HTMLElement>('.swatches').forEach((box) =>
+      box.querySelectorAll<HTMLElement>('.sw').forEach((b) => b.classList.toggle('on', Number(b.dataset.c) === cd[box.dataset.cd as 'color' | 'accent'])));
+    this.lockerEl.querySelectorAll<HTMLElement>('.logos button').forEach((b) => b.classList.toggle('on', b.dataset.logo === cd.logo));
+    const ti = this.lockerEl.querySelector('.chutetext') as HTMLInputElement;
+    if (document.activeElement !== ti) ti.value = cd.text;
+    this.preview?.set(pr.char, skinColor(pr), pr.chute, this.previewChute, pr.outfit, cd);
     const tl = this.menu.querySelector('.tasks')!;
     tl.innerHTML = '';
     for (const t of pr.daily.tasks) {

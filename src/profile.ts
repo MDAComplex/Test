@@ -1,3 +1,4 @@
+import { ChuteDesign, WHITE_CHUTE } from './chute';
 /** Spielerprofil: Erfahrung, Level, Skins, tägliche Aufgaben (im Browser gespeichert) */
 
 const KEY = 'zonerush.profile.v1';
@@ -48,6 +49,8 @@ export interface Profile {
   chute: 'round' | 'wing';
   /** Outfit (Skin-Modell) aus dem Spind */
   outfit: 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger';
+  /** eigenes Fallschirm-Design */
+  chuteDesign: ChuteDesign;
   tutorialDone: boolean;
   daily: { date: string; tasks: Task[] };
 }
@@ -69,10 +72,11 @@ function newDaily(date: string): Profile['daily'] {
 }
 
 export function loadProfile(): Profile {
-  let p: Profile = { xp: 0, skin: 'gelb', char: 'man', chute: 'round', outfit: 'none', tutorialDone: false, daily: newDaily(today()) };
+  let p: Profile = { xp: 0, skin: 'gelb', char: 'man', chute: 'round', outfit: 'none', chuteDesign: { ...WHITE_CHUTE }, tutorialDone: false, daily: newDaily(today()) };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) p = { ...p, ...JSON.parse(raw) };
+    p.chuteDesign = { ...WHITE_CHUTE, ...(p.chuteDesign || {}) };
   } catch { /* Speicher nicht verfügbar */ }
   if (p.daily?.date !== today()) p.daily = newDaily(today());
   return p;

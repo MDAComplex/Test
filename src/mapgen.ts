@@ -257,15 +257,8 @@ export function generateMap(seed: number): MapData {
     addLoot(p.x + (r() - 0.5) * w * 0.6, p.y + (r() - 0.5) * h * 0.6, randomLootKind(r));
   }
 
-  // hohe Grasfelder (verstecken wie in Büschen)
+  // (keine hohen Grasfelder mehr)
   const grass: Area[] = [];
-  for (let i = 0; i < 7; i++) {
-    const rad = 130 + r() * 90;
-    const p = place(rad, 20, 80);
-    if (!p) continue;
-    blocks.push({ x: p.x, y: p.y, r: rad * 0.6 });
-    grass.push({ x: p.x, y: p.y, r: rad });
-  }
   // Wälder
   for (let i = 0; i < 3; i++) {
     const p = place(300, 0, 80) ?? { x: r() * WORLD, y: r() * WORLD };

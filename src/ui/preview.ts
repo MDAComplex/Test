@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ChuteDesign, WHITE_CHUTE } from '../chute';
 import { buildCharacter, buildChute, animateRig, makeToon, CharKind, ChuteKind, Outfit } from '../render/character';
 
 /** kleine 3D-Vorschau der eigenen Figur im Spind (eigener Renderer, nur solange offen) */
@@ -33,17 +34,17 @@ export class Preview {
     this.scene.add(ground);
   }
 
-  set(kind: CharKind, color: number, chute: ChuteKind, showChute: boolean, outfit: Outfit = 'none') {
+  set(kind: CharKind, color: number, chute: ChuteKind, showChute: boolean, outfit: Outfit = 'none', design: ChuteDesign = WHITE_CHUTE) {
     this.disposables.forEach((d) => d.dispose());
     this.disposables = [];
     this.holder.clear();
     this.rig = buildCharacter({ kind, shirt: color, seed: 11, gradient: this.gradient, toon: this.toon, outfit });
     this.holder.add(this.rig.body);
     this.disposables.push(...this.rig.mats);
-    const c = buildChute(chute, color, this.gradient, new THREE.LineBasicMaterial({ color: 0x4a4a4a }));
+    const c = buildChute(chute, design, this.gradient, new THREE.LineBasicMaterial({ color: 0x4a4a4a }));
+    this.rig.body.add(c.chute);
     this.chute = c.chute;
     this.chute.visible = showChute;
-    this.holder.add(this.chute);
     this.disposables.push(...c.disposables);
     this.showChute = showChute;
     this.resize();

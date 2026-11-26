@@ -3,6 +3,7 @@ import { WEAPONS, WeaponId, WeaponDef } from '../weapons';
 import { MapData, LootKind, Obs, House } from '../mapgen';
 import { botNames, BODY_COLORS, PLAYER_COLOR } from '../names';
 import { recordResult } from '../storage';
+import type { ChuteDesign } from '../chute';
 
 /** Bots tragen ab und zu ein Outfit, damit man die neuen Skins im Spiel sieht */
 const BOT_OUTFIT = () => {
@@ -112,7 +113,7 @@ export class Fighter {
   reviveT = 0;
   leader: Fighter | null = null;
   /** Aussehen: Figur und Fallschirm */
-  look: { char: 'man' | 'woman'; chute: 'round' | 'wing'; outfit?: 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger' } = { char: 'man', chute: 'round', outfit: 'none' };
+  look: { char: 'man' | 'woman'; chute: 'round' | 'wing'; outfit?: 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger'; design?: ChuteDesign } = { char: 'man', chute: 'round', outfit: 'none' };
   vx = 0;
   vy = 0;
   aiming = false;

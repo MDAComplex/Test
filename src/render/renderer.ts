@@ -4,6 +4,7 @@ import { S, WORLD, PLANE_Z, PLANE_TIME } from '../config';
 import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop, isContainer } from '../sim/game';
 import { WEAPONS, TIER_COLORS, WeaponId } from '../weapons';
 import { LootKind } from '../mapgen';
+import { WHITE_CHUTE } from '../chute';
 import { buildCharacter, buildChute, animateRig, poseLying, poseCrawl, makeToon, Rig } from './character';
 
 const W = WORLD * S;
@@ -683,10 +684,12 @@ export class Renderer {
     const rig = buildCharacter({ kind: f.look.char, shirt: f.color, seed: f.id * 7 + 3, gradient: this.gradient, toon: this.charToon, outfit: f.look.outfit });
     rig.gunKick.add(this.makeGun(f.weapon.id));
     lean.add(rig.body);
-    const { chute, disposables } = buildChute(f.look.chute, f.color, this.gradient, this.m.line);
+    const { chute, disposables } = buildChute(f.look.chute, f.look.design ?? WHITE_CHUTE, this.gradient, this.m.line);
     this.perRound.push(...disposables, ...rig.mats);
     chute.visible = false;
-    root.add(shadow, lean, chute);
+    // Schirm hängt am Körper: dreht und neigt sich mit der Figur
+    rig.body.add(chute);
+    root.add(shadow, lean);
     this.world!.add(root);
     const v: FighterView = {
       root, lean, rig, chute, flash: 0, weaponId: f.weapon.id, walkT: Math.random() * 6, amp: 0, deadT: 0,
@@ -1752,9 +1755,8 @@ export class Renderer {
     v.chute.visible = falling;
     if (falling) {
       // Schirm dreht mit der Figur und kippt in die Lenkrichtung
-      v.chute.rotation.y = -v.yaw;
-      v.chute.rotation.x = lerp(v.chute.rotation.x, f.vy * 0.0016, 0.1);
-      v.chute.rotation.z = lerp(v.chute.rotation.z, -f.vx * 0.0016 + Math.sin(this.time * 2 + f.id) * 0.04, 0.1);
+      // leichtes Pendeln um die Hände
+      v.chute.rotation.x = Math.sin(this.time * 1.7 + f.id) * 0.025;
     }
     if (v.chute.visible && !f.isPlayer) {
       // Schirme anderer Spieler, die nah vor der Kamera schweben, durchsichtig machen
@@ -1772,7 +1774,7 @@ export class Renderer {
     if (!v.root.visible) return;
 
     // in Laufrichtung lehnen (am Fallschirm deutlich stärker)
-    const lk = falling ? 0.0028 : 0.0005;
+    const lk = falling ? 0.0011 : 0.0005;
     v.lean.rotation.x = lerp(v.lean.rotation.x, f.vy * lk, 0.12);
     v.lean.rotation.z = lerp(v.lean.rotation.z, -f.vx * lk, 0.12);
 

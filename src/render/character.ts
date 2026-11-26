@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ChuteDesign, WHITE_CHUTE } from '../chute';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
 /** Figur mit Gelenken (Hüfte/Knie, Schulter/Ellbogen), zeigt nach +X, Füße bei y = 0 */
@@ -513,10 +514,12 @@ export function animateRig(rig: Rig, s: AnimState) {
     rig.legs[0].hip.rotation.z = 0.15 + sway * 0.12;
     rig.legs[1].hip.rotation.z = -0.05 - sway * 0.12;
     rig.legs.forEach((l) => (l.knee.rotation.z = -0.35));
-    rig.arms[0].shoulder.rotation.set(0.35, 0, 2.6);
-    rig.arms[1].shoulder.rotation.set(-0.35, 0, 2.6);
-    rig.arms.forEach((a) => a.elbow.rotation.set(0, 0, 0.3));
     rig.torso.rotation.set(0, 0, 0);
+    shoulders(rig);
+    // beide Hände greifen die Steuerleinen über dem Kopf (Torso-Koordinaten: Körper minus Torso-Höhe)
+    const pull = Math.sin(s.time * 1.3 + phase) * 0.03;
+    reach(rig.arms[0], new THREE.Vector3(RISER.x, RISER.y - rig.torso.position.y + pull, RISER.z), 1);
+    reach(rig.arms[1], new THREE.Vector3(RISER.x, RISER.y - rig.torso.position.y - pull, -RISER.z), -1);
     rig.pelvis.rotation.set(0, 0, 0);
     rig.body.position.set(0, 0, 0);
     rig.gunPivot.visible = false;
@@ -664,27 +667,82 @@ export function poseLying(rig: Rig, t: number, crawl: boolean) {
   rig.torso.rotation.set(0, 0, 0);
 }
 
-function stripeTexture(color: number, cells: number) {
+const hexs = (c: number) => '#' + c.toString(16).padStart(6, '0');
+
+function drawLogo(c: CanvasRenderingContext2D, logo: string, x: number, y: number, r: number, col: string) {
+  c.save();
+  c.translate(x, y);
+  c.fillStyle = col;
+  c.strokeStyle = col;
+  c.beginPath();
+  if (logo === 'star') {
+    for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, rr = i % 2 ? r * 0.45 : r; c.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+    c.closePath(); c.fill();
+  } else if (logo === 'heart') {
+    c.moveTo(0, r * 0.9);
+    c.bezierCurveTo(-r * 1.3, -r * 0.1, -r * 0.6, -r * 1.1, 0, -r * 0.45);
+    c.bezierCurveTo(r * 0.6, -r * 1.1, r * 1.3, -r * 0.1, 0, r * 0.9);
+    c.fill();
+  } else if (logo === 'bolt') {
+    const pts = [[0.2, -1], [-0.55, 0.12], [-0.05, 0.12], [-0.25, 1], [0.55, -0.15], [0.05, -0.15]];
+    pts.forEach(([px, py], i) => (i ? c.lineTo(px * r, py * r) : c.moveTo(px * r, py * r)));
+    c.closePath(); c.fill();
+  } else if (logo === 'skull') {
+    c.arc(0, -r * 0.15, r * 0.75, 0, Math.PI * 2); c.fill();
+    c.fillRect(-r * 0.45, r * 0.35, r * 0.9, r * 0.45);
+    c.globalCompositeOperation = 'destination-out';
+    c.beginPath(); c.arc(-r * 0.3, -r * 0.2, r * 0.2, 0, Math.PI * 2); c.arc(r * 0.3, -r * 0.2, r * 0.2, 0, Math.PI * 2); c.fill();
+    c.beginPath(); for (const dx of [-0.25, 0, 0.25]) c.rect(dx * r - r * 0.04, r * 0.4, r * 0.08, r * 0.35); c.fill();
+  } else if (logo === 'crown') {
+    const pts = [[-1, 0.6], [-1, -0.5], [-0.5, 0.05], [0, -0.75], [0.5, 0.05], [1, -0.5], [1, 0.6]];
+    pts.forEach(([px, py], i) => (i ? c.lineTo(px * r, py * r) : c.moveTo(px * r, py * r)));
+    c.closePath(); c.fill();
+  }
+  c.restore();
+}
+
+/** Schirmstoff: Bahnen in Haupt-/Streifenfarbe, Logo und Text */
+function chuteTexture(d: ChuteDesign, cells: number, copies: number) {
   const cv = document.createElement('canvas');
-  cv.width = 256;
-  cv.height = 32;
+  cv.width = 1024;
+  cv.height = 256;
   const c = cv.getContext('2d')!;
   for (let i = 0; i < cells; i++) {
-    c.fillStyle = i % 2 === 0 ? '#' + color.toString(16).padStart(6, '0') : '#ffffff';
-    c.fillRect((i / cells) * 256, 0, 256 / cells + 1, 32);
+    c.fillStyle = hexs(i % 2 === 0 ? d.color : d.accent);
+    c.fillRect((i / cells) * 1024, 0, 1024 / cells + 1, 256);
   }
-  c.fillStyle = 'rgba(0,0,0,0.12)';
-  c.fillRect(0, 26, 256, 6);
+  c.fillStyle = 'rgba(0,0,0,0.1)';
+  c.fillRect(0, 232, 1024, 24);
+  // Kontrastfarbe für Logo und Text
+  const lum = (n: number) => ((n >> 16) & 255) * 0.3 + ((n >> 8) & 255) * 0.59 + (n & 255) * 0.11;
+  const ink = d.logo !== 'none' && d.accent !== d.color && Math.abs(lum(d.accent) - lum(d.color)) > 60 ? hexs(d.accent) : lum(d.color) > 140 ? '#22252b' : '#ffffff';
+  for (let k = 0; k < copies; k++) {
+    const cx = ((k + 0.5) / copies) * 1024;
+    // Fläche unter Logo/Text in Hauptfarbe, damit beides lesbar bleibt
+    if (d.logo !== 'none' || d.text) { c.fillStyle = hexs(d.color); c.fillRect(cx - 130, 70, 260, 160); }
+    if (d.logo !== 'none') drawLogo(c, d.logo, cx, 120, 44, ink);
+    if (d.text) {
+      c.fillStyle = ink;
+      c.font = '900 44px Nunito, Arial Black, Arial, sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText(d.text.slice(0, 12).toUpperCase(), cx, d.logo !== 'none' ? 198 : 150, 250);
+    }
+  }
   const t = new THREE.CanvasTexture(cv);
   t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
   return t;
 }
 
+/** Punkte, an denen die Hände die Steuerleinen halten (Körper-Koordinaten) */
+export const RISER = { y: 2.12, z: 0.33, x: 0.02 };
+
 /** Fallschirm: Rundkappe oder moderner Gleitschirm */
-export function buildChute(kind: ChuteKind, color: number, gradient: THREE.Texture, lineMat: THREE.Material, harnessY = 2.1) {
+export function buildChute(kind: ChuteKind, design: ChuteDesign = WHITE_CHUTE, gradient: THREE.Texture, lineMat: THREE.Material, harnessY = RISER.y) {
   const chute = new THREE.Group();
   const disposables: { dispose(): void }[] = [];
-  const tex = stripeTexture(color, kind === 'round' ? 12 : 9);
+  const tex = chuteTexture(design, kind === 'round' ? 12 : 8, kind === 'round' ? 2 : 1);
   const mat = new THREE.MeshToonMaterial({ map: tex, gradientMap: gradient, side: THREE.DoubleSide });
   disposables.push(tex, mat);
   const pts: number[] = [];
@@ -700,7 +758,9 @@ export function buildChute(kind: ChuteKind, color: number, gradient: THREE.Textu
     const rimR = size * Math.sin(Math.PI * 0.4), rimY = canopy.position.y + size * 0.55 * Math.cos(Math.PI * 0.4);
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
-      pts.push(Math.cos(a) * rimR, rimY, Math.sin(a) * rimR, 0, harnessY, 0);
+      // Leinen laufen zur Hand auf der jeweiligen Seite
+      const side = Math.sin(a) >= 0 ? 1 : -1;
+      pts.push(Math.cos(a) * rimR, rimY, Math.sin(a) * rimR, RISER.x, harnessY, side * RISER.z);
     }
   } else {
     // Gleitschirm: gewölbter Flügel quer zur Flugrichtung
@@ -718,7 +778,8 @@ export function buildChute(kind: ChuteKind, color: number, gradient: THREE.Textu
     for (let i = 0; i <= 4; i++) {
       const a = -span / 2 + (i / 4) * span;
       const y = canopy.position.y + Math.cos(a) * R, z = Math.sin(a) * R;
-      pts.push(depth / 2 - 0.2, y, z, 0, harnessY, 0, -depth / 2 + 0.2, y, z, 0, harnessY, 0);
+      const side = z >= 0 ? 1 : -1;
+      pts.push(depth / 2 - 0.2, y, z, RISER.x, harnessY, side * RISER.z, -depth / 2 + 0.2, y, z, RISER.x, harnessY, side * RISER.z);
     }
   }
   const lg = new THREE.BufferGeometry();
