@@ -173,7 +173,11 @@ describe('Team-Modi', () => {
     const g = new Game(generateMap(42), 0xffd23f, mode);
     g.time = 30000;
     for (const f of g.fighters) { f.phase = 'ground'; f.z = 0; f.x = 3800; f.y = 3800; }
-    const spot = g.findFreeNear(2000, 2000);
+    // Platz mit viel Freiraum suchen (nicht an Wasser oder Wänden)
+    let spot = g.findFreeNear(2000, 2000);
+    outer: for (let y = 400; y < 3600; y += 83) for (let x = 400; x < 3600; x += 83) {
+      if (g.isFree(x, y, 90)) { spot = { x, y }; break outer; }
+    }
     g.player.x = spot.x; g.player.y = spot.y;
     return g;
   };
@@ -186,7 +190,7 @@ describe('Team-Modi', () => {
   it('kein Eigenbeschuss und Niederschlagen statt sofortigem Tod', () => {
     const g = teamGame('duo');
     const mate = g.teammates(g.player)[0];
-    mate.x = g.player.x + 60; mate.y = g.player.y;
+    mate.x = g.player.x + 35; mate.y = g.player.y;
     const enemy = g.fighters.find((f) => f.team !== g.player.team)!;
     // Spieler wird von Gegner auf 0 gebracht, Teamkamerad steht noch
     g.damage(g.player, 500, enemy, true, 'Test');

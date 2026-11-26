@@ -164,15 +164,17 @@ export function generateMap(seed: number): MapData {
     seg(false, p.x + h - t / 2, p.y - h + t, p.y + h - t, isDoor(3));
     // größere Häuser: Innenwand mit Durchgang (zwei Räume)
     if (s > 290 && r() < 0.75) {
-      const gap = 92;
-      if (r() < 0.5) {
-        const y1 = p.y - h + t, y2 = p.y + h - t, mid = p.y + (r() - 0.5) * (s - 220);
-        addV(p.x, y1, mid - gap / 2);
-        addV(p.x, mid + gap / 2, y2);
-      } else {
-        const x1 = p.x - h + t, x2 = p.x + h - t, mid = p.x + (r() - 0.5) * (s - 220);
-        addH(p.y, x1, mid - gap / 2);
-        addH(p.y, mid + gap / 2, x2);
+      const gap = 92, clear = 115;
+      // Die Innenwand darf nie vor einer Tür enden: an Wänden mit Tür bleibt vorne frei Platz
+      const vertical = r() < 0.5;
+      let a0 = (vertical ? p.y : p.x) - h + t, a1 = (vertical ? p.y : p.x) + h - t;
+      if (vertical) { if (isDoor(0)) a0 += clear; if (isDoor(1)) a1 -= clear; }
+      else { if (isDoor(2)) a0 += clear; if (isDoor(3)) a1 -= clear; }
+      if (a1 - a0 > gap + 100) {
+        const mid = a0 + 50 + gap / 2 + r() * (a1 - a0 - 100 - gap);
+        const add = vertical ? addV : addH, fixed = vertical ? p.x : p.y;
+        add(fixed, a0, mid - gap / 2);
+        add(fixed, mid + gap / 2, a1);
       }
     }
     // Truhen gibt es nur in Häusern: meist eine, in großen Häusern manchmal zwei
@@ -194,7 +196,11 @@ export function generateMap(seed: number): MapData {
         obstacles.push({ kind: 'fence', x: (p.x - d + p.x - gap / 2) / 2, y, w: d - gap / 2, h: ft, r: 0 });
         obstacles.push({ kind: 'fence', x: (p.x + gap / 2 + p.x + d) / 2, y, w: d - gap / 2, h: ft, r: 0 });
       };
-      const fenceV = (x: number) => obstacles.push({ kind: 'fence', x, y: p.y, w: ft, h: d * 2, r: 0 });
+      // seitlicher Zaun mit Lücke in der Mitte (vor einer möglichen Seitentür)
+      const fenceV = (x: number) => {
+        obstacles.push({ kind: 'fence', x, y: (p.y - d + p.y - gap / 2) / 2, w: ft, h: d - gap / 2, r: 0 });
+        obstacles.push({ kind: 'fence', x, y: (p.y + gap / 2 + p.y + d) / 2, w: ft, h: d - gap / 2, r: 0 });
+      };
       fenceH(p.y - d);
       fenceH(p.y + d);
       if (r() < 0.5) fenceV(p.x - d); else fenceV(p.x + d);
@@ -202,7 +208,8 @@ export function generateMap(seed: number): MapData {
     // Fässer neben dem Haus
     if (r() < 0.55) {
       const side = r() < 0.5 ? -1 : 1;
-      const bx = p.x + side * (h + 34), by = p.y + (r() - 0.5) * s * 0.6;
+      // Fässer neben der Seitenwand, aber nie vor der Tür in der Wandmitte
+      const bx = p.x + side * (h + 34), by = p.y + (r() < 0.5 ? -1 : 1) * (90 + r() * Math.max(10, s * 0.3 - 90)) - 19;
       obstacles.push({ kind: 'barrel', x: bx, y: by, r: 17, w: 34, h: 34 });
       if (r() < 0.6) obstacles.push({ kind: 'barrel', x: bx, y: by + 38, r: 17, w: 34, h: 34 });
     }

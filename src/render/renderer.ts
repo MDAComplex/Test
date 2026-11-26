@@ -1118,14 +1118,19 @@ export class Renderer {
       const pos: number[] = [], uv: number[] = [], idx: number[] = [];
       let along = 0;
       let prev = curve.getPointAt(0);
+      let count = 0;
       for (let i = 0; i <= n; i++) {
         const t = i / n, p = curve.getPointAt(t), tg = curve.getTangentAt(t);
         along += p.distanceTo(prev);
         prev = p;
+        // nur auf der Insel (endet an der Küste, ragt nicht übers Meer)
+        if (p.x < 0 || p.z < 0 || p.x > W || p.z > W) continue;
         const nx = -tg.z, nz = tg.x;
-        pos.push(p.x + nx * half, 0.05, p.z + nz * half, p.x - nx * half, 0.05, p.z - nz * half);
+        const cx = (v: number) => Math.min(W, Math.max(0, v));
+        pos.push(cx(p.x + nx * half), 0.05, cx(p.z + nz * half), cx(p.x - nx * half), 0.05, cx(p.z - nz * half));
         uv.push(along, 0, along, 1);
-        if (i < n) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        if (count > 0) { const a = (count - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        count++;
       }
       const rg = new THREE.BufferGeometry();
       rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
