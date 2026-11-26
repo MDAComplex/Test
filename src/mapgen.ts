@@ -5,7 +5,8 @@ export type ObsKind = 'tree' | 'rock' | 'crate' | 'wall' | 'bush';
 export interface Obs { kind: ObsKind; x: number; y: number; r: number; w: number; h: number }
 export type LootKind = 'ammo' | 'armor' | 'medkit' | 'w:pistol' | 'w:smg' | 'w:shotgun' | 'w:rifle' | 'w:sniper';
 export interface LootSpawn { x: number; y: number; kind: LootKind }
-export interface MapData { seed: number; obstacles: Obs[]; loot: LootSpawn[] }
+export interface House { x: number; y: number; s: number }
+export interface MapData { seed: number; obstacles: Obs[]; loot: LootSpawn[]; houses: House[] }
 
 export const ROCK_SIZES = [28, 38, 48];
 
@@ -24,6 +25,7 @@ export function generateMap(seed: number): MapData {
   const r = mulberry32(seed);
   const obstacles: Obs[] = [];
   const loot: LootSpawn[] = [];
+  const houses: House[] = [];
   const blocks: { x: number; y: number; r: number }[] = [];
   const M = 120;
 
@@ -49,6 +51,7 @@ export function generateMap(seed: number): MapData {
     const p = place(s * 0.72, 40, 80);
     if (!p) continue;
     blocks.push({ x: p.x, y: p.y, r: s * 0.72 });
+    houses.push({ x: p.x, y: p.y, s });
     const t = 22, h = s / 2, door = 86;
     const doorA = Math.floor(r() * 4);
     const doorB = r() < 0.5 ? (doorA + 2) % 4 : -1;
@@ -86,8 +89,8 @@ export function generateMap(seed: number): MapData {
     blocks.push({ x: p.x, y: p.y, r: 34 });
     obstacles.push({ kind: 'tree', x: p.x, y: p.y, r: 14, w: 28, h: 28 });
   }
-  for (let i = 0; i < 40; i++) {
-    const p = place(31);
+  for (let i = 0; i < 55; i++) {
+    const p = place(34);
     if (!p) continue;
     blocks.push({ x: p.x, y: p.y, r: 31 });
     obstacles.push({ kind: 'crate', x: p.x, y: p.y, r: 22, w: 44, h: 44 });
@@ -98,10 +101,10 @@ export function generateMap(seed: number): MapData {
     blocks.push({ x: p.x, y: p.y, r: 38 });
     obstacles.push({ kind: 'bush', x: p.x, y: p.y, r: 42, w: 84, h: 84 });
   }
-  for (let i = 0; i < 170; i++) {
+  for (let i = 0; i < 120; i++) {
     const p = place(14, 8);
     if (!p) continue;
     loot.push({ x: p.x, y: p.y, kind: randomLootKind(r) });
   }
-  return { seed, obstacles, loot };
+  return { seed, obstacles, loot, houses };
 }

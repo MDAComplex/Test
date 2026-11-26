@@ -1,6 +1,6 @@
 # Zone Rush
 
-Ein eigenes Battle-Royale-Browserspiel mit Ansicht von oben (Phaser 3 + TypeScript + Vite).
+Ein eigenes 3D-Battle-Royale-Browserspiel mit schräger Kamera von oben (Three.js + TypeScript + Vite).
 25 Kämpfer landen auf einer zufällig erzeugten Karte – nur einer überlebt.
 
 ## Spielen
@@ -15,6 +15,7 @@ npm run build    # fertige Version nach dist/ bauen
 
 | Aktion | PC | Handy |
 | --- | --- | --- |
+| Absprung | Leertaste | Knopf „Springen“ |
 | Laufen | WASD / Pfeiltasten | linke Bildschirmhälfte antippen und ziehen |
 | Schießen | automatisch, sobald ein Gegner in Reichweite und in Sicht ist | automatisch |
 | Heilen (Medikit) | H | Knopf „Heilen“ |
@@ -23,9 +24,10 @@ npm run build    # fertige Version nach dist/ bauen
 
 ## Features (Version 1)
 
-- Landeplatz-Wahl auf der Karte, zufällige Karte bei jeder Runde
-- Häuser, Felsen, Bäume (Kronen werden durchsichtig, wenn man darunter steht),
-  zerstörbare Kisten mit Loot, Büsche zum Verstecken
+- Flugzeug fliegt über die Karte, Absprung mit lenkbarem Fallschirm
+- Zufällige 3D-Karte bei jeder Runde: Häuser (Dach verschwindet beim Betreten), Felsen,
+  Bäume (Kronen werden durchsichtig), Büsche zum Verstecken
+- Kisten öffnen sich, wenn man daneben steht – Deckel klappt auf, Loot springt heraus
 - 5 Waffen mit Seltenheitsstufen: Pistole, Maschinenpistole, Schrotflinte, Sturmgewehr,
   Scharfschützengewehr
 - Loot: Munition, Rüstung, Medikits; besiegte Gegner lassen ihre Ausrüstung fallen
@@ -36,10 +38,12 @@ npm run build    # fertige Version nach dist/ bauen
 
 ## Struktur
 
-- `src/scenes/` – Boot, Menü, Absprung, Spiel, HUD
+- `src/sim/game.ts` – Spiellogik (Kampf, Bots, Zone, Loot, Kisten, Absprung)
+- `src/render/renderer.ts` – 3D-Darstellung mit Three.js
+- `src/ui/hud.ts` – Menü, Anzeigen, Joystick, Knöpfe
 - `src/mapgen.ts` – Kartengenerator
 - `src/weapons.ts` – Waffenwerte
-- `src/textures.ts` – alle Grafiken werden per Code gezeichnet (keine Bilddateien nötig)
+- Alle 3D-Modelle werden per Code aus einfachen Formen gebaut (keine Bilddateien nötig)
 
 ## Nächste Schritte (Version 2)
 
