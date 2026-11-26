@@ -47,7 +47,7 @@ export interface Profile {
   char: 'man' | 'woman';
   chute: 'round' | 'wing';
   /** Outfit (Skin-Modell) aus dem Spind */
-  outfit: 'none' | 'astronaut' | 'skeleton' | 'office';
+  outfit: 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger';
   tutorialDone: boolean;
   daily: { date: string; tasks: Task[] };
 }

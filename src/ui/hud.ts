@@ -149,7 +149,7 @@ export class Hud {
             <canvas class="pv" width="260" height="300" aria-label="Vorschau deiner Figur"></canvas>
             <div class="lockopts">
               <div class="row"><span>Figur</span><div class="seg" data-lock="char"><button data-v="man">Mann</button><button data-v="woman">Frau</button></div></div>
-              <div class="row"><span>Outfit</span><div class="seg" data-lock="outfit"><button data-v="none">Normal</button><button data-v="astronaut">Astronaut</button><button data-v="skeleton">Skelett</button><button data-v="office">Büro</button></div></div>
+              <div class="row"><span>Outfit</span><div class="seg" data-lock="outfit"><button data-v="none">Normal</button><button data-v="astronaut">Astronaut</button><button data-v="skeleton">Skelett</button><button data-v="office">Büro</button><button data-v="jogger">Jogger</button></div></div>
               <div class="row"><span>Farbe</span><div class="skins" aria-label="Farbe deiner Figur"></div></div>
               <div class="row"><span>Fallschirm</span><div class="seg" data-lock="chute"><button data-v="round">Rundkappe</button><button data-v="wing">Gleitschirm</button></div></div>
             </div>

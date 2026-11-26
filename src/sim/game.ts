@@ -7,7 +7,7 @@ import { recordResult } from '../storage';
 /** Bots tragen ab und zu ein Outfit, damit man die neuen Skins im Spiel sieht */
 const BOT_OUTFIT = () => {
   const r = Math.random();
-  return r < 0.1 ? 'astronaut' : r < 0.2 ? 'skeleton' : r < 0.3 ? 'office' : 'none';
+  return r < 0.1 ? 'astronaut' : r < 0.2 ? 'skeleton' : r < 0.3 ? 'office' : r < 0.4 ? 'jogger' : 'none';
 };
 
 // ---------- Typen ----------
@@ -112,7 +112,7 @@ export class Fighter {
   reviveT = 0;
   leader: Fighter | null = null;
   /** Aussehen: Figur und Fallschirm */
-  look: { char: 'man' | 'woman'; chute: 'round' | 'wing'; outfit?: 'none' | 'astronaut' | 'skeleton' | 'office' } = { char: 'man', chute: 'round', outfit: 'none' };
+  look: { char: 'man' | 'woman'; chute: 'round' | 'wing'; outfit?: 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger' } = { char: 'man', chute: 'round', outfit: 'none' };
   vx = 0;
   vy = 0;
   aiming = false;

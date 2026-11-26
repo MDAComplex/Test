@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
 /** Figur mit Gelenken (Hüfte/Knie, Schulter/Ellbogen), zeigt nach +X, Füße bei y = 0 */
 export interface Rig {
@@ -19,12 +20,13 @@ export interface Rig {
 
 export type CharKind = 'man' | 'woman';
 /** Outfit über der Grundfigur: 'none' = normale Kleidung in der gewählten Farbe */
-export type Outfit = 'none' | 'astronaut' | 'skeleton' | 'office';
+export type Outfit = 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger';
 export const OUTFITS: { id: Outfit; name: string }[] = [
   { id: 'none', name: 'Normal' },
   { id: 'astronaut', name: 'Astronaut' },
   { id: 'skeleton', name: 'Skelett' },
   { id: 'office', name: 'Büro' },
+  { id: 'jogger', name: 'Jogger' },
 ];
 export type ChuteKind = 'round' | 'wing';
 
@@ -33,12 +35,16 @@ const HAIR_COLORS = [0x3a2a1e, 0x1f1a17, 0x7a4a26, 0xc89a55, 0xa4472a];
 
 /** geteilte Geometrien (einmal erzeugt) */
 const G = {
-  capsule: new THREE.CapsuleGeometry(1, 1, 6, 14),
-  sphere: new THREE.SphereGeometry(1, 20, 14),
-  hemi: new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.55),
-  box: new THREE.BoxGeometry(1, 1, 1),
-  cyl: new THREE.CylinderGeometry(1, 1, 1, 16),
-  ring: new THREE.TorusGeometry(1, 0.25, 8, 20),
+  capsule: new THREE.CapsuleGeometry(1, 1, 8, 20),
+  sphere: new THREE.SphereGeometry(1, 28, 20),
+  hemi: new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.55),
+  // abgerundete Kanten statt harter Würfel, damit nichts eckig wirkt
+  box: new RoundedBoxGeometry(1, 1, 1, 4, 0.3),
+  cyl: new THREE.CylinderGeometry(1, 1, 1, 24),
+  ring: new THREE.TorusGeometry(1, 0.3, 10, 28),
+  cone: new THREE.ConeGeometry(1, 1, 14),
+  /** dicke, runde Sneaker-Form */
+  shoe: new THREE.CapsuleGeometry(1, 1.2, 8, 16).rotateZ(Math.PI / 2),
 };
 
 /**
@@ -55,7 +61,7 @@ function limbGeometry(l1: number, l2: number, r0: number, r1: number, r2: number
   const part = (y0: number, y1: number) => {
     // Radius entlang der Länge: oben r0, am Gelenk r1, unten r2
     const segs = Math.max(2, Math.round(((y0 - y1) / total) * 18));
-    const g = new THREE.CylinderGeometry(1, 1, y0 - y1, 12, segs, true);
+    const g = new THREE.CylinderGeometry(1, 1, y0 - y1, 18, segs, true);
     g.translate(0, (y0 + y1) / 2, 0);
     const pos = g.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < pos.count; i++) {
@@ -67,8 +73,8 @@ function limbGeometry(l1: number, l2: number, r0: number, r1: number, r2: number
     return g;
   };
   // runde Kappen oben und unten
-  const capTop = new THREE.SphereGeometry(r0, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
-  const capBot = new THREE.SphereGeometry(r2, 12, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+  const capTop = new THREE.SphereGeometry(r0, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+  const capBot = new THREE.SphereGeometry(r2, 18, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
   capBot.translate(0, -total, 0);
   const pieces = split > 0
     ? [mergeGroup([capTop, part(0, -split)]), mergeGroup([part(-split, -total), capBot])]
@@ -157,26 +163,27 @@ export function buildCharacter(opts: {
 }): Rig {
   const { kind, toon } = opts;
   const outfit = opts.outfit ?? 'none';
-  const astro = outfit === 'astronaut', skel = outfit === 'skeleton', office = outfit === 'office';
+  const astro = outfit === 'astronaut', skel = outfit === 'skeleton', office = outfit === 'office', jog = outfit === 'jogger';
+  const NAVY = 0x252a44;
   const rnd = (() => { let s = (opts.seed * 2654435761) >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); })();
   const skinTone = SKIN_TONES[Math.floor(rnd() * SKIN_TONES.length)];
   const hairTone = HAIR_COLORS[Math.floor(rnd() * HAIR_COLORS.length)];
   // Farben je Outfit (Vorlagen: Astronaut weiß/orange, Skelett schwarz/weiß, Büro Hemd/Krawatte)
   const SUIT = 0xebe6e1, GLOVE = 0x2f2f36, BLACK = 0x17171b, BONE = 0xf4f2ee, ORANGE = 0xff7a1a;
-  const skin = toon(office ? 0xecb48a : skinTone);
-  const hair = toon(office ? 0x3d2a22 : hairTone);
-  const shirtColor = astro ? SUIT : skel ? BLACK : office ? 0xf1eef3 : opts.shirt;
+  const skin = toon(office ? 0xecb48a : jog ? 0xf0c08e : skinTone);
+  const hair = toon(office ? 0x3d2a22 : jog ? 0xe3b878 : hairTone);
+  const shirtColor = astro ? SUIT : skel ? BLACK : office ? 0xf1eef3 : jog ? NAVY : opts.shirt;
   const shirtMat = new THREE.MeshToonMaterial({ color: shirtColor, gradientMap: opts.gradient });
   const shirtDark = new THREE.MeshToonMaterial({
-    color: astro ? 0xcfc9c3 : skel ? BLACK : office ? 0xdedae3 : new THREE.Color(opts.shirt).multiplyScalar(0.7),
+    color: astro ? 0xcfc9c3 : skel ? BLACK : office ? 0xdedae3 : jog ? 0xeeeaf0 : new THREE.Color(opts.shirt).multiplyScalar(0.7),
     gradientMap: opts.gradient,
   });
-  const pants = toon(astro ? SUIT : skel ? BLACK : office ? 0x2c2633 : kind === 'man' ? 0x3d5480 : 0x2e2f3b);
-  const shoe = toon(astro ? GLOVE : skel ? BLACK : office ? 0x1d1b22 : 0xf1f1f1);
-  const sole = toon(skel ? BONE : office ? 0x111114 : 0x2a2a30);
+  const pants = toon(astro ? SUIT : skel ? BLACK : office ? 0x2c2633 : jog ? NAVY : kind === 'man' ? 0x3d5480 : 0x2e2f3b);
+  const shoe = toon(astro ? GLOVE : skel ? BLACK : office ? 0x1d1b22 : jog ? 0x8c8f99 : 0xf1f1f1);
+  const sole = toon(skel || jog ? BONE : office ? 0x111114 : 0x2a2a30);
   const dark = toon(0x1c1c22);
   const white = toon(0xffffff);
-  const belt = toon(astro ? GLOVE : skel ? BLACK : office ? 0x1b1a1f : 0x4a3626);
+  const belt = toon(astro ? GLOVE : skel ? BLACK : office ? 0x1b1a1f : jog ? NAVY : 0x4a3626);
   /** Unterarm, Hände, Hals: beim Astronauten Anzug/Handschuhe, beim Skelett schwarz */
   const forearm = astro ? toon(SUIT) : skel ? toon(BLACK) : skin;
   const handMat = astro ? toon(GLOVE) : skel ? toon(BLACK) : skin;
@@ -193,11 +200,11 @@ export function buildCharacter(opts: {
     return m;
   };
   const man = kind === 'man';
-  const shoulderW = man ? 0.37 : 0.32;
+  const shoulderW = man ? 0.38 : 0.34;
 
   // Beine: Hüfte -> Knie -> Fuß
   const binds: (() => void)[] = [];
-  const legGeo = limbGeometry(0.44, 0.38, man ? 0.125 : 0.115, man ? 0.1 : 0.092, 0.085, 0);
+  const legGeo = limbGeometry(0.44, 0.38, man ? 0.145 : 0.135, man ? 0.12 : 0.112, 0.105, jog ? 0.24 : 0);
   const pelvis = new THREE.Group();
   body.add(pelvis);
   const legs = [0.15, -0.15].map((z) => {
@@ -209,20 +216,24 @@ export function buildCharacter(opts: {
     const knee = new THREE.Bone();
     knee.position.y = -0.44;
     hip.add(knee);
-    const limb = skinnedLimb(legGeo, pants, hip, knee);
+    const limb = skinnedLimb(legGeo, jog ? [pants, skin] : pants, hip, knee);
     limb.mesh.add(hip);
     holder.add(limb.mesh);
     binds.push(limb.bind);
-    mk(knee, G.box, shoe, 0.07, -0.41, 0, 0.3, 0.12, 0.15);
-    mk(knee, G.box, sole, 0.07, -0.46, 0, 0.31, 0.04, 0.16);
+    // runder, dicker Sneaker mit heller Sohle
+    mk(knee, G.shoe, shoe, 0.08, -0.4, 0, 0.105, 0.085, 0.105);
+    mk(knee, G.box, sole, 0.08, -0.455, 0, 0.37, 0.05, 0.21);
     if (astro) {
-      mk(knee, G.box, glove, 0.1, -0.02, 0, 0.06, 0.15, 0.15); // Knieschoner
-      mk(knee, G.cyl, glove, 0.02, -0.32, 0, 0.115, 0.1, 0.115); // Stiefelschaft
+      mk(knee, G.box, glove, 0.125, -0.02, 0, 0.06, 0.17, 0.17); // Knieschoner
+      mk(knee, G.cyl, glove, 0.02, -0.31, 0, 0.13, 0.11, 0.13); // Stiefelschaft
       mk(knee, G.box, toon(SUIT), 0.17, -0.38, 0, 0.12, 0.06, 0.15); // helle Stiefelkappe
+    } else if (jog) {
+      mk(knee, G.cyl, white, 0, -0.3, 0, 0.112, 0.11, 0.112); // Socken
+      mk(hip, G.box, white, 0, -0.11, (z > 0 ? 1 : -1) * 0.143, 0.035, 0.22, 0.02); // Streifen an den Shorts
     } else if (skel) {
-      mk(hip, G.box, bone, 0.115, -0.22, 0, 0.03, 0.32, 0.05); // Oberschenkelknochen
-      mk(knee, G.sphere, bone, 0.1, 0, 0, 0.035, 0.05, 0.05); // Kniescheibe
-      mk(knee, G.box, bone, 0.092, -0.2, 0, 0.03, 0.28, 0.04); // Schienbein
+      mk(hip, G.box, bone, 0.145, -0.22, 0, 0.035, 0.32, 0.06); // Oberschenkelknochen
+      mk(knee, G.sphere, bone, 0.122, 0, 0, 0.04, 0.055, 0.055); // Kniescheibe
+      mk(knee, G.box, bone, 0.115, -0.19, 0, 0.035, 0.26, 0.05); // Schienbein
       mk(knee, G.box, bone, 0.2, -0.42, 0, 0.07, 0.08, 0.15); // Zehenkappe
     }
     return { hip, knee };
@@ -286,8 +297,9 @@ export function buildCharacter(opts: {
 
   // Kopf: dreht sich vor dem Körper in die neue Richtung
   const head = new THREE.Group();
-  head.position.y = 0.95;
-  head.scale.setScalar(1.1);
+  head.position.y = 1.08;
+  // großer Chibi-Kopf wie in den Vorlagen
+  head.scale.setScalar(1.42);
   torso.add(head);
   if (astro) {
     // Helm mit schwarzem Visier und orangen Ohrmuscheln
@@ -308,21 +320,34 @@ export function buildCharacter(opts: {
     for (const ez of [0.05, -0.05]) mk(head, G.box, toon(BLACK), 0.32, -0.19, ez, 0.03, 0.08, 0.015);
     for (const [x, y] of [[-0.32, 0.13], [-0.345, 0], [-0.31, -0.14]]) mk(head, G.box, bone, x, y, 0, 0.04, 0.09, 0.1);
   } else {
-    mk(head, G.sphere, skin, 0, 0, 0, 0.34, 0.36, 0.33);
-    mk(head, G.sphere, skin, 0, -0.02, 0.33, 0.06, 0.08, 0.04);
-    mk(head, G.sphere, skin, 0, -0.02, -0.33, 0.06, 0.08, 0.04);
+    // weicher, breiter Kopf; Gesicht im Comic-Stil: ovale Augen, kräftige Brauen
+    mk(head, G.sphere, skin, 0, 0, 0, 0.34, 0.35, 0.35);
+    mk(head, G.sphere, skin, -0.02, -0.03, 0.34, 0.05, 0.07, 0.04);
+    mk(head, G.sphere, skin, -0.02, -0.03, -0.34, 0.05, 0.07, 0.04);
     for (const ez of [0.12, -0.12]) {
-      mk(head, G.sphere, white, 0.28, 0.04, ez, 0.06, 0.07, 0.06);
-      mk(head, G.sphere, dark, 0.32, 0.04, ez, 0.035, 0.045, 0.035);
-      if (office) mk(head, G.box, hair, 0.3, 0.14, ez, 0.035, 0.04, 0.12).rotation.x = ez > 0 ? -0.4 : 0.4;
-      else mk(head, G.box, hair, 0.29, 0.13, ez, 0.03, 0.025, 0.1).rotation.x = ez > 0 ? -0.15 : 0.15;
+      mk(head, G.sphere, dark, 0.305, 0.0, ez, 0.04, 0.072, 0.045);
+      mk(head, G.box, dark, 0.31, 0.12, ez, 0.03, 0.035, 0.12).rotation.x = ez > 0 ? -0.38 : 0.38;
     }
-    mk(head, G.sphere, skin, 0.33, -0.04, 0, 0.04, 0.05, 0.035);
-    mk(head, G.box, toon(0xb5615a), 0.3, -0.15, 0, 0.02, 0.025, office ? 0.06 : 0.09);
+    mk(head, G.box, toon(0x9a5a4a), 0.325, -0.13, 0, 0.02, 0.018, 0.05);
   }
   // Haare
   if (astro || skel) {
     // Helm bzw. Totenkopf ersetzen die Haare
+  } else if (jog) {
+    // blonde, strubbelige Frisur aus weichen Spitzen
+    mk(head, G.hemi, hair, -0.06, 0.07, 0, 0.37, 0.38, 0.37).rotation.z = 0.35;
+    mk(head, G.sphere, hair, -0.13, -0.03, 0, 0.25, 0.28, 0.32);
+    const spikes: [number, number, number, number, number, number][] = [
+      // x, y, z, Länge, rot.z, rot.x
+      [0.22, 0.27, 0.1, 0.24, -1.15, 0.15], [0.2, 0.3, -0.08, 0.22, -1.0, -0.3], [0.06, 0.37, 0.12, 0.22, -0.5, 0.25],
+      [0.02, 0.38, -0.12, 0.22, -0.3, -0.45], [-0.14, 0.35, 0.02, 0.22, 0.4, 0.05], [-0.28, 0.2, 0.08, 0.2, 1.1, 0.2],
+      [-0.26, 0.2, -0.12, 0.2, 1.0, -0.3], [-0.05, 0.22, 0.3, 0.18, 0.1, 1.05], [-0.05, 0.22, -0.3, 0.18, 0.1, -1.05],
+      [-0.25, 0.0, 0.18, 0.16, 1.6, 0.5], [-0.25, 0.0, -0.18, 0.16, 1.6, -0.5],
+    ];
+    for (const [x, y, z, l, rz, rx] of spikes) {
+      const sp = mk(head, G.sphere, hair, x * 1.02, y * 1.02, z * 1.02, 0.07, l * 0.95, 0.13); // weiche, anliegende Strähne
+      sp.rotation.set(rx, 0, rz);
+    }
   } else if (office) {
     // volle, gewellte Frisur
     // Kappe nach hinten gekippt: Stirn frei, Hinterkopf bedeckt
@@ -344,7 +369,7 @@ export function buildCharacter(opts: {
 
   // Arme: Schulter -> Ellbogen -> Hand; [0] = rechts (+Z)
   // Arm als ein Stück: kurzer Ärmel oben, Haut darunter, weich gebogen am Ellbogen
-  const armGeo = limbGeometry(UPPER, LOWER - 0.06, 0.095, 0.074, 0.066, 0.2);
+  const armGeo = limbGeometry(UPPER, LOWER - 0.06, 0.11, 0.09, 0.085, 0.2);
   const arms = [shoulderW, -shoulderW].map((z) => {
     const shoulder = new THREE.Bone();
     shoulder.position.set(0, 0.52, z);
@@ -356,17 +381,20 @@ export function buildCharacter(opts: {
     limb.mesh.add(shoulder);
     torso.add(limb.mesh);
     binds.push(limb.bind);
-    mk(elbow, G.sphere, handMat, 0, -LOWER, 0, 0.09, 0.095, 0.085);
+    mk(elbow, G.sphere, handMat, 0, -LOWER, 0, 0.115, 0.12, 0.11); // große, runde Hand
     if (astro) {
-      mk(shoulder, G.ring, orange, 0, -0.15, 0, 0.098, 0.098, 0.098).rotation.x = Math.PI / 2;
-      mk(elbow, G.cyl, glove, 0, -0.24, 0, 0.08, 0.06, 0.08); // Handschuh-Stulpe
+      mk(shoulder, G.ring, orange, 0, -0.15, 0, 0.112, 0.112, 0.112).rotation.x = Math.PI / 2;
+      mk(elbow, G.cyl, glove, 0, -0.23, 0, 0.1, 0.07, 0.1); // Handschuh-Stulpe
     } else if (skel) {
-      mk(shoulder, G.box, bone, 0.085, -0.18, 0, 0.025, 0.26, 0.04); // Oberarmknochen
-      for (const dz of [0.022, -0.022]) mk(elbow, G.box, bone, 0.068, -0.13, dz, 0.02, 0.22, 0.02); // Elle und Speiche
-      mk(elbow, G.box, bone, 0.075, -LOWER, 0, 0.03, 0.08, 0.06); // Fingerknochen
+      mk(shoulder, G.box, bone, 0.105, -0.18, 0, 0.03, 0.26, 0.05); // Oberarmknochen
+      for (const dz of [0.022, -0.022]) mk(elbow, G.box, bone, 0.088, -0.13, dz * 1.2, 0.025, 0.22, 0.025); // Elle und Speiche
+      mk(elbow, G.box, bone, 0.11, -LOWER, 0, 0.03, 0.09, 0.07); // Fingerknochen
+    } else if (jog) {
+      mk(shoulder, G.ring, shirtDark, 0, -0.19, 0, 0.108, 0.108, 0.108).rotation.x = Math.PI / 2; // Ärmelbündchen
+      mk(elbow, G.cyl, white, 0, -0.22, 0, 0.098, 0.07, 0.098); // Schweißband
     } else if (office) {
-      mk(shoulder, G.ring, shirtMat, 0, -0.2, 0, 0.09, 0.09, 0.09).rotation.x = Math.PI / 2; // hochgekrempelter Ärmel
-      if (z < 0) mk(elbow, G.box, toon(0x1b1a1f), 0, -0.25, 0, 0.1, 0.05, 0.1); // Uhr
+      mk(shoulder, G.ring, shirtMat, 0, -0.2, 0, 0.108, 0.108, 0.108).rotation.x = Math.PI / 2; // hochgekrempelter Ärmel
+      if (z < 0) mk(elbow, G.box, toon(0x1b1a1f), 0, -0.24, 0, 0.12, 0.055, 0.12); // Uhr
     }
     return { shoulder, elbow };
   });
