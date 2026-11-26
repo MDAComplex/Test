@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { S, WORLD, PLANE_Z, PLANE_TIME } from '../config';
-import { Game, Fighter, GameEvent, Loot, Bullet } from '../sim/game';
+import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop } from '../sim/game';
 import { WEAPONS, TIER_COLORS, WeaponId } from '../weapons';
 import { LootKind } from '../mapgen';
 
@@ -10,42 +10,74 @@ const PITCH = (58 * Math.PI) / 180;
 const PITCH_AIR = (74 * Math.PI) / 180;
 const WATER = 0x3aa6dc;
 
-// Farbpalette
 const C = {
   grass: '#86c95a',
   grassLight: '#97d66a',
   grassDark: '#74b84c',
+  forest: '#5d9f43',
   path: '#d8b27a',
   pathLight: '#e4c48e',
+  plaza: '#dccfb4',
   sand: '#ecd59a',
-  floor: 0xc79a64,
+  wheat: '#e6c86e',
+  wheatDark: '#d2b155',
   trunk: 0x8a5a36,
   leaves: [0x5cb84f, 0x4ea845, 0x66c257],
-  bush: 0x4aa646,
+  bush: 0x46a443,
   rock: 0xa9afb8,
   walls: [0xf6ead2, 0xe3eef5, 0xf3ddd2, 0xeaf2dc],
   roofs: [0xe2583e, 0x3d82dc, 0x2fa597, 0xeba13a],
   trim: 0x8b6a4a,
 };
 
+/** Aussehen der Geschosse je Waffe */
+const SHOT: Record<WeaponId, { color: number; len: number; thick: number; flash: number; shake: number }> = {
+  pistol: { color: 0xffe27a, len: 0.6, thick: 0.1, flash: 0.9, shake: 0.06 },
+  smg: { color: 0xffa040, len: 0.55, thick: 0.09, flash: 0.75, shake: 0.05 },
+  shotgun: { color: 0xff7a3a, len: 0.32, thick: 0.1, flash: 1.6, shake: 0.28 },
+  rifle: { color: 0x9ff4ff, len: 1.25, thick: 0.12, flash: 1.1, shake: 0.09 },
+  sniper: { color: 0xf3b0ff, len: 2.6, thick: 0.16, flash: 1.9, shake: 0.4 },
+  minigun: { color: 0xffd36a, len: 0.9, thick: 0.1, flash: 0.9, shake: 0.06 },
+  rocket: { color: 0xffffff, len: 0.1, thick: 0.1, flash: 1.6, shake: 0.2 },
+};
+
+interface Pose { rArm: [number, number]; lArm: [number, number]; gun: [number, number, number]; gunRot: [number, number] }
+// Haltungen: [rotation.z, rotation.x] der Arme, Waffenposition, Waffenrotation [y, z]
+const POSE: Record<string, Pose> = {
+  aim2: { rArm: [1.45, 0.25], lArm: [1.35, -0.75], gun: [0.28, 1.3, 0.12], gunRot: [0, 0] },
+  carry2: { rArm: [0.55, 0.1], lArm: [0.95, -0.55], gun: [0.22, 1.12, 0.1], gunRot: [0.75, 0.45] },
+  aim1: { rArm: [1.55, 0.15], lArm: [0, 0], gun: [0.62, 1.42, 0.34], gunRot: [0, 0] },
+  carry1: { rArm: [0.15, 0], lArm: [0, 0], gun: [0.16, 0.92, 0.5], gunRot: [0, -1.2] },
+};
+
 interface FighterView {
   root: THREE.Group;
+  lean: THREE.Group;
   body: THREE.Group;
   torso: THREE.Mesh;
   bodyMat: THREE.MeshToonMaterial;
-  gun: THREE.Group;
+  legs: THREE.Group[];
+  arms: THREE.Group[];
+  gunPivot: THREE.Group;
+  gunKick: THREE.Group;
   chute: THREE.Group;
-  feet: THREE.Mesh[];
   flash: number;
   weaponId: string;
   walkT: number;
   deadT: number;
+  aimBlend: number;
+  recoil: number;
+  dustT: number;
+  spin: THREE.Object3D | null;
 }
 interface Particle { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; life: number; max: number }
+interface Puff { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number; max: number; size: number; grow: number }
 interface LootView { root: THREE.Group; item: THREE.Group; pop: number; x: number; y: number }
-interface CrateView { lid: THREE.Group; glow: THREE.Mesh; openT: number }
-interface FadeView { meshes: THREE.Mesh[]; x: number; y: number; r: number; faded: boolean; normal: THREE.Material; fade: THREE.Material }
+interface CrateView { lid: THREE.Group; glow: THREE.Mesh; openT: number; kind: string }
+interface FadeView { meshes: THREE.Mesh[]; x: number; y: number; r: number; faded: boolean; normal: THREE.Material; fade: THREE.Material; wobble: number; base: THREE.Vector3[] }
 interface HouseView { roof: THREE.Group; roofMats: THREE.Material[]; wallMat: THREE.MeshToonMaterial; fade: number }
+interface Timed { obj: THREE.Object3D; life: number; max: number; update: (t: number) => void }
+interface DropView { root: THREE.Group; chute: THREE.Group; smokeT: number; landed: boolean }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -60,7 +92,6 @@ function canvasTexture(w: number, h: number, draw: (c: CanvasRenderingContext2D)
   return t;
 }
 
-/** Einheits-Satteldach: Dreieck (Breite 1, Höhe 1) entlang Z extrudiert (Tiefe 1), zentriert */
 function gableGeometry() {
   const s = new THREE.Shape();
   s.moveTo(-0.5, 0);
@@ -72,6 +103,8 @@ function gableGeometry() {
   return g;
 }
 
+const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
+
 export class Renderer {
   renderer: THREE.WebGLRenderer;
   scene = new THREE.Scene();
@@ -81,53 +114,72 @@ export class Renderer {
   baseDist = 30;
   pitch = PITCH;
   private sun: THREE.DirectionalLight;
+  private shake = 0;
 
   private fighterViews = new Map<Fighter, FighterView>();
   private lootViews = new Map<number, LootView>();
   private crateViews = new Map<number, CrateView>();
-  private bulletViews = new Map<Bullet, THREE.Mesh>();
-  private bulletPool: THREE.Mesh[] = [];
+  private dropViews = new Map<number, DropView>();
+  private bulletViews = new Map<Bullet, THREE.Object3D>();
+  private bulletPools = new Map<string, THREE.Object3D[]>();
   private particles: Particle[] = [];
-  private flashes: { mesh: THREE.Mesh; life: number }[] = [];
+  private puffs: Puff[] = [];
+  private timed: Timed[] = [];
   private canopies: FadeView[] = [];
   private bushes: FadeView[] = [];
   private houses: HouseView[] = [];
+  private ponds: THREE.Mesh[] = [];
   private zoneMat!: THREE.ShaderMaterial;
   private wallMat!: THREE.ShaderMaterial;
+  private waterMat!: THREE.ShaderMaterial;
+  private aimMat!: THREE.ShaderMaterial;
+  private aimLine!: THREE.Mesh;
   private zoneWall!: THREE.Mesh;
   private plane!: THREE.Group;
+  private props: THREE.Object3D[] = [];
+  private contrailT = 0;
   private playerRing!: THREE.Mesh;
   private perRound: { dispose(): void }[] = [];
   private time = 0;
   private gradient: THREE.DataTexture;
-  private toonCache = new Map<string, THREE.MeshToonMaterial>();
+  private gunCache = new Map<WeaponId, THREE.Group>();
+  private raycaster = new THREE.Raycaster();
+  private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.1);
 
   private g = {
     box: new THREE.BoxGeometry(1, 1, 1),
     plane: new THREE.PlaneGeometry(1, 1),
-    circle: new THREE.CircleGeometry(1, 28),
+    circle: new THREE.CircleGeometry(1, 40),
     gable: gableGeometry(),
     rock: new THREE.DodecahedronGeometry(1, 0),
     blob: new THREE.IcosahedronGeometry(1, 1),
+    puff: new THREE.IcosahedronGeometry(1, 0),
     trunk: new THREE.CylinderGeometry(0.28, 0.4, 1, 8),
-    torso: new THREE.CapsuleGeometry(0.42, 0.42, 6, 14),
-    head: new THREE.SphereGeometry(0.52, 20, 14),
-    cap: new THREE.SphereGeometry(0.55, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-    hand: new THREE.SphereGeometry(0.15, 10, 8),
-    eye: new THREE.SphereGeometry(0.08, 8, 6),
-    chute: new THREE.SphereGeometry(2.2, 18, 7, 0, Math.PI * 2, 0, Math.PI * 0.42),
-    cyl: new THREE.CylinderGeometry(1, 1, 1, 12),
-    ring: new THREE.RingGeometry(0.82, 1, 40),
+    torso: new THREE.CapsuleGeometry(0.38, 0.34, 6, 14),
+    leg: new THREE.CapsuleGeometry(0.14, 0.42, 4, 8),
+    arm: new THREE.CapsuleGeometry(0.11, 0.38, 4, 8),
+    head: new THREE.SphereGeometry(0.44, 20, 14),
+    cap: new THREE.SphereGeometry(0.47, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+    hand: new THREE.SphereGeometry(0.13, 10, 8),
+    eye: new THREE.SphereGeometry(0.07, 8, 6),
+    dome: new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.4),
+    cyl: new THREE.CylinderGeometry(1, 1, 1, 14),
+    cylX: new THREE.CylinderGeometry(1, 1, 1, 12).rotateZ(Math.PI / 2),
+    coneX: new THREE.ConeGeometry(1, 1, 14).rotateZ(-Math.PI / 2),
+    halfCylX: new THREE.CylinderGeometry(1, 1, 1, 14, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateY(Math.PI / 2),
+    capsuleX: new THREE.CapsuleGeometry(1, 6, 6, 16).rotateZ(Math.PI / 2),
+    ring: new THREE.RingGeometry(0.82, 1, 48),
     beam: new THREE.CylinderGeometry(0.35, 0.35, 1, 16, 1, true),
     particle: new THREE.BoxGeometry(0.16, 0.16, 0.16),
-    bullet: new THREE.BoxGeometry(0.75, 0.12, 0.12),
-    flash: new THREE.SphereGeometry(0.28, 8, 6),
+    bullet: new THREE.BoxGeometry(1, 1, 1),
+    flash: new THREE.SphereGeometry(1, 10, 8),
   };
 
   private m: Record<string, THREE.Material> = {};
   private disc: Record<number, THREE.MeshBasicMaterial> = {};
   private beam: Record<number, THREE.MeshBasicMaterial> = {};
   private tier: Record<number, THREE.MeshToonMaterial> = {};
+  private shotMat: Record<string, THREE.MeshBasicMaterial> = {};
   private crateMat: THREE.MeshToonMaterial;
 
   constructor(container: HTMLElement) {
@@ -137,9 +189,8 @@ export class Renderer {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
-    this.camera = new THREE.PerspectiveCamera(40, 1, 0.5, 700);
+    this.camera = new THREE.PerspectiveCamera(40, 1, 0.5, 800);
 
-    // Cartoon-Schattierung mit 3 Helligkeitsstufen
     this.gradient = new THREE.DataTexture(new Uint8Array([120, 190, 255]), 3, 1, THREE.RedFormat);
     this.gradient.minFilter = this.gradient.magFilter = THREE.NearestFilter;
     this.gradient.needsUpdate = true;
@@ -153,17 +204,22 @@ export class Renderer {
     sc.left = sc.bottom = -38;
     sc.right = sc.top = 38;
     sc.near = 1;
-    sc.far = 200;
+    sc.far = 220;
     this.sun.shadow.bias = -0.0008;
     this.sun.shadow.normalBias = 0.03;
     this.scene.add(this.sun, this.sun.target);
 
     const toon = (c: number, o: THREE.MeshToonMaterialParameters = {}) => new THREE.MeshToonMaterial({ color: c, gradientMap: this.gradient, ...o });
+    const basicT = (c: number, opacity: number) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity, depthWrite: false });
     this.m = {
-      shadow: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18, depthWrite: false }),
+      shadow: basicT(0x000000, 0.18),
       skin: toon(0xf7d2ad),
       black: toon(0x22232b),
-      gun: toon(0x2e3138),
+      pants: toon(0x39404f),
+      metal: toon(0x2e3138),
+      metal2: toon(0x555b66),
+      wood: toon(0x8a5a2e),
+      glass: toon(0x2b4a6f),
       pack: toon(0x8a5f36),
       trunk: toon(C.trunk),
       rock: toon(C.rock),
@@ -173,29 +229,50 @@ export class Renderer {
       leavesFade: toon(C.leaves[0], { transparent: true, opacity: 0.28, depthWrite: false }),
       bush: toon(C.bush),
       bushFade: toon(C.bush, { transparent: true, opacity: 0.42, depthWrite: false }),
-      bullet: new THREE.MeshBasicMaterial({ color: 0xfff3a8 }),
-      flash: new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.9 }),
-      line: new THREE.LineBasicMaterial({ color: 0x3a3a3a }),
-      planeBody: toon(0xf4f4f4),
-      planeAccent: toon(0xe2583e),
+      flash: new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending }),
+      line: new THREE.LineBasicMaterial({ color: 0x4a4a4a }),
+      planeBody: toon(0xf5f5f5),
+      planeAccent: toon(0xff7a2e),
+      planeDark: toon(0x3a4150),
       ammo: toon(0xffc23a),
       ammoTip: toon(0xc87a32),
       armor: toon(0x3d8cf0),
       armorLight: toon(0xb5dbff),
       white: toon(0xffffff),
       red: toon(0xe53935),
-      trim: toon(C.trim),
-      chimney: toon(0x9c6a52),
+      fence: toon(0x9a6a3c),
+      barrelRed: toon(0xd9483b),
+      barrelBlue: toon(0x3b7bd9),
+      barrelBand: toon(0x3a3d45),
+      hay: toon(0xe9c45a),
+      hayDark: toon(0xc9a03e),
+      gold: toon(0xffc93c),
+      goldDark: toon(0xc98a12),
+      purple: toon(0x7b4bd6),
+      dropBody: toon(0x5a6b3a),
+      dropStripe: toon(0xff8a1e),
+      rocketBody: toon(0x6b7a3a),
       playerRing: new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false }),
-      crateGlow: new THREE.MeshBasicMaterial({ color: 0xffd54a, transparent: true, opacity: 0.4, depthWrite: false }),
+      crateGlow: basicT(0xffd54a, 0.4),
+      chestGlow: basicT(0xffb300, 0.55),
+      dropGlow: basicT(0xff8a1e, 0.55),
       sandBase: toon(0xd9bf83),
-      water: new THREE.MeshBasicMaterial({ color: WATER }),
-      foam: new THREE.MeshBasicMaterial({ color: 0xbfe8f7, transparent: true, opacity: 0.55, depthWrite: false }),
+      seaFloor: new THREE.MeshBasicMaterial({ color: WATER }),
+      dust: basicT(0xe8d8b0, 0.55),
+      smoke: basicT(0xe8e8e8, 0.5),
+      darkSmoke: basicT(0x55575c, 0.55),
+      orangeSmoke: basicT(0xff8a3a, 0.6),
+      contrail: basicT(0xffffff, 0.55),
+      fire: new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }),
+      scorch: basicT(0x2a2620, 0.5),
     };
-    for (const t of [1, 2, 3, 4]) {
+    for (const t of [1, 2, 3, 4, 5]) {
       this.disc[t] = new THREE.MeshBasicMaterial({ color: TIER_COLORS[t], transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide });
       this.beam[t] = new THREE.MeshBasicMaterial({ color: TIER_COLORS[t], transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
       this.tier[t] = toon(TIER_COLORS[t]);
+    }
+    for (const id of Object.keys(SHOT) as WeaponId[]) {
+      this.shotMat[id] = new THREE.MeshBasicMaterial({ color: SHOT[id].color, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
     }
     this.crateMat = toon(0xffffff, {
       map: canvasTexture(128, 128, (c) => {
@@ -214,16 +291,6 @@ export class Renderer {
     this.resize();
   }
 
-  private toon(color: number, transparent = false) {
-    const key = `${color}-${transparent}`;
-    let m = this.toonCache.get(key);
-    if (!m) {
-      m = new THREE.MeshToonMaterial({ color, gradientMap: this.gradient, transparent });
-      this.toonCache.set(key, m);
-    }
-    return m;
-  }
-
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h);
@@ -232,39 +299,62 @@ export class Renderer {
     this.baseDist = 30 * Math.min(2.2, Math.max(1, 1.1 / this.camera.aspect));
   }
 
+  setQuality(q: 'high' | 'low') {
+    this.sun.castShadow = q === 'high';
+    this.renderer.setPixelRatio(q === 'high' ? Math.min(window.devicePixelRatio, 2) : 1);
+    this.resize();
+  }
+
   // ---------- Boden ----------
 
   private groundTexture(game: Game) {
     const N = 2048, k = N / WORLD;
+    const map = game.map;
     return canvasTexture(N, N, (c) => {
-      // Sandstrand
+      const inset = 80 * k, rad = 200 * k;
       c.fillStyle = C.sand;
       c.fillRect(0, 0, N, N);
-      // Gras mit weichem Rand
-      const inset = 70 * k;
       c.fillStyle = C.grass;
       c.beginPath();
-      c.roundRect(inset, inset, N - inset * 2, N - inset * 2, 160 * k);
+      c.roundRect(inset, inset, N - inset * 2, N - inset * 2, rad);
       c.fill();
-      // Große, weiche Farbflächen
-      const rnd = (() => { let s = game.map.seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); })();
-      for (let i = 0; i < 70; i++) {
-        const x = rnd() * N, y = rnd() * N, r = (120 + rnd() * 260) * k;
+      c.save();
+      c.beginPath();
+      c.roundRect(inset, inset, N - inset * 2, N - inset * 2, rad);
+      c.clip();
+      let s = map.seed >>> 0;
+      const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+      const soft = (x: number, y: number, r: number, col: string, a: string) => {
         const gr = c.createRadialGradient(x, y, 0, x, y, r);
-        const col = rnd() < 0.5 ? C.grassLight : C.grassDark;
-        gr.addColorStop(0, col + 'aa');
+        gr.addColorStop(0, col + a);
         gr.addColorStop(1, col + '00');
         c.fillStyle = gr;
         c.beginPath();
         c.arc(x, y, r, 0, Math.PI * 2);
         c.fill();
+      };
+      for (let i = 0; i < 90; i++) soft(rnd() * N, rnd() * N, (140 + rnd() * 300) * k, rnd() < 0.5 ? C.grassLight : C.grassDark, 'aa');
+      for (const f of map.forests) soft(f.x * k, f.y * k, f.r * 1.15 * k, C.forest, 'ee');
+
+      // Felder
+      for (const f of map.fields) {
+        const x = (f.x - f.w / 2) * k, y = (f.y - f.h / 2) * k;
+        c.fillStyle = C.wheat;
+        c.beginPath();
+        c.roundRect(x, y, f.w * k, f.h * k, 24 * k);
+        c.fill();
+        c.strokeStyle = C.wheatDark;
+        c.lineWidth = 6 * k;
+        for (let yy = y + 20 * k; yy < y + f.h * k - 10 * k; yy += 36 * k) {
+          c.beginPath();
+          c.moveTo(x + 16 * k, yy);
+          c.lineTo(x + f.w * k - 16 * k, yy);
+          c.stroke();
+        }
       }
-      c.save();
-      c.beginPath();
-      c.roundRect(inset, inset, N - inset * 2, N - inset * 2, 160 * k);
-      c.clip();
-      // Wege zwischen den Häusern
-      const hs = game.houses;
+
+      // Wege
+      const hs = map.houses;
       const edges = new Set<string>();
       hs.forEach((a, i) => {
         const near = hs.map((b, j) => ({ j, d: (a.x - b.x) ** 2 + (a.y - b.y) ** 2 })).filter((o) => o.j !== i).sort((p, q) => p.d - q.d).slice(0, 2);
@@ -274,7 +364,6 @@ export class Renderer {
         c.strokeStyle = color;
         c.lineWidth = width * k;
         c.lineCap = 'round';
-        c.lineJoin = 'round';
         for (const e of edges) {
           const [i, j] = e.split('-').map(Number);
           const a = hs[i], b = hs[j];
@@ -285,22 +374,43 @@ export class Renderer {
           c.stroke();
         }
       };
-      drawPaths(64, C.path);
-      drawPaths(40, C.pathLight);
-      // Hof um jedes Haus
+      drawPaths(70, C.path);
+      drawPaths(44, C.pathLight);
+      // Dorfplatz
+      const t = map.town;
+      c.fillStyle = C.path;
+      c.beginPath();
+      c.arc(t.x * k, t.y * k, 200 * k, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = C.plaza;
+      c.beginPath();
+      c.arc(t.x * k, t.y * k, 175 * k, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = 'rgba(160,140,110,0.5)';
+      c.lineWidth = 2;
+      for (let r = 40; r < 175; r += 34) {
+        c.beginPath();
+        c.arc(t.x * k, t.y * k, r * k, 0, Math.PI * 2);
+        c.stroke();
+      }
       for (const h of hs) {
         c.fillStyle = C.path;
         c.beginPath();
         c.roundRect((h.x - h.s / 2 - 40) * k, (h.y - h.s / 2 - 40) * k, (h.s + 80) * k, (h.s + 80) * k, 40 * k);
         c.fill();
       }
-      // kleine Grasbüschel und Blumen
-      for (let i = 0; i < 2600; i++) {
+      // Ufer um die Teiche
+      for (const p of map.ponds) {
+        c.fillStyle = C.sand;
+        c.beginPath();
+        c.arc(p.x * k, p.y * k, (p.r + 46) * k, 0, Math.PI * 2);
+        c.fill();
+      }
+      for (let i = 0; i < 3800; i++) {
         const x = rnd() * N, y = rnd() * N;
-        const v = rnd();
-        if (v < 0.85) {
-          c.strokeStyle = 'rgba(70,140,50,0.45)';
-          c.lineWidth = 1.5;
+        if (rnd() < 0.88) {
+          c.strokeStyle = 'rgba(70,140,50,0.42)';
+          c.lineWidth = 1.4;
           c.beginPath();
           c.moveTo(x, y);
           c.lineTo(x - 2, y - 5);
@@ -310,12 +420,315 @@ export class Renderer {
         } else {
           c.fillStyle = ['#ffffff', '#ffe066', '#ff8fb1'][Math.floor(rnd() * 3)];
           c.beginPath();
-          c.arc(x, y, 2.2, 0, Math.PI * 2);
+          c.arc(x, y, 2, 0, Math.PI * 2);
           c.fill();
         }
       }
       c.restore();
     });
+  }
+
+  // ---------- Modelle ----------
+
+  /** Detailliertes Waffenmodell, zeigt nach +X, Ursprung am Griff */
+  private makeGun(id: WeaponId) {
+    const cached = this.gunCache.get(id);
+    if (cached) return cached.clone();
+    const g = new THREE.Group();
+    const acc = this.tier[WEAPONS[id].tier];
+    const p = (geo: THREE.BufferGeometry, mat: THREE.Material, sx: number, sy: number, sz: number, x: number, y: number, z = 0, rz = 0) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.scale.set(sx, sy, sz);
+      m.position.set(x, y, z);
+      m.rotation.z = rz;
+      m.castShadow = true;
+      g.add(m);
+      return m;
+    };
+    const B = this.g.box, CX = this.g.cylX;
+    switch (id) {
+      case 'pistol':
+        p(B, this.m.metal, 0.44, 0.13, 0.1, 0.18, 0.06);
+        p(B, this.m.metal2, 0.3, 0.08, 0.09, 0.12, -0.03);
+        p(B, this.m.metal, 0.1, 0.24, 0.09, 0.01, -0.12, 0, -0.25);
+        p(B, acc, 0.16, 0.035, 0.105, 0.24, 0.13);
+        break;
+      case 'smg':
+        p(B, this.m.metal, 0.56, 0.15, 0.12, 0.2, 0.02);
+        p(CX, this.m.metal2, 0.24, 0.035, 0.035, 0.6, 0.04);
+        p(B, this.m.metal, 0.08, 0.3, 0.07, 0.26, -0.2, 0, 0.1);
+        p(B, this.m.metal, 0.09, 0.2, 0.08, 0.02, -0.12, 0, -0.2);
+        p(B, this.m.metal2, 0.24, 0.07, 0.06, -0.16, 0.0);
+        p(B, acc, 0.22, 0.04, 0.125, 0.24, 0.1);
+        break;
+      case 'shotgun':
+        p(CX, this.m.metal, 0.95, 0.045, 0.045, 0.55, 0.05);
+        p(CX, this.m.metal2, 0.7, 0.035, 0.035, 0.45, -0.03);
+        p(B, this.m.wood, 0.26, 0.09, 0.11, 0.58, -0.03);
+        p(B, this.m.metal, 0.3, 0.15, 0.12, 0.06, 0.01);
+        p(B, this.m.wood, 0.38, 0.14, 0.09, -0.26, -0.04, 0, 0.15);
+        p(B, acc, 0.16, 0.035, 0.125, 0.06, 0.09);
+        break;
+      case 'rifle':
+        p(B, this.m.metal, 0.5, 0.16, 0.12, 0.15, 0.02);
+        p(B, this.m.metal2, 0.32, 0.12, 0.11, 0.52, 0.02);
+        p(CX, this.m.metal, 0.3, 0.03, 0.03, 0.82, 0.03);
+        p(B, this.m.metal, 0.1, 0.3, 0.08, 0.22, -0.2, 0, 0.28);
+        p(B, this.m.metal, 0.09, 0.2, 0.08, 0.0, -0.12, 0, -0.2);
+        p(B, this.m.metal2, 0.32, 0.14, 0.09, -0.24, -0.01);
+        p(B, this.m.metal, 0.18, 0.06, 0.05, 0.15, 0.13);
+        p(B, acc, 0.3, 0.04, 0.125, 0.5, 0.09);
+        break;
+      case 'sniper':
+        p(B, this.m.metal, 0.5, 0.14, 0.11, 0.1, 0.02);
+        p(CX, this.m.metal, 0.95, 0.028, 0.028, 0.82, 0.03);
+        p(CX, this.m.metal2, 0.42, 0.055, 0.055, 0.14, 0.15);
+        p(CX, this.m.glass, 0.03, 0.06, 0.06, 0.36, 0.15);
+        p(B, this.m.wood, 0.44, 0.15, 0.09, -0.3, -0.02, 0, 0.08);
+        p(B, this.m.metal, 0.09, 0.2, 0.08, -0.02, -0.12, 0, -0.2);
+        p(B, this.m.metal2, 0.02, 0.26, 0.02, 0.9, -0.12, 0.05, 0.3);
+        p(B, this.m.metal2, 0.02, 0.26, 0.02, 0.9, -0.12, -0.05, 0.3);
+        p(B, acc, 0.24, 0.04, 0.115, 0.1, 0.09);
+        break;
+      case 'minigun': {
+        p(B, this.m.metal, 0.46, 0.26, 0.24, 0.02, 0.0);
+        p(B, this.m.metal2, 0.22, 0.24, 0.22, -0.02, -0.24);
+        p(B, this.m.metal, 0.1, 0.1, 0.3, -0.1, 0.18);
+        const spin = new THREE.Group();
+        spin.name = 'spin';
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          const b = new THREE.Mesh(CX, this.m.metal2);
+          b.scale.set(0.85, 0.028, 0.028);
+          b.position.set(0.45, Math.cos(a) * 0.075, Math.sin(a) * 0.075);
+          spin.add(b);
+        }
+        const cap = new THREE.Mesh(CX, this.m.metal);
+        cap.scale.set(0.06, 0.12, 0.12);
+        cap.position.x = 0.78;
+        spin.add(cap);
+        g.add(spin);
+        p(B, acc, 0.3, 0.05, 0.25, 0.02, 0.14);
+        break;
+      }
+      case 'rocket':
+        p(CX, this.m.rocketBody, 1.25, 0.11, 0.11, 0.3, 0.06);
+        p(CX, this.m.metal, 0.08, 0.13, 0.13, 0.92, 0.06);
+        p(this.g.coneX, this.m.red, 0.14, 0.08, 0.08, 1.0, 0.06);
+        p(B, this.m.metal, 0.09, 0.22, 0.08, 0.06, -0.12, 0, -0.15);
+        p(B, this.m.metal2, 0.14, 0.08, 0.05, 0.25, 0.2);
+        p(B, acc, 0.3, 0.05, 0.12, 0.3, 0.17);
+        break;
+    }
+    this.gunCache.set(id, g);
+    return g.clone();
+  }
+
+  private chuteTexture(color: number) {
+    return canvasTexture(256, 32, (c) => {
+      const n = 12;
+      for (let i = 0; i < n; i++) {
+        c.fillStyle = i % 2 === 0 ? hex(color) : '#ffffff';
+        c.fillRect((i / n) * 256, 0, 256 / n + 1, 32);
+      }
+      c.fillStyle = 'rgba(0,0,0,0.12)';
+      c.fillRect(0, 26, 256, 6);
+    });
+  }
+
+  private makeChute(color: number, size: number, harnessY: number) {
+    const chute = new THREE.Group();
+    const tex = this.chuteTexture(color);
+    const mat = new THREE.MeshToonMaterial({ map: tex, gradientMap: this.gradient, side: THREE.DoubleSide });
+    this.perRound.push(tex, mat);
+    const canopy = new THREE.Mesh(this.g.dome, mat);
+    canopy.scale.set(size, size * 0.55, size);
+    canopy.position.y = harnessY + size * 1.25;
+    canopy.castShadow = true;
+    const pts: number[] = [];
+    const rimR = size * Math.sin(Math.PI * 0.4), rimY = canopy.position.y + size * 0.55 * Math.cos(Math.PI * 0.4);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      pts.push(Math.cos(a) * rimR, rimY, Math.sin(a) * rimR, 0, harnessY, 0);
+    }
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    this.perRound.push(lg);
+    chute.add(canopy, new THREE.LineSegments(lg, this.m.line));
+    return chute;
+  }
+
+  private addFighter(f: Fighter) {
+    const root = new THREE.Group();
+    const shadow = new THREE.Mesh(this.g.circle, this.m.shadow);
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.04;
+    shadow.scale.setScalar(0.7);
+    const lean = new THREE.Group();
+    const body = new THREE.Group();
+    const bodyMat = new THREE.MeshToonMaterial({ color: f.color, gradientMap: this.gradient });
+    const capMat = new THREE.MeshToonMaterial({ color: new THREE.Color(f.color).multiplyScalar(0.6), gradientMap: this.gradient });
+    this.perRound.push(bodyMat, capMat);
+    const mk = (parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.castShadow = true;
+      parent.add(m);
+      return m;
+    };
+    // Beine (Drehpunkt an der Hüfte)
+    const legs = [0.19, -0.19].map((z) => {
+      const leg = new THREE.Group();
+      leg.position.set(0, 0.74, z);
+      mk(leg, this.g.leg, this.m.pants, 0, -0.33, 0);
+      const foot = mk(leg, this.g.box, this.m.black, 0.07, -0.68, 0);
+      foot.scale.set(0.32, 0.14, 0.2);
+      body.add(leg);
+      return leg;
+    });
+    const torso = mk(body, this.g.torso, bodyMat, 0, 1.18, 0);
+    mk(body, this.g.head, this.m.skin, 0, 1.92, 0);
+    mk(body, this.g.cap, capMat, -0.02, 1.99, 0);
+    mk(body, this.g.eye, this.m.black, 0.39, 1.96, 0.15);
+    mk(body, this.g.eye, this.m.black, 0.39, 1.96, -0.15);
+    const pack = mk(body, this.g.box, this.m.pack, -0.42, 1.22, 0);
+    pack.scale.set(0.26, 0.5, 0.56);
+    // Arme (Drehpunkt an der Schulter); [0] = rechts (+Z), [1] = links
+    const arms = [0.45, -0.45].map((z) => {
+      const arm = new THREE.Group();
+      arm.position.set(0, 1.48, z);
+      mk(arm, this.g.arm, bodyMat, 0, -0.27, 0);
+      mk(arm, this.g.hand, this.m.skin, 0, -0.56, 0);
+      body.add(arm);
+      return arm;
+    });
+    const gunPivot = new THREE.Group();
+    const gunKick = new THREE.Group();
+    gunKick.add(this.makeGun(f.weapon.id));
+    gunPivot.add(gunKick);
+    body.add(gunPivot);
+    lean.add(body);
+
+    const chute = this.makeChute(f.color, 2.3, 2.1);
+    chute.visible = false;
+    root.add(shadow, lean, chute);
+    this.world!.add(root);
+    const v: FighterView = {
+      root, lean, body, torso, bodyMat, legs, arms, gunPivot, gunKick, chute,
+      flash: 0, weaponId: f.weapon.id, walkT: Math.random() * 6, deadT: 0, aimBlend: 0, recoil: 0, dustT: 0, spin: null,
+    };
+    v.spin = gunKick.getObjectByName('spin') ?? null;
+    this.fighterViews.set(f, v);
+  }
+
+  private addLoot(l: Loot, pop: boolean) {
+    const root = new THREE.Group();
+    root.position.set(l.x * S, 0, l.y * S);
+    const tier = this.lootTier(l.kind);
+    const ring = new THREE.Mesh(this.g.ring, this.disc[tier]);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.06;
+    ring.scale.setScalar(0.8);
+    root.add(ring);
+    if (tier >= 3) {
+      const beam = new THREE.Mesh(this.g.beam, this.beam[tier]);
+      beam.scale.set(1, tier >= 5 ? 6 : 3.2, 1);
+      beam.position.y = tier >= 5 ? 3 : 1.6;
+      root.add(beam);
+    }
+    const item = new THREE.Group();
+    item.position.y = 0.75;
+    const box = (mat: THREE.Material, sx: number, sy: number, sz: number, x = 0, y = 0, z = 0) => {
+      const m = new THREE.Mesh(this.g.box, mat);
+      m.scale.set(sx, sy, sz);
+      m.position.set(x, y, z);
+      m.castShadow = true;
+      item.add(m);
+    };
+    if (l.kind.startsWith('w:')) {
+      const g = this.makeGun(l.kind.slice(2) as WeaponId);
+      g.scale.setScalar(1.15);
+      g.position.x = -0.45;
+      item.add(g);
+    } else if (l.kind === 'ammo') {
+      for (let i = -1; i <= 1; i++) {
+        const c = new THREE.Mesh(this.g.cyl, this.m.ammo);
+        c.scale.set(0.1, 0.4, 0.1);
+        c.position.set(i * 0.24, 0, 0);
+        const tip = new THREE.Mesh(this.g.cyl, this.m.ammoTip);
+        tip.scale.set(0.07, 0.12, 0.07);
+        tip.position.set(i * 0.24, 0.25, 0);
+        item.add(c, tip);
+      }
+    } else if (l.kind === 'armor') {
+      box(this.m.armor, 0.7, 0.8, 0.28);
+      box(this.m.armorLight, 0.3, 0.3, 0.3, 0, 0.12, 0);
+    } else if (l.kind === 'bigmed') {
+      box(this.m.red, 0.95, 0.6, 0.6);
+      box(this.m.white, 0.18, 0.05, 0.5, 0, 0.31, 0);
+      box(this.m.white, 0.6, 0.05, 0.18, 0, 0.31, 0);
+      box(this.m.metal, 0.3, 0.08, 0.08, 0, 0.38, 0);
+    } else {
+      box(this.m.white, 0.62, 0.4, 0.45);
+      box(this.m.red, 0.12, 0.04, 0.34, 0, 0.21, 0);
+      box(this.m.red, 0.4, 0.04, 0.12, 0, 0.21, 0);
+    }
+    root.add(item);
+    if (pop) root.scale.setScalar(0.01);
+    this.world!.add(root);
+    this.lootViews.set(l.id, { root, item, pop: pop ? 0 : 1, x: l.x, y: l.y });
+  }
+
+  private lootTier(k: LootKind) {
+    if (k.startsWith('w:')) return WEAPONS[k.slice(2) as WeaponId].tier;
+    return k === 'armor' ? 3 : k === 'bigmed' ? 3 : k === 'medkit' ? 2 : 1;
+  }
+
+  /** Kiste / Truhe / Versorgungspaket mit aufklappbarem Deckel */
+  private makeContainer(o: Obstacle, parent: THREE.Object3D) {
+    const x = o.x * S, z = o.y * S;
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, px: number, py: number, pz: number, sx: number, sy: number, sz: number, p: THREE.Object3D = parent) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(px, py, pz);
+      m.scale.set(sx, sy, sz);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      p.add(m);
+      return m;
+    };
+    const glowMat = o.kind === 'chest' ? this.m.chestGlow : o.kind === 'airdrop' ? this.m.dropGlow : this.m.crateGlow;
+    const s = Math.max(o.w, o.h) * S;
+    const glow = add(this.g.ring, glowMat, x, 0.05, z, s * 0.85, s * 0.85, 1);
+    glow.rotation.x = -Math.PI / 2;
+    glow.castShadow = false;
+    const lid = new THREE.Group();
+    if (o.kind === 'crate') {
+      add(this.g.box, this.crateMat, x, 0.72, z, s, 1.44, s);
+      lid.position.set(x, 1.44, z - s / 2);
+      add(this.g.box, this.crateMat, 0, 0.12, s / 2, s + 0.12, 0.24, s + 0.12, lid);
+    } else if (o.kind === 'chest') {
+      const w = o.w * S, d = o.h * S;
+      add(this.g.box, this.m.purple, x, 0.55, z, w, 1.1, d);
+      add(this.g.box, this.m.gold, x, 0.55, z, w + 0.06, 0.16, d + 0.06);
+      add(this.g.box, this.m.gold, x - w / 2 + 0.12, 0.55, z, 0.16, 1.12, d + 0.07);
+      add(this.g.box, this.m.gold, x + w / 2 - 0.12, 0.55, z, 0.16, 1.12, d + 0.07);
+      lid.position.set(x, 1.1, z - d / 2);
+      add(this.g.halfCylX, this.m.purple, 0, 0, d / 2, w, d * 0.5, d * 0.5, lid);
+      add(this.g.box, this.m.goldDark, 0, 0.12, d, 0.24, 0.3, 0.08, lid);
+      const beam = new THREE.Mesh(this.g.beam, this.beam[4]);
+      beam.scale.set(2.2, 6, 2.2);
+      beam.position.set(x, 3, z);
+      parent.add(beam);
+    } else {
+      add(this.g.box, this.m.dropBody, x, 0.9, z, s, 1.8, s);
+      add(this.g.box, this.m.dropStripe, x, 0.9, z, s + 0.05, 0.3, s + 0.05);
+      add(this.g.box, this.m.dropStripe, x, 0.9, z, 0.3, 1.82, s + 0.06);
+      lid.position.set(x, 1.8, z - s / 2);
+      add(this.g.box, this.m.dropBody, 0, 0.12, s / 2, s + 0.1, 0.24, s + 0.1, lid);
+      add(this.g.box, this.m.dropStripe, 0, 0.26, s / 2, 0.3, 0.06, s + 0.12, lid);
+    }
+    parent.add(lid);
+    this.crateViews.set(o.id, { lid, glow, openT: 0, kind: o.kind });
   }
 
   // ---------- Aufbau ----------
@@ -327,13 +740,16 @@ export class Renderer {
     this.fighterViews.clear();
     this.lootViews.clear();
     this.crateViews.clear();
+    this.dropViews.clear();
     this.bulletViews.clear();
-    this.bulletPool = [];
+    this.bulletPools.clear();
     this.particles = [];
-    this.flashes = [];
+    this.puffs = [];
+    this.timed = [];
     this.canopies = [];
     this.bushes = [];
     this.houses = [];
+    this.ponds = [];
 
     const world = new THREE.Group();
     this.world = world;
@@ -353,9 +769,20 @@ export class Renderer {
       return mesh;
     };
 
-    // Wasser, Inselsockel, Boden
-    flat(add(this.g.plane, this.m.water, W / 2, -1.2, W / 2, 1600, 1600, 1)).receiveShadow = false;
-    flat(add(this.g.plane, this.m.foam, W / 2, -1.15, W / 2, W + 5, W + 5, 1)).receiveShadow = false;
+    // Wasser
+    this.waterMat = new THREE.ShaderMaterial({
+      uniforms: { uT: { value: 0 }, uC: { value: new THREE.Color(WATER) } },
+      vertexShader: `varying vec2 vXZ; void main(){ vec4 wp = modelMatrix * vec4(position,1.0); vXZ = wp.xz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
+      fragmentShader: `uniform float uT; uniform vec3 uC; varying vec2 vXZ;
+        void main(){
+          float w = sin(vXZ.x * 0.35 + uT * 0.8) * sin(vXZ.y * 0.3 - uT * 0.6);
+          float glint = smoothstep(0.82, 1.0, w);
+          vec3 col = uC * (0.92 + w * 0.06) + vec3(glint * 0.35);
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    });
+    this.perRound.push(this.waterMat);
+    flat(add(this.g.plane, this.waterMat, W / 2, -1.2, W / 2, 1800, 1800, 1)).receiveShadow = false;
     add(this.g.box, this.m.sandBase, W / 2, -0.62, W / 2, W, 1.2, W, world, false);
     const tex = this.groundTexture(game);
     const groundMat = new THREE.MeshToonMaterial({ map: tex, gradientMap: this.gradient });
@@ -374,7 +801,6 @@ export class Renderer {
     floorTex.repeat.set(3, 3);
     const floorMat = new THREE.MeshToonMaterial({ map: floorTex, gradientMap: this.gradient });
     this.perRound.push(floorTex, floorMat);
-
     game.houses.forEach((h, i) => {
       const s = h.s * S;
       flat(add(this.g.plane, floorMat, h.x * S, 0.03, h.y * S, s, s, 1));
@@ -392,51 +818,86 @@ export class Renderer {
       this.houses.push({ roof, roofMats: [trimMat, roofMat, chimMat], wallMat, fade: 1 });
     });
 
+    // Dorfbrunnen
+    const t = game.map.town;
+    add(this.g.cyl, this.m.rock, t.x * S, 0.4, t.y * S, 2.2, 0.8, 2.2);
+    flat(add(this.g.circle, this.waterMat, t.x * S, 0.82, t.y * S, 1.9, 1.9, 1));
+
     for (const o of game.obstacles) {
       const x = o.x * S, z = o.y * S;
-      if (o.kind === 'wall') {
-        const hi = game.houseAt(o.x, o.y);
-        const mat = hi >= 0 ? this.houses[hi].wallMat : this.toon(C.walls[0]);
-        add(this.g.box, mat, x, WALL_H / 2, z, o.w * S, WALL_H, o.h * S);
-      } else if (o.kind === 'rock') {
-        const r = o.r * S;
-        const m = add(this.g.rock, this.m.rock, x, r * 0.42, z, r, r * 0.78, r);
-        m.rotation.set(Math.random() * 0.6, Math.random() * 6, Math.random() * 0.6);
-      } else if (o.kind === 'tree') {
-        add(this.g.trunk, this.m.trunk, x, 1.1, z, 1, 2.2, 1);
-        const mats = [this.m.leaves0, this.m.leaves1, this.m.leaves2];
-        const mat = mats[Math.floor(Math.random() * 3)];
-        const big = add(this.g.blob, mat, x, 3.2, z, 2.1, 1.7, 2.1);
-        const top = add(this.g.blob, mat, x + 0.3, 4.3, z - 0.25, 1.4, 1.2, 1.4);
-        big.rotation.y = Math.random() * 6;
-        this.canopies.push({ meshes: [big, top], x: o.x, y: o.y, r: 50, faded: false, normal: mat, fade: this.m.leavesFade });
-      } else if (o.kind === 'crate') {
-        const s = o.w * S;
-        const glow = flat(add(this.g.ring, this.m.crateGlow, x, 0.05, z, s * 0.85, s * 0.85, 1));
-        glow.receiveShadow = false;
-        add(this.g.box, this.crateMat, x, 0.72, z, s, 1.44, s);
-        const lid = new THREE.Group();
-        lid.position.set(x, 1.44, z - s / 2);
-        add(this.g.box, this.crateMat, 0, 0.12, s / 2, s + 0.12, 0.24, s + 0.12, lid);
-        world.add(lid);
-        this.crateViews.set(o.id, { lid, glow, openT: 0 });
+      switch (o.kind) {
+        case 'wall': {
+          const hi = game.houseAt(o.x, o.y);
+          add(this.g.box, hi >= 0 ? this.houses[hi].wallMat : this.m.white, x, WALL_H / 2, z, o.w * S, WALL_H, o.h * S);
+          break;
+        }
+        case 'rock': {
+          const r = o.r * S;
+          const m = add(this.g.rock, this.m.rock, x, r * 0.42, z, r, r * 0.78, r);
+          m.rotation.set(Math.random() * 0.6, Math.random() * 6, Math.random() * 0.6);
+          break;
+        }
+        case 'tree': {
+          add(this.g.trunk, this.m.trunk, x, 1.1, z, 1, 2.2, 1);
+          const mats = [this.m.leaves0, this.m.leaves1, this.m.leaves2];
+          const mat = mats[Math.floor(Math.random() * 3)];
+          const big = add(this.g.blob, mat, x, 3.2, z, 2.1, 1.7, 2.1);
+          const top = add(this.g.blob, mat, x + 0.3, 4.3, z - 0.25, 1.4, 1.2, 1.4);
+          this.canopies.push({ meshes: [big, top], x: o.x, y: o.y, r: 50, faded: false, normal: mat, fade: this.m.leavesFade, wobble: 0, base: [] });
+          break;
+        }
+        case 'crate':
+        case 'chest':
+          this.makeContainer(o, world);
+          break;
+        case 'water': {
+          const m = flat(add(this.g.circle, this.waterMat, x, 0.04, z, o.r * S, o.r * S, 1));
+          m.receiveShadow = false;
+          this.ponds.push(m);
+          break;
+        }
+        case 'fence': {
+          const horiz = o.w > o.h;
+          const L = (horiz ? o.w : o.h) * S;
+          const n = Math.max(2, Math.round(L / 1.1));
+          for (let i = 0; i <= n; i++) {
+            const off = -L / 2 + (i / n) * L;
+            add(this.g.box, this.m.fence, x + (horiz ? off : 0), 0.55, z + (horiz ? 0 : off), 0.16, 1.1, 0.16);
+          }
+          for (const y of [0.42, 0.84]) add(this.g.box, this.m.fence, x, y, z, horiz ? L : 0.07, 0.1, horiz ? 0.07 : L);
+          break;
+        }
+        case 'barrel': {
+          const mat = Math.random() < 0.6 ? this.m.barrelRed : this.m.barrelBlue;
+          const r = o.r * S;
+          add(this.g.cyl, mat, x, 0.72, z, r, 1.44, r);
+          add(this.g.cyl, this.m.barrelBand, x, 0.38, z, r * 1.04, 0.09, r * 1.04);
+          add(this.g.cyl, this.m.barrelBand, x, 1.06, z, r * 1.04, 0.09, r * 1.04);
+          break;
+        }
+        case 'hay': {
+          add(this.g.box, this.m.hay, x, 0.62, z, o.w * S, 1.24, o.h * S);
+          add(this.g.box, this.m.hayDark, x - o.w * S * 0.25, 0.62, z, 0.1, 1.27, o.h * S + 0.03);
+          add(this.g.box, this.m.hayDark, x + o.w * S * 0.25, 0.62, z, 0.1, 1.27, o.h * S + 0.03);
+          break;
+        }
       }
     }
 
     for (const b of game.bushes) {
-      const x = b.x * S, z = b.y * S, r = b.r * S;
+      const x = b.x * S, z = b.y * S, r = b.r * S * 1.15;
       const parts = [
-        add(this.g.blob, this.m.bush, x, 0.75, z, r * 0.72, r * 0.6, r * 0.72),
-        add(this.g.blob, this.m.bush, x - r * 0.42, 0.62, z + r * 0.22, r * 0.5, r * 0.45, r * 0.5),
-        add(this.g.blob, this.m.bush, x + r * 0.42, 0.66, z - r * 0.18, r * 0.52, r * 0.48, r * 0.52),
+        add(this.g.blob, this.m.bush, x, 0.85, z, r * 0.74, r * 0.62, r * 0.74),
+        add(this.g.blob, this.m.bush, x - r * 0.42, 0.7, z + r * 0.24, r * 0.52, r * 0.47, r * 0.52),
+        add(this.g.blob, this.m.bush, x + r * 0.42, 0.74, z - r * 0.18, r * 0.54, r * 0.5, r * 0.54),
       ];
-      this.bushes.push({ meshes: parts, x: b.x, y: b.y, r: b.r, faded: false, normal: this.m.bush, fade: this.m.bushFade });
+      this.bushes.push({ meshes: parts, x: b.x, y: b.y, r: b.r, faded: false, normal: this.m.bush, fade: this.m.bushFade, wobble: 0, base: parts.map((p) => p.scale.clone()) });
     }
 
     for (const l of game.loot) this.addLoot(l, false);
     for (const f of game.fighters) this.addFighter(f);
 
-    // Zone: Bodenschicht + Wand mit Farbverlauf
+    // Zone
     this.zoneMat = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
@@ -472,215 +933,108 @@ export class Renderer {
         }`,
     });
     this.perRound.push(this.wallMat);
-    this.zoneWall = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 10, 96, 1, true), this.wallMat);
+    const zg = new THREE.CylinderGeometry(1, 1, 10, 96, 1, true);
+    this.perRound.push(zg);
+    this.zoneWall = new THREE.Mesh(zg, this.wallMat);
     this.zoneWall.renderOrder = 3;
     world.add(this.zoneWall);
 
-    // Flugzeug
-    const pl = new THREE.Group();
-    const fus = add(this.g.cyl, this.m.planeBody, 0, 0, 0, 1.1, 9, 1.1, pl);
-    fus.rotation.z = Math.PI / 2;
-    const nose = add(this.g.head, this.m.planeAccent, 4.5, 0, 0, 2.1, 2.1, 2.1, pl);
-    nose.scale.set(2.1, 2.1, 2.1);
-    add(this.g.box, this.m.planeBody, 0.5, 0, 0, 2.4, 0.2, 13, pl);
-    add(this.g.box, this.m.planeAccent, 0.5, 0.12, 0, 2.5, 0.1, 13.1, pl);
-    add(this.g.box, this.m.planeAccent, -4, 1.2, 0, 1.4, 2.2, 0.2, pl);
-    add(this.g.box, this.m.planeBody, -4, 0.3, 0, 1.2, 0.15, 4.5, pl);
-    world.add(pl);
-    this.plane = pl;
+    // Ziellinie
+    this.aimMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      uniforms: { uCol: { value: new THREE.Color(0xffffff) }, uLen: { value: 20 } },
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+      fragmentShader: `uniform vec3 uCol; uniform float uLen; varying vec2 vUv;
+        void main(){
+          float dash = step(0.45, fract(vUv.x * uLen * 0.8));
+          float side = 1.0 - abs(vUv.y - 0.5) * 2.0;
+          float a = (1.0 - vUv.x) * 0.75 * dash * smoothstep(0.0, 0.5, side);
+          gl_FragColor = vec4(uCol, a);
+        }`,
+    });
+    this.perRound.push(this.aimMat);
+    const ag = new THREE.PlaneGeometry(1, 1).translate(0.5, 0, 0).rotateX(-Math.PI / 2);
+    this.perRound.push(ag);
+    this.aimLine = new THREE.Mesh(ag, this.aimMat);
+    this.aimLine.renderOrder = 4;
+    world.add(this.aimLine);
 
-    this.playerRing = flat(add(this.g.ring, this.m.playerRing, 0, 0.06, 0, 1.25, 1.25, 1));
+    this.buildPlane(world);
+
+    this.playerRing = flat(add(this.g.ring, this.m.playerRing, 0, 0.06, 0, 1.15, 1.15, 1));
     this.playerRing.receiveShadow = false;
   }
 
-  private makeGun(id: WeaponId) {
-    const w = WEAPONS[id];
-    const len = w.length * 0.035;
-    const g = new THREE.Group();
-    const part = (mat: THREE.Material, sx: number, sy: number, sz: number, x: number, y: number) => {
-      const m = new THREE.Mesh(this.g.box, mat);
-      m.scale.set(sx, sy, sz);
-      m.position.set(x, y, 0);
-      m.castShadow = true;
-      g.add(m);
-    };
-    part(this.m.gun, len, 0.17, 0.17, len / 2, 0);
-    part(this.tier[w.tier], len * 0.45, 0.07, 0.19, len * 0.35, 0.08);
-    part(this.m.gun, 0.14, 0.3, 0.14, 0.12, -0.18);
-    return g;
-  }
-
-  private addFighter(f: Fighter) {
-    const root = new THREE.Group();
-    const shadow = new THREE.Mesh(this.g.circle, this.m.shadow);
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.y = 0.04;
-    shadow.scale.setScalar(0.75);
-    const body = new THREE.Group();
-    const bodyMat = new THREE.MeshToonMaterial({ color: f.color, gradientMap: this.gradient });
-    const capMat = new THREE.MeshToonMaterial({ color: new THREE.Color(f.color).multiplyScalar(0.6), gradientMap: this.gradient });
-    this.perRound.push(bodyMat, capMat);
-    const mk = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
+  private buildPlane(world: THREE.Group) {
+    const pl = new THREE.Group();
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, sx: number, sy: number, sz: number, parent: THREE.Object3D = pl) => {
       const m = new THREE.Mesh(geo, mat);
       m.position.set(x, y, z);
+      m.scale.set(sx, sy, sz);
       m.castShadow = true;
-      body.add(m);
+      parent.add(m);
       return m;
     };
-    const torso = mk(this.g.torso, bodyMat, 0, 0.92, 0);
-    mk(this.g.head, this.m.skin, 0, 1.82, 0);
-    mk(this.g.cap, capMat, -0.02, 1.9, 0);
-    mk(this.g.eye, this.m.black, 0.46, 1.86, 0.18);
-    mk(this.g.eye, this.m.black, 0.46, 1.86, -0.18);
-    const pack = mk(this.g.box, this.m.pack, -0.48, 1.0, 0);
-    pack.scale.set(0.3, 0.55, 0.6);
-    mk(this.g.hand, this.m.skin, 0.42, 1.0, 0.3);
-    mk(this.g.hand, this.m.skin, 0.6, 1.02, 0.12);
-    const feet = [0.2, -0.2].map((zz) => {
-      const ft = mk(this.g.box, this.m.black, 0, 0.09, zz);
-      ft.scale.set(0.36, 0.18, 0.24);
-      return ft;
-    });
-    const gun = this.makeGun(f.weapon.id);
-    gun.position.set(0.4, 1.05, 0.3);
-    body.add(gun);
-
-    const chute = new THREE.Group();
-    const chuteMat = new THREE.MeshToonMaterial({ color: f.color, gradientMap: this.gradient, side: THREE.DoubleSide });
-    this.perRound.push(chuteMat);
-    const canopy = new THREE.Mesh(this.g.chute, chuteMat);
-    canopy.position.y = 3.2;
-    canopy.castShadow = true;
-    const pts: number[] = [];
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2;
-      pts.push(Math.cos(a) * 2.0, 4.0, Math.sin(a) * 2.0, 0, 1.4, 0);
+    add(this.g.capsuleX, this.m.planeBody, 0, 0, 0, 1.15, 1.15, 1.15);
+    add(this.g.box, this.m.planeAccent, 0, -0.1, 1.14, 7.6, 0.4, 0.06);
+    add(this.g.box, this.m.planeAccent, 0, -0.1, -1.14, 7.6, 0.4, 0.06);
+    const cockpit = add(this.g.dome, this.m.glass, 3.3, 0.45, 0, 1.25, 1.2, 0.85);
+    cockpit.rotation.z = -0.3;
+    add(this.g.coneX, this.m.planeAccent, 4.95, 0, 0, 1.0, 0.9, 0.9);
+    add(this.g.box, this.m.planeBody, 0.6, -0.25, 0, 2.6, 0.24, 16);
+    add(this.g.box, this.m.planeAccent, 0.6, -0.24, 7.6, 2.62, 0.26, 1.0);
+    add(this.g.box, this.m.planeAccent, 0.6, -0.24, -7.6, 2.62, 0.26, 1.0);
+    this.props = [];
+    for (const z of [3.7, -3.7]) {
+      add(this.g.cylX, this.m.planeDark, 1.1, -0.55, z, 2.6, 0.58, 0.58);
+      add(this.g.coneX, this.m.metal2, 2.5, -0.55, z, 0.4, 0.3, 0.3);
+      const prop = new THREE.Group();
+      prop.position.set(2.55, -0.55, z);
+      add(this.g.box, this.m.planeDark, 0, 0, 0, 0.06, 3.0, 0.24, prop);
+      add(this.g.box, this.m.planeDark, 0, 0, 0, 0.06, 0.24, 3.0, prop);
+      pl.add(prop);
+      this.props.push(prop);
     }
-    const lg = new THREE.BufferGeometry();
-    lg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    this.perRound.push(lg);
-    chute.add(canopy, new THREE.LineSegments(lg, this.m.line));
-    chute.visible = false;
-
-    root.add(shadow, body, chute);
-    this.world!.add(root);
-    this.fighterViews.set(f, { root, body, torso, bodyMat, gun, chute, feet, flash: 0, weaponId: f.weapon.id, walkT: Math.random() * 6, deadT: 0 });
+    add(this.g.box, this.m.planeBody, -4.6, 1.4, 0, 1.9, 2.4, 0.18);
+    add(this.g.box, this.m.planeAccent, -4.9, 2.4, 0, 1.3, 0.6, 0.2);
+    add(this.g.box, this.m.planeBody, -4.6, 0.35, 0, 1.4, 0.16, 5.4);
+    pl.scale.setScalar(1.15);
+    world.add(pl);
+    this.plane = pl;
   }
 
-  private addLoot(l: Loot, pop: boolean) {
-    const root = new THREE.Group();
-    root.position.set(l.x * S, 0, l.y * S);
-    const tier = this.lootTier(l.kind);
-    const ring = new THREE.Mesh(this.g.ring, this.disc[tier]);
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.06;
-    ring.scale.setScalar(0.8);
-    root.add(ring);
-    if (tier >= 3) {
-      const beam = new THREE.Mesh(this.g.beam, this.beam[tier]);
-      beam.scale.set(1, 3.2, 1);
-      beam.position.y = 1.6;
-      root.add(beam);
-    }
-    const item = new THREE.Group();
-    item.position.y = 0.75;
-    const box = (mat: THREE.Material, sx: number, sy: number, sz: number, x = 0, y = 0, z = 0) => {
-      const m = new THREE.Mesh(this.g.box, mat);
-      m.scale.set(sx, sy, sz);
-      m.position.set(x, y, z);
-      m.castShadow = true;
-      item.add(m);
-    };
-    if (l.kind.startsWith('w:')) {
-      const g = this.makeGun(l.kind.slice(2) as WeaponId);
-      g.scale.setScalar(1.3);
-      g.position.x = -0.55;
-      item.add(g);
-    } else if (l.kind === 'ammo') {
-      for (let i = -1; i <= 1; i++) {
-        const c = new THREE.Mesh(this.g.cyl, this.m.ammo);
-        c.scale.set(0.1, 0.4, 0.1);
-        c.position.set(i * 0.24, 0, 0);
-        const tip = new THREE.Mesh(this.g.cyl, this.m.ammoTip);
-        tip.scale.set(0.07, 0.12, 0.07);
-        tip.position.set(i * 0.24, 0.25, 0);
-        item.add(c, tip);
-      }
-    } else if (l.kind === 'armor') {
-      box(this.m.armor, 0.7, 0.8, 0.28);
-      box(this.m.armorLight, 0.3, 0.3, 0.3, 0, 0.12, 0);
-    } else {
-      box(this.m.white, 0.72, 0.46, 0.5);
-      box(this.m.red, 0.14, 0.04, 0.4, 0, 0.24, 0);
-      box(this.m.red, 0.46, 0.04, 0.14, 0, 0.24, 0);
-    }
-    root.add(item);
-    if (pop) root.scale.setScalar(0.01);
-    this.world!.add(root);
-    this.lootViews.set(l.id, { root, item, pop: pop ? 0 : 1, x: l.x, y: l.y });
+  // ---------- Effekte ----------
+
+  private near(x: number, y: number, m = 45) {
+    return Math.abs(x * S - this.camTarget.x) < m && Math.abs(y * S - this.camTarget.z) < m;
   }
 
-  private lootTier(k: LootKind) {
-    if (k.startsWith('w:')) return WEAPONS[k.slice(2) as WeaponId].tier;
-    return k === 'armor' ? 3 : k === 'medkit' ? 2 : 1;
-  }
-
-  // ---------- Ereignisse ----------
-
-  handle(events: GameEvent[]) {
-    for (const e of events) {
-      switch (e.type) {
-        case 'shot': {
-          const m = new THREE.Mesh(this.g.flash, this.m.flash);
-          m.position.set(e.x * S, 1.05, e.y * S);
-          this.world!.add(m);
-          this.flashes.push({ mesh: m, life: 0.06 });
-          break;
-        }
-        case 'hit':
-          this.burst(e.x, e.y, 1.0, e.color, e.big ? 5 : 3, 4);
-          break;
-        case 'kill':
-          this.burst(e.f.x, e.f.y, 1.0, e.f.color, 16, 7);
-          break;
-        case 'loot':
-          this.addLoot(e.loot, true);
-          break;
-        case 'take': {
-          const v = this.lootViews.get(e.loot.id);
-          if (v) {
-            this.world!.remove(v.root);
-            this.lootViews.delete(e.loot.id);
-          }
-          break;
-        }
-        case 'crate': {
-          const v = this.crateViews.get(e.o.id);
-          if (v) {
-            v.openT = 0.0001;
-            v.glow.visible = false;
-          }
-          this.burst(e.o.x, e.o.y, 1.6, 0xffd54a, 14, 6);
-          break;
-        }
-        case 'damage': {
-          const v = this.fighterViews.get(e.f);
-          if (v) v.flash = 1;
-          break;
-        }
-        case 'land':
-          this.burst(e.f.x, e.f.y, 0.1, 0xd8c08f, 10, 4);
-          break;
-      }
+  private puff(x: number, y: number, z: number, mat: THREE.Material, size: number, grow: number, life: number, vx = 0, vy = 0, vz = 0) {
+    let p = this.puffs.find((q) => q.life <= 0 && q.mesh.material === mat);
+    if (!p) {
+      if (this.puffs.length > 400) return;
+      const mesh = new THREE.Mesh(this.g.puff, mat);
+      this.world!.add(mesh);
+      p = { mesh, vx: 0, vy: 0, vz: 0, life: 0, max: 1, size: 1, grow: 1 };
+      this.puffs.push(p);
     }
+    p.mesh.visible = true;
+    p.mesh.position.set(x, y, z);
+    p.mesh.rotation.set(Math.random() * 3, Math.random() * 3, 0);
+    p.vx = vx; p.vy = vy; p.vz = vz;
+    p.life = p.max = life;
+    p.size = size;
+    p.grow = grow;
+    p.mesh.scale.setScalar(size);
   }
 
   private burst(x: number, y: number, h: number, color: number, n: number, speed: number) {
-    if (Math.abs(x * S - this.camTarget.x) > 45 || Math.abs(y * S - this.camTarget.z) > 45) return;
+    if (!this.near(x, y)) return;
     for (let i = 0; i < n; i++) {
       let p = this.particles.find((q) => q.life <= 0);
       if (!p) {
-        if (this.particles.length > 220) return;
+        if (this.particles.length > 240) return;
         const mat = new THREE.MeshBasicMaterial({ color });
         this.perRound.push(mat);
         const mesh = new THREE.Mesh(this.g.particle, mat);
@@ -699,6 +1053,146 @@ export class Renderer {
     }
   }
 
+  private addTimed(obj: THREE.Object3D, life: number, update: (t: number) => void) {
+    this.world!.add(obj);
+    this.timed.push({ obj, life, max: life, update });
+  }
+
+  private explosion(x: number, y: number, r: number) {
+    const px = x * S, pz = y * S;
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.perRound.push(mat);
+    const ball = new THREE.Mesh(this.g.flash, mat);
+    ball.position.set(px, 1, pz);
+    this.addTimed(ball, 0.45, (t) => {
+      ball.scale.setScalar(0.5 + (1 - t) * r * S * 1.1);
+      mat.opacity = t;
+    });
+    const scorch = new THREE.Mesh(this.g.circle, this.m.scorch);
+    scorch.rotation.x = -Math.PI / 2;
+    scorch.position.set(px, 0.05, pz);
+    scorch.scale.setScalar(r * S * 0.7);
+    this.addTimed(scorch, 8, (t) => scorch.scale.setScalar(r * S * 0.7 * Math.min(1, t * 3)));
+    this.burst(x, y, 1, 0xffa040, 18, 9);
+    this.burst(x, y, 1, 0x555555, 10, 6);
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2, d = Math.random() * r * S * 0.6;
+      this.puff(px + Math.cos(a) * d, 0.8 + Math.random(), pz + Math.sin(a) * d, i < 4 ? this.m.fire : this.m.darkSmoke, 0.8 + Math.random() * 0.6, 1.6, 0.9 + Math.random() * 0.6, Math.cos(a) * 1.5, 1.5 + Math.random() * 2, Math.sin(a) * 1.5);
+    }
+    const dist = Math.hypot(px - this.camTarget.x, pz - this.camTarget.z);
+    this.shake = Math.max(this.shake, Math.max(0, 0.9 - dist / 40));
+  }
+
+  // ---------- Ereignisse ----------
+
+  handle(events: GameEvent[], game: Game) {
+    for (const e of events) {
+      switch (e.type) {
+        case 'shot': {
+          const st = SHOT[e.wid];
+          const v = this.fighterViews.get(e.f);
+          if (v) v.recoil = 1;
+          if (this.near(e.x, e.y)) {
+            const m = new THREE.Mesh(this.g.flash, this.m.flash);
+            m.position.set(e.x * S, e.f.weapon.twoHanded ? 1.3 : 1.42, e.y * S);
+            const sz = st.flash * 0.32;
+            this.addTimed(m, 0.07, (t) => m.scale.setScalar(sz * (0.6 + t)));
+            if (e.wid === 'sniper') {
+              const len = game.rayLength(e.x, e.y, e.angle, WEAPONS.sniper.range) * S;
+              const mat = new THREE.MeshBasicMaterial({ color: 0xf3b0ff, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending });
+              this.perRound.push(mat);
+              const trail = new THREE.Mesh(this.g.box, mat);
+              trail.scale.set(len, 0.08, 0.08);
+              trail.position.set(e.x * S + Math.cos(e.angle) * len / 2, 1.3, e.y * S + Math.sin(e.angle) * len / 2);
+              trail.rotation.y = -e.angle;
+              this.addTimed(trail, 0.4, (t) => { mat.opacity = t * 0.8; trail.scale.y = trail.scale.z = 0.04 + t * 0.08; });
+            }
+            if (e.wid === 'shotgun' || e.wid === 'rocket') {
+              for (let i = 0; i < 3; i++) this.puff(e.x * S, 1.3, e.y * S, this.m.smoke, 0.25, 1.4, 0.5, Math.cos(e.angle) * 2, 0.6, Math.sin(e.angle) * 2);
+            }
+          }
+          if (e.f === game.player) this.shake = Math.max(this.shake, st.shake);
+          break;
+        }
+        case 'hit':
+          this.burst(e.x, e.y, 1.1, e.color, e.big ? 6 : 3, 4);
+          break;
+        case 'kill':
+          this.burst(e.f.x, e.f.y, 1.0, e.f.color, 18, 7);
+          break;
+        case 'explode':
+          this.explosion(e.x, e.y, e.r);
+          break;
+        case 'loot':
+          this.addLoot(e.loot, true);
+          break;
+        case 'take': {
+          const v = this.lootViews.get(e.loot.id);
+          if (v) {
+            this.world!.remove(v.root);
+            this.lootViews.delete(e.loot.id);
+          }
+          break;
+        }
+        case 'crate': {
+          const v = this.crateViews.get(e.o.id);
+          if (v) {
+            v.openT = 0.0001;
+            v.glow.visible = false;
+          }
+          this.burst(e.o.x, e.o.y, 1.6, e.o.kind === 'crate' ? 0xffd54a : 0xffb300, e.o.kind === 'crate' ? 14 : 26, 6);
+          break;
+        }
+        case 'damage': {
+          const v = this.fighterViews.get(e.f);
+          if (v) v.flash = 1;
+          if (e.toPlayer) this.shake = Math.max(this.shake, 0.15);
+          break;
+        }
+        case 'land':
+          for (let i = 0; i < 8; i++) {
+            const a = (i / 8) * Math.PI * 2;
+            this.puff(e.f.x * S, 0.3, e.f.y * S, this.m.dust, 0.35, 1.8, 0.7, Math.cos(a) * 3, 0.5, Math.sin(a) * 3);
+          }
+          break;
+        case 'airdrop':
+          this.addDrop(e.d);
+          break;
+        case 'airdropLand': {
+          const v = this.dropViews.get(e.d.id);
+          if (v) {
+            v.landed = true;
+            this.world!.remove(v.root);
+          }
+          if (e.d.obstacle) this.makeContainer(e.d.obstacle, this.world!);
+          for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * Math.PI * 2;
+            this.puff(e.d.x * S, 0.4, e.d.y * S, this.m.dust, 0.5, 2, 0.9, Math.cos(a) * 4, 0.6, Math.sin(a) * 4);
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  private addDrop(d: Airdrop) {
+    const root = new THREE.Group();
+    const s = 56 * S;
+    const add = (mat: THREE.Material, x: number, y: number, z: number, sx: number, sy: number, sz: number) => {
+      const m = new THREE.Mesh(this.g.box, mat);
+      m.position.set(x, y, z);
+      m.scale.set(sx, sy, sz);
+      m.castShadow = true;
+      root.add(m);
+    };
+    add(this.m.dropBody, 0, 0.9, 0, s, 1.8, s);
+    add(this.m.dropStripe, 0, 0.9, 0, s + 0.05, 0.3, s + 0.05);
+    const chute = this.makeChute(0xff8a1e, 3.4, 1.8);
+    root.add(chute);
+    this.world!.add(root);
+    this.dropViews.set(d.id, { root, chute, smokeT: 0, landed: false });
+  }
+
   // ---------- Bild ----------
 
   render(game: Game, dtMs: number) {
@@ -707,109 +1201,237 @@ export class Renderer {
     const p = game.player;
     const playerHouse = p.alive && p.phase === 'ground' ? game.houseAt(p.x, p.y) : -1;
 
-    for (const f of game.fighters) {
-      const v = this.fighterViews.get(f);
-      if (!v) continue;
-      if (v.weaponId !== f.weapon.id) {
-        v.body.remove(v.gun);
-        v.gun = this.makeGun(f.weapon.id);
-        v.gun.position.set(0.4, 1.05, 0.3);
-        v.body.add(v.gun);
-        v.weaponId = f.weapon.id;
-      }
-      if (!f.alive) {
-        if (v.deadT < 1) {
-          v.deadT = Math.min(1, v.deadT + dt * 2.5);
-          v.root.scale.setScalar(1 - v.deadT * 0.9);
-          v.body.rotation.z = v.deadT * 1.4;
-          if (v.deadT >= 1) v.root.visible = false;
-        }
-        continue;
-      }
-      const house = f.phase === 'ground' ? game.houseAt(f.x, f.y) : -1;
-      const inOtherHouse = !f.isPlayer && house !== -1 && house !== playerHouse;
-      v.root.visible = f.phase !== 'plane' && !f.hidden && !inOtherHouse;
-      v.root.position.set(f.x * S, f.z * S, f.y * S);
-      v.body.rotation.y = -f.aim;
-      v.chute.visible = f.phase === 'fall';
-      if (f.phase === 'fall') {
-        v.chute.rotation.z = Math.sin(this.time * 2 + f.id) * 0.08;
-        v.body.rotation.z = Math.sin(this.time * 3 + f.id) * 0.06;
-      } else {
-        v.body.rotation.z = 0;
-      }
-      if (f.moving) {
-        v.walkT += dt * 13;
-        const s = Math.sin(v.walkT);
-        v.feet[0].position.x = s * 0.24;
-        v.feet[1].position.x = -s * 0.24;
-        v.torso.position.y = 0.92 + Math.abs(s) * 0.07;
-      } else {
-        v.feet[0].position.x = v.feet[1].position.x = 0;
-        v.torso.position.y = 0.92 + Math.sin(this.time * 2.5 + f.id) * 0.02;
-      }
-      if (v.flash > 0) {
-        v.flash = Math.max(0, v.flash - dt * 9);
-        v.bodyMat.emissive.setRGB(v.flash, v.flash, v.flash);
-      } else if (f.healUntil) {
-        const k = 0.25 + Math.sin(this.time * 10) * 0.1;
-        v.bodyMat.emissive.setRGB(0, k, 0);
-      } else {
-        v.bodyMat.emissive.setRGB(0, 0, 0);
-      }
-    }
+    for (const f of game.fighters) this.updateFighter(f, game, dt, playerHouse);
 
     this.playerRing.visible = p.alive && p.phase === 'ground';
     this.playerRing.position.set(p.x * S, 0.06, p.y * S);
     this.playerRing.rotation.z = this.time;
 
-    // Geschosse
+    // Ziellinie des Spielers
+    const aiming = p.alive && p.phase === 'ground' && game.input.aim !== null && !game.over;
+    this.aimLine.visible = aiming;
+    if (aiming) {
+      const len = game.rayLength(p.x, p.y, p.aim, p.weapon.range) * S;
+      this.aimLine.position.set(p.x * S + Math.cos(p.aim) * 0.9, 0.12, p.y * S + Math.sin(p.aim) * 0.9);
+      this.aimLine.rotation.y = -p.aim;
+      this.aimLine.scale.set(Math.max(0.5, len - 0.9), 1, p.weapon.id === 'shotgun' ? 0.5 : 0.22);
+      this.aimMat.uniforms.uLen.value = len;
+      (this.aimMat.uniforms.uCol.value as THREE.Color).setHex(TIER_COLORS[p.weapon.tier]);
+    }
+
+    this.updateBullets(game, dt);
+    this.updateLootAndContainers(dt);
+    this.updateEffects(dt);
+    this.updateFades(game, dt, playerHouse);
+
+    // Versorgungspakete im Fall
+    for (const d of game.airdrops) {
+      const v = this.dropViews.get(d.id);
+      if (v && !v.landed) {
+        v.root.position.set(d.x * S, d.z * S, d.y * S);
+        v.root.rotation.z = Math.sin(this.time * 1.4 + d.id) * 0.06;
+      }
+      if (d.obstacle && !d.obstacle.opened && this.near(d.x, d.y, 60)) {
+        v && (v.smokeT -= dt);
+        if (v && v.smokeT <= 0) {
+          v.smokeT = 0.12;
+          this.puff(d.x * S + 1, 2, d.y * S + 1, this.m.orangeSmoke, 0.4, 2.2, 2.2, 0.3, 2.2, -0.2);
+        }
+      }
+    }
+
+    // Zone
+    const zc = game.zoneCur, zn = game.zoneNext;
+    this.zoneMat.uniforms.uC.value.set(zc.x * S, zc.y * S);
+    this.zoneMat.uniforms.uR.value = zc.r * S;
+    this.zoneMat.uniforms.uN.value.set(zn.x * S, zn.y * S);
+    this.zoneMat.uniforms.uNR.value = game.zoneState !== 'done' ? zn.r * S : 0;
+    this.wallMat.uniforms.uT.value = this.time;
+    this.waterMat.uniforms.uT.value = this.time;
+    this.zoneWall.position.set(zc.x * S, 5, zc.y * S);
+    this.zoneWall.scale.set(Math.max(0.01, zc.r * S), 1, Math.max(0.01, zc.r * S));
+
+    // Flugzeug
+    const t = game.time / PLANE_TIME;
+    const pp = game.plane;
+    this.plane.visible = t < 1.3;
+    if (this.plane.visible) {
+      const ang = Math.atan2(pp.y2 - pp.y1, pp.x2 - pp.x1);
+      this.plane.position.set(lerp(pp.x1, pp.x2, t) * S, PLANE_Z * S, lerp(pp.y1, pp.y2, t) * S);
+      this.plane.rotation.set(Math.sin(this.time * 1.5) * 0.05, -ang, 0);
+      for (const pr of this.props) pr.rotation.x += dt * 40;
+      this.contrailT -= dt;
+      if (this.contrailT <= 0) {
+        this.contrailT = 0.05;
+        const back = -2;
+        for (const side of [8.6, -8.6]) {
+          const c = Math.cos(ang), s = Math.sin(ang);
+          const wx = this.plane.position.x + c * back - s * side, wz = this.plane.position.z + s * back + c * side;
+          this.puff(wx, PLANE_Z * S - 0.3, wz, this.m.contrail, 0.22, 0.7, 1.1);
+        }
+      }
+    }
+
+    this.updateCamera(game, dt);
+    this.updateSun();
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  private updateFighter(f: Fighter, game: Game, dt: number, playerHouse: number) {
+    const v = this.fighterViews.get(f);
+    if (!v) return;
+    if (v.weaponId !== f.weapon.id) {
+      v.gunKick.clear();
+      v.gunKick.add(this.makeGun(f.weapon.id));
+      v.spin = v.gunKick.getObjectByName('spin') ?? null;
+      v.weaponId = f.weapon.id;
+    }
+    if (!f.alive) {
+      if (v.deadT < 1) {
+        v.deadT = Math.min(1, v.deadT + dt * 2.5);
+        v.root.scale.setScalar(1 - v.deadT * 0.9);
+        v.lean.rotation.z = v.deadT * 1.4;
+        if (v.deadT >= 1) v.root.visible = false;
+      }
+      return;
+    }
+    const house = f.phase === 'ground' ? game.houseAt(f.x, f.y) : -1;
+    const inOtherHouse = !f.isPlayer && house !== -1 && house !== playerHouse;
+    v.root.visible = f.phase !== 'plane' && !f.hidden && !inOtherHouse;
+    v.root.position.set(f.x * S, f.z * S, f.y * S);
+    v.body.rotation.y = -f.aim;
+    v.chute.visible = f.phase === 'fall';
+    if (!v.root.visible) return;
+
+    const speed = Math.hypot(f.vx, f.vy);
+    const sNorm = Math.min(1.2, speed / 170);
+    // in Laufrichtung lehnen
+    const lk = f.phase === 'fall' ? 0.0012 : 0.0008;
+    v.lean.rotation.x = lerp(v.lean.rotation.x, f.vy * lk, 0.2);
+    v.lean.rotation.z = lerp(v.lean.rotation.z, -f.vx * lk, 0.2);
+    if (f.phase === 'fall') v.chute.rotation.z = Math.sin(this.time * 2 + f.id) * 0.06;
+
+    // Gehen: Beine und Arme schwingen gegengleich
+    if (f.moving) v.walkT += dt * (5 + sNorm * 8);
+    const swing = f.moving ? Math.sin(v.walkT) * sNorm : 0;
+    const legAmp = f.phase === 'fall' ? 0.25 : 0.75;
+    const fallSway = f.phase === 'fall' ? Math.sin(this.time * 3 + f.id) : 0;
+    v.legs[0].rotation.z = lerp(v.legs[0].rotation.z, swing * legAmp + fallSway * 0.2, 0.35);
+    v.legs[1].rotation.z = lerp(v.legs[1].rotation.z, -swing * legAmp - fallSway * 0.2, 0.35);
+    v.torso.position.y = 1.18 + (f.moving ? Math.abs(Math.sin(v.walkT)) * 0.06 * sNorm : Math.sin(this.time * 2.5 + f.id) * 0.015);
+
+    // Haltung: Waffe tragen <-> zielen
+    v.aimBlend = lerp(v.aimBlend, f.aiming || game.time - f.lastShot < 600 ? 1 : 0, 1 - Math.exp(-dt * 12));
+    const two = f.weapon.twoHanded;
+    const a = two ? POSE.aim2 : POSE.aim1, c = two ? POSE.carry2 : POSE.carry1;
+    const k = v.aimBlend;
+    const armSwing = swing * 0.55 * (1 - k);
+    v.arms[0].rotation.z = lerp(c.rArm[0] - (two ? 0 : armSwing), a.rArm[0], k);
+    v.arms[0].rotation.x = lerp(c.rArm[1], a.rArm[1], k);
+    v.arms[1].rotation.z = lerp(two ? c.lArm[0] : armSwing, two ? a.lArm[0] : armSwing * 0.6, k);
+    v.arms[1].rotation.x = lerp(c.lArm[1], a.lArm[1], k);
+    v.gunPivot.position.set(lerp(c.gun[0], a.gun[0], k), lerp(c.gun[1], a.gun[1], k) + (1 - k) * Math.abs(swing) * 0.03, lerp(c.gun[2], a.gun[2], k));
+    v.gunPivot.rotation.set(0, lerp(c.gunRot[0], a.gunRot[0], k), lerp(c.gunRot[1], a.gunRot[1], k));
+    v.recoil = Math.max(0, v.recoil - dt * 9);
+    v.gunKick.position.x = -v.recoil * (f.weapon.id === 'shotgun' || f.weapon.id === 'sniper' || f.weapon.id === 'rocket' ? 0.22 : 0.1);
+    if (v.spin) v.spin.rotation.x += dt * (game.time - f.lastShot < 200 ? 40 : 2);
+
+    // Staubspur beim Laufen
+    if (f.moving && f.phase === 'ground' && this.near(f.x, f.y, 35)) {
+      v.dustT -= dt * sNorm;
+      if (v.dustT <= 0) {
+        v.dustT = 0.13;
+        const back = -0.35;
+        this.puff(f.x * S + Math.cos(f.aim) * back, 0.12, f.y * S + Math.sin(f.aim) * back, this.m.dust, 0.18, 1.6, 0.55, -f.vx * S * 0.15, 0.5, -f.vy * S * 0.15);
+      }
+    }
+
+    if (v.flash > 0) {
+      v.flash = Math.max(0, v.flash - dt * 9);
+      v.bodyMat.emissive.setRGB(v.flash, v.flash, v.flash);
+    } else if (f.healUntil) {
+      const g = 0.25 + Math.sin(this.time * 10) * 0.1;
+      v.bodyMat.emissive.setRGB(0, g, 0);
+    } else {
+      v.bodyMat.emissive.setRGB(0, 0, 0);
+    }
+  }
+
+  private bulletMesh(wid: WeaponId) {
+    const pool = this.bulletPools.get(wid) ?? [];
+    this.bulletPools.set(wid, pool);
+    let m = pool.pop();
+    if (!m) {
+      if (wid === 'rocket') {
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(this.g.cylX, this.m.rocketBody);
+        body.scale.set(0.7, 0.1, 0.1);
+        const tip = new THREE.Mesh(this.g.coneX, this.m.red);
+        tip.scale.set(0.22, 0.1, 0.1);
+        tip.position.x = 0.45;
+        const fire = new THREE.Mesh(this.g.flash, this.m.fire);
+        fire.scale.set(0.25, 0.12, 0.12);
+        fire.position.x = -0.45;
+        g.add(body, tip, fire);
+        m = g;
+      } else {
+        const st = SHOT[wid];
+        const mesh = new THREE.Mesh(this.g.bullet, this.shotMat[wid]);
+        mesh.scale.set(st.len, st.thick, st.thick);
+        m = mesh;
+      }
+      m.userData.wid = wid;
+      this.world!.add(m);
+    }
+    m.visible = true;
+    return m;
+  }
+
+  private updateBullets(game: Game, dt: number) {
     const live = new Set(game.bullets);
     for (const [b, m] of this.bulletViews) {
       if (!live.has(b)) {
         m.visible = false;
-        this.bulletPool.push(m);
+        this.bulletPools.get(m.userData.wid as string)!.push(m);
         this.bulletViews.delete(b);
       }
     }
     for (const b of game.bullets) {
       let m = this.bulletViews.get(b);
       if (!m) {
-        m = this.bulletPool.pop();
-        if (!m) {
-          m = new THREE.Mesh(this.g.bullet, this.m.bullet);
-          this.world!.add(m);
-        }
-        m.visible = true;
+        m = this.bulletMesh(b.wid);
         m.rotation.y = -Math.atan2(b.vy, b.vx);
         this.bulletViews.set(b, m);
       }
-      m.position.set(b.x * S, 1.05, b.y * S);
+      m.position.set(b.x * S, b.owner.weapon.twoHanded ? 1.3 : 1.4, b.y * S);
+      if (b.wid === 'rocket' && Math.random() < dt * 40) {
+        this.puff(m.position.x, m.position.y, m.position.z, this.m.smoke, 0.2, 1.8, 0.7, 0, 0.4, 0);
+      }
     }
+  }
 
-    // Loot
+  private updateLootAndContainers(dt: number) {
     for (const v of this.lootViews.values()) {
       if (v.pop < 1) {
         v.pop = Math.min(1, v.pop + dt * 4);
         v.root.scale.setScalar(Math.max(0.01, v.pop * (1 + Math.sin(v.pop * Math.PI) * 0.3)));
       }
-      if (Math.abs(v.x * S - this.camTarget.x) < 40 && Math.abs(v.y * S - this.camTarget.z) < 40) {
+      if (this.near(v.x, v.y, 40)) {
         v.item.rotation.y = this.time * 1.6 + v.x;
         v.item.position.y = 0.75 + Math.sin(this.time * 3 + v.y) * 0.12;
       }
     }
-
-    // Kisten
     for (const v of this.crateViews.values()) {
       if (v.openT > 0 && v.openT < 1) {
         v.openT = Math.min(1, v.openT + dt * 3);
-        v.lid.rotation.x = -(1 - (1 - v.openT) ** 3) * 1.9;
+        v.lid.rotation.x = -(1 - (1 - v.openT) ** 3) * (v.kind === 'chest' ? 1.7 : 1.9);
       } else if (v.openT === 0) {
-        (v.glow.material as THREE.MeshBasicMaterial).opacity = 0.3 + Math.sin(this.time * 4) * 0.15;
+        (v.glow.material as THREE.MeshBasicMaterial).opacity = 0.35 + Math.sin(this.time * 4) * 0.15;
       }
     }
+  }
 
-    // Partikel & Mündungsfeuer
+  private updateEffects(dt: number) {
     for (const q of this.particles) {
       if (q.life <= 0) continue;
       q.life -= dt;
@@ -820,16 +1442,31 @@ export class Renderer {
       q.mesh.scale.setScalar(Math.max(0.05, q.life / q.max));
       if (q.life <= 0) q.mesh.visible = false;
     }
-    this.flashes = this.flashes.filter((fl) => {
-      fl.life -= dt;
-      if (fl.life <= 0) {
-        this.world!.remove(fl.mesh);
+    for (const q of this.puffs) {
+      if (q.life <= 0) continue;
+      q.life -= dt;
+      const t = 1 - q.life / q.max;
+      q.mesh.position.x += q.vx * dt;
+      q.mesh.position.y += q.vy * dt;
+      q.mesh.position.z += q.vz * dt;
+      q.vx *= 0.96; q.vz *= 0.96;
+      // wachsen, am Ende schrumpfen (geteilte Materialien: Ausblenden über Größe)
+      q.mesh.scale.setScalar(Math.max(0.01, q.size * (1 + t * q.grow) * (t > 0.6 ? (1 - t) / 0.4 : 1)));
+      if (q.life <= 0) q.mesh.visible = false;
+    }
+    this.timed = this.timed.filter((tm) => {
+      tm.life -= dt;
+      if (tm.life <= 0) {
+        this.world!.remove(tm.obj);
         return false;
       }
+      tm.update(tm.life / tm.max);
       return true;
     });
+  }
 
-    // Bäume/Büsche durchsichtig in Spielernähe
+  private updateFades(game: Game, dt: number, playerHouse: number) {
+    const p = game.player;
     const fade = (list: FadeView[], k: number) => {
       for (const c of list) {
         const near = p.alive && p.phase === 'ground' && (p.x - c.x) ** 2 + (p.y - c.y) ** 2 < (c.r * k) ** 2;
@@ -843,9 +1480,19 @@ export class Renderer {
       }
     };
     fade(this.canopies, 1.0);
-    fade(this.bushes, 0.95);
-
-    // Häuser: Dach und Wände blenden beim Betreten weich aus
+    fade(this.bushes, 1.0);
+    // Büsche wackeln, wenn jemand hindurchläuft
+    for (const b of this.bushes) {
+      if (!this.near(b.x, b.y, 40)) continue;
+      for (const f of game.fighters) {
+        if (f.alive && f.moving && (f.x - b.x) ** 2 + (f.y - b.y) ** 2 < (b.r * 1.1) ** 2) { b.wobble = 1; break; }
+      }
+      if (b.wobble > 0) {
+        b.wobble = Math.max(0, b.wobble - dt * 2.5);
+        const w = Math.sin(this.time * 22) * 0.08 * b.wobble;
+        b.meshes.forEach((m, i) => m.scale.set(b.base[i].x * (1 + w), b.base[i].y * (1 - w), b.base[i].z * (1 + w)));
+      }
+    }
     const hk = 1 - Math.exp(-dt * 8);
     this.houses.forEach((h, i) => {
       const target = i === playerHouse ? 0 : 1;
@@ -857,34 +1504,14 @@ export class Renderer {
         m.transparent = roofA < 1;
         m.opacity = roofA;
         m.depthWrite = roofA >= 1;
+        m.needsUpdate = true;
       }
       h.roof.visible = roofA > 0.02;
       h.wallMat.transparent = wallA < 1;
       h.wallMat.opacity = wallA;
       h.wallMat.depthWrite = wallA >= 1;
+      h.wallMat.needsUpdate = true;
     });
-
-    // Zone
-    const zc = game.zoneCur, zn = game.zoneNext;
-    this.zoneMat.uniforms.uC.value.set(zc.x * S, zc.y * S);
-    this.zoneMat.uniforms.uR.value = zc.r * S;
-    this.zoneMat.uniforms.uN.value.set(zn.x * S, zn.y * S);
-    this.zoneMat.uniforms.uNR.value = game.zoneState !== 'done' ? zn.r * S : 0;
-    this.wallMat.uniforms.uT.value = this.time;
-    this.zoneWall.position.set(zc.x * S, 5, zc.y * S);
-    this.zoneWall.scale.set(Math.max(0.01, zc.r * S), 1, Math.max(0.01, zc.r * S));
-
-    // Flugzeug
-    const t = game.time / PLANE_TIME;
-    const pp = game.plane;
-    this.plane.visible = t < 1.25;
-    this.plane.position.set(lerp(pp.x1, pp.x2, t) * S, PLANE_Z * S, lerp(pp.y1, pp.y2, t) * S);
-    this.plane.rotation.y = -Math.atan2(pp.y2 - pp.y1, pp.x2 - pp.x1);
-    this.plane.rotation.x = Math.sin(this.time * 1.5) * 0.04;
-
-    this.updateCamera(game, dt);
-    this.updateSun();
-    this.renderer.render(this.scene, this.camera);
   }
 
   private updateSun() {
@@ -906,31 +1533,42 @@ export class Renderer {
       tz = p.y * S;
       ty = p.z * S * 0.4;
       zoom = 1 + Math.min(1, p.z / PLANE_Z) * 0.8;
+      // beim Zielen etwas in Blickrichtung vorausschauen
+      if (game.input.aim !== null && p.phase === 'ground') {
+        const look = Math.min(6, p.weapon.range * S * 0.18);
+        tx += Math.cos(p.aim) * look;
+        tz += Math.sin(p.aim) * look;
+      }
     }
-    const k = 1 - Math.exp(-dt * 7);
+    const k = 1 - Math.exp(-dt * 6);
     this.camTarget.x = lerp(this.camTarget.x, tx, k);
     this.camTarget.y = lerp(this.camTarget.y, ty, k);
     this.camTarget.z = lerp(this.camTarget.z, tz, k);
     const air = p.phase === 'plane' ? 1 : Math.min(1, p.z / PLANE_Z);
     this.pitch = lerp(this.pitch, lerp(PITCH, PITCH_AIR, air), k);
     const dist = this.baseDist * zoom;
-    this.camera.position.set(this.camTarget.x, this.camTarget.y + dist * Math.sin(this.pitch), this.camTarget.z + dist * Math.cos(this.pitch));
-    this.camera.lookAt(this.camTarget);
+    this.shake = Math.max(0, this.shake - dt * 3);
+    const sx = (Math.random() - 0.5) * this.shake, sz = (Math.random() - 0.5) * this.shake;
+    this.camera.position.set(this.camTarget.x + sx, this.camTarget.y + dist * Math.sin(this.pitch), this.camTarget.z + dist * Math.cos(this.pitch) + sz);
+    this.camera.lookAt(this.camTarget.x + sx * 0.5, this.camTarget.y, this.camTarget.z + sz * 0.5);
   }
 
-  /** Hintergrund fürs Menü: Kamera kreist langsam über der Insel */
   renderMenu(dtMs: number) {
-    this.time += dtMs / 1000;
+    const dt = dtMs / 1000;
+    this.time += dt;
     const a = this.time * 0.05;
     this.camTarget.set(W / 2, 0, W / 2);
     this.camera.position.set(W / 2 + Math.cos(a) * 60, 42, W / 2 + Math.sin(a) * 60);
     this.camera.lookAt(W / 2, 0, W / 2);
-    this.sun.shadow.camera.left = this.sun.shadow.camera.bottom = -80;
-    this.sun.shadow.camera.right = this.sun.shadow.camera.top = 80;
-    this.sun.shadow.camera.updateProjectionMatrix();
+    const sc = this.sun.shadow.camera;
+    sc.left = sc.bottom = -80;
+    sc.right = sc.top = 80;
+    sc.updateProjectionMatrix();
     this.updateSun();
+    if (this.waterMat) this.waterMat.uniforms.uT.value = this.time;
     if (this.plane) this.plane.visible = false;
     if (this.playerRing) this.playerRing.visible = false;
+    if (this.aimLine) this.aimLine.visible = false;
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -949,6 +1587,15 @@ export class Renderer {
       y: (-this.v3.y * 0.5 + 0.5) * window.innerHeight,
       on: this.v3.z < 1 && Math.abs(this.v3.x) < 1.1 && Math.abs(this.v3.y) < 1.1,
     };
+  }
+
+  /** Bildschirmpunkt -> Spielwelt (für Maus-Zielen) */
+  groundPoint(sx: number, sy: number) {
+    const ndc = new THREE.Vector2((sx / window.innerWidth) * 2 - 1, -(sy / window.innerHeight) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const hit = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(this.aimPlane, hit)) return null;
+    return { x: hit.x / S, y: hit.z / S };
   }
 
   fighterVisible(f: Fighter) {

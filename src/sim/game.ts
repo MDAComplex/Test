@@ -13,6 +13,8 @@ export interface Obstacle {
   x: number; y: number; r: number; w: number; h: number;
   rect: Rect;
   circle: boolean;
+  /** blockiert Schüsse und Sicht */
+  blocks: boolean;
   stamp: number;
   /** nur Kisten */
   opened: boolean;
@@ -23,21 +25,25 @@ export interface Loot { id: number; kind: LootKind; x: number; y: number; taken:
 export interface Bullet {
   id: number;
   x: number; y: number; vx: number; vy: number;
-  owner: Fighter; dmg: number; traveled: number; range: number; weapon: string;
+  owner: Fighter; dmg: number; traveled: number; range: number; weapon: string; wid: WeaponId;
   dead: boolean;
 }
 export interface Circle { x: number; y: number; r: number }
+export interface Airdrop { id: number; x: number; y: number; z: number; obstacle: Obstacle | null }
 export interface Bush { x: number; y: number; r: number }
 export interface GameResult { win: boolean; place: number; kills: number; time: number }
 interface Target { x: number; y: number; taken: boolean }
 
 export type GameEvent =
-  | { type: 'shot'; f: Fighter; x: number; y: number; angle: number }
-  | { type: 'hit'; x: number; y: number; color: number; big: boolean }
+  | { type: 'shot'; f: Fighter; x: number; y: number; angle: number; wid: WeaponId }
+  | { type: 'hit'; x: number; y: number; color: number; big: boolean; byPlayer: boolean }
   | { type: 'kill'; f: Fighter; killer: string; victim: string; weapon: string; mine: boolean; me: boolean }
   | { type: 'loot'; loot: Loot }
   | { type: 'take'; loot: Loot }
   | { type: 'crate'; o: Obstacle }
+  | { type: 'airdrop'; d: Airdrop }
+  | { type: 'airdropLand'; d: Airdrop }
+  | { type: 'explode'; x: number; y: number; r: number }
   | { type: 'damage'; f: Fighter; amount: number; byPlayer: boolean; toPlayer: boolean }
   | { type: 'heal'; f: Fighter }
   | { type: 'weapon'; f: Fighter }
@@ -55,7 +61,8 @@ export class Fighter {
   color: number;
   x = 0; y = 0; z = PLANE_Z;
   phase: Phase = 'plane';
-  hp = 100; armor = 0; medkits = 0; ammo = 45;
+  hp = 100; armor = 0; medkits = 0; bigmeds = 0; ammo = 45;
+  healAmt = 0; healTotal = 0;
   weapon: WeaponDef = WEAPONS.pistol;
   mag = WEAPONS.pistol.mag;
   lastShot = -99999;
@@ -68,6 +75,9 @@ export class Fighter {
   lastFiredAt = -99999;
   lastAttacker: Fighter | null = null; lastHitAt = -99999;
   moving = false;
+  vx = 0;
+  vy = 0;
+  aiming = false;
   // Bots
   moveX = 0; moveY = 0; nextThink = 0;
   wanderX = 0; wanderY = 0; wanderUntil = 0;
@@ -95,7 +105,15 @@ const CELL = 160;
 const GRID = Math.ceil(WORLD / CELL);
 const PICKUP_R = 34;
 const CRATE_REACH = 30;
-const CRATE_TIME = 1200;
+const CRATE_TIME = 1800;
+/** Aufhebe-Zeiten in ms */
+export const PICK_TIME: Record<string, number> = { ammo: 350, weapon: 600, armor: 900, medkit: 900, bigmed: 1250, crate: CRATE_TIME };
+/** Öffnungszeiten der Behälter in ms */
+export const OPEN_TIME: Record<string, number> = { crate: CRATE_TIME, chest: 2600, airdrop: 3200 };
+export const isContainer = (o: { kind: string }) => o.kind === 'crate' || o.kind === 'chest' || o.kind === 'airdrop';
+const AIRDROP_TIMES = [80000, 155000];
+const AIRDROP_Z = 900;
+export const pickTime = (k: LootKind) => (k.startsWith('w:') ? PICK_TIME.weapon : PICK_TIME[k]);
 
 const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
 const wrap = (a: number) => {
@@ -104,6 +122,7 @@ const wrap = (a: number) => {
   return a;
 };
 const rotateTo = (cur: number, target: number, k: number) => cur + wrap(target - cur) * k;
+const lerpN = (a: number, b: number, t: number) => a + (b - a) * t;
 
 /** Liang-Barsky: Eintritts-Parameter t (0..1) der Strecke in das Rechteck oder null. */
 export function segRect(x1: number, y1: number, x2: number, y2: number, r: Rect): number | null {
@@ -129,7 +148,7 @@ export function segRect(x1: number, y1: number, x2: number, y2: number, r: Rect)
 }
 
 export const lootLabel = (k: LootKind) =>
-  k === 'ammo' ? 'Munition' : k === 'armor' ? 'Rüstung' : k === 'medkit' ? 'Medikit' : WEAPONS[k.slice(2) as WeaponId].name;
+  k === 'ammo' ? 'Munition' : k === 'armor' ? 'Rüstung' : k === 'medkit' ? 'Kleines Medikit' : k === 'bigmed' ? 'Großes Medikit' : WEAPONS[k.slice(2) as WeaponId].name;
 
 // ---------- Spiel ----------
 
@@ -153,10 +172,14 @@ export class Game {
   zoneState: 'wait' | 'shrink' | 'done' = 'wait';
   plane: { x1: number; y1: number; x2: number; y2: number };
   events: GameEvent[] = [];
+  airdrops: Airdrop[] = [];
+  private nextAirdrop = 0;
   over = false;
   result: GameResult | null = null;
-  input = { mx: 0, my: 0, jump: false, heal: false, reload: false, pickup: false };
+  input = { mx: 0, my: 0, aim: null as number | null, firing: false, assist: false, jump: false, heal: false, reload: false, pickup: false };
   nearbyWeapon: Loot | null = null;
+  /** Was der Spieler gerade aufhebt (Ring-Fortschritt) */
+  pick: { loot: Loot; t: number; total: number } | null = null;
   nextPickup = 0;
   nextZoneTick = 0;
   private ids = 1;
@@ -198,12 +221,12 @@ export class Game {
     return f;
   }
 
-  private addObstacle(o: Obs) {
+  private addObstacle(o: Obs): Obstacle | null {
     if (o.kind === 'bush') {
       this.bushes.push({ x: o.x, y: o.y, r: o.r });
-      return;
+      return null;
     }
-    const circle = o.kind === 'rock' || o.kind === 'tree';
+    const circle = o.kind === 'rock' || o.kind === 'tree' || o.kind === 'barrel' || o.kind === 'water';
     let rect: Rect;
     if (circle) {
       const s = o.r * 0.82;
@@ -211,11 +234,13 @@ export class Game {
     } else {
       rect = { x: o.x - o.w / 2, y: o.y - o.h / 2, w: o.w, h: o.h };
     }
-    const ob: Obstacle = { id: this.ids++, kind: o.kind, x: o.x, y: o.y, r: o.r, w: o.w, h: o.h, rect, circle, stamp: 0, opened: false, taken: false, progress: 0 };
+    const blocks = o.kind !== 'water' && o.kind !== 'fence';
+    const ob: Obstacle = { id: this.ids++, kind: o.kind, x: o.x, y: o.y, r: o.r, w: o.w, h: o.h, rect, circle, blocks, stamp: 0, opened: false, taken: false, progress: 0 };
     this.obstacles.push(ob);
     const c0 = clamp(Math.floor(rect.x / CELL), 0, GRID - 1), c1 = clamp(Math.floor((rect.x + rect.w) / CELL), 0, GRID - 1);
     const r0 = clamp(Math.floor(rect.y / CELL), 0, GRID - 1), r1 = clamp(Math.floor((rect.y + rect.h) / CELL), 0, GRID - 1);
     for (let cy = r0; cy <= r1; cy++) for (let cx = c0; cx <= c1; cx++) this.grid[cy * GRID + cx].push(ob);
+    return ob;
   }
 
   query(x0: number, y0: number, x1: number, y1: number, cb: (o: Obstacle) => boolean | void): boolean {
@@ -235,7 +260,19 @@ export class Game {
   }
 
   hasLOS(x1: number, y1: number, x2: number, y2: number) {
-    return !this.query(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2), (o) => segRect(x1, y1, x2, y2, o.rect) !== null);
+    return !this.query(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2), (o) => o.blocks && segRect(x1, y1, x2, y2, o.rect) !== null);
+  }
+
+  /** Entfernung, bis ein Strahl auf ein Hindernis trifft (für Effekte) */
+  rayLength(x: number, y: number, angle: number, range: number) {
+    const x2 = x + Math.cos(angle) * range, y2 = y + Math.sin(angle) * range;
+    let best = 1;
+    this.query(Math.min(x, x2), Math.min(y, y2), Math.max(x, x2), Math.max(y, y2), (o) => {
+      if (!o.blocks) return;
+      const t = segRect(x, y, x2, y2, o.rect);
+      if (t !== null && t < best) best = t;
+    });
+    return best * range;
   }
 
   isFree(x: number, y: number, pad = 28) {
@@ -311,10 +348,8 @@ export class Game {
       if (!f.alive || f.phase === 'plane') continue;
       if (!f.isPlayer) {
         if (now >= f.nextThink) this.think(f, now);
-        const fall = f.phase === 'fall';
-        const sp = fall ? 260 : BOT_SPEED * (f.healUntil ? 0.5 : 1);
-        this.move(f, f.moveX * sp, f.moveY * sp, dt);
-        f.moving = !fall && (f.moveX !== 0 || f.moveY !== 0);
+        f.aiming = !!f.target;
+        this.drive(f, f.moveX, f.moveY, this.speedOf(f), dt);
       }
       if (f.phase === 'ground') this.updateCombat(f, now);
     }
@@ -328,6 +363,7 @@ export class Game {
       this.zoneDamage();
     }
     this.updateCover(now);
+    this.updateAirdrops(now, dt);
   }
 
   private updateDrop(now: number, dt: number) {
@@ -409,18 +445,69 @@ export class Game {
     const len = Math.hypot(mx, my);
     if (len > 1) { mx /= len; my /= len; }
     if (f.phase === 'plane') return;
-    const speed = f.phase === 'fall' ? 300 : PLAYER_SPEED * (f.healUntil ? 0.5 : 1);
-    this.move(f, mx * speed, my * speed, dt);
+    f.aiming = f.phase === 'ground' && this.input.aim !== null;
+    this.drive(f, mx, my, this.speedOf(f), dt);
     f.moveX = mx;
     f.moveY = my;
-    f.moving = f.phase === 'ground' && (mx !== 0 || my !== 0);
     if (f.phase !== 'ground') return;
     if (this.input.heal) this.startHeal(f, now);
     if (this.input.reload) this.startReload(f, now);
-    if (this.input.pickup && this.nearbyWeapon && !this.nearbyWeapon.taken) {
-      this.tryPickup(f, this.nearbyWeapon, true);
-      this.nearbyWeapon = null;
+    if (this.input.pickup && this.nearbyWeapon && !this.nearbyWeapon.taken && (!this.pick || this.pick.loot !== this.nearbyWeapon)) {
+      this.pick = { loot: this.nearbyWeapon, t: 0, total: PICK_TIME.weapon };
     }
+    this.updatePlayerPick(f, dt);
+  }
+
+  // ---------- Bewegung ----------
+
+  /** Laufgeschwindigkeit: Waffe, Zielen und Heilen machen langsamer */
+  speedOf(f: Fighter) {
+    if (f.phase === 'fall') return f.isPlayer ? 230 : 210;
+    const base = f.isPlayer ? PLAYER_SPEED : BOT_SPEED;
+    return base * f.weapon.moveMul * (f.aiming ? 0.7 : 1) * (f.healUntil ? 0.5 : 1);
+  }
+
+  /** Weiches Beschleunigen/Abbremsen statt sofortiger Richtungswechsel */
+  private drive(f: Fighter, dx: number, dy: number, speed: number, dt: number) {
+    const tx = dx * speed, ty = dy * speed;
+    const active = dx !== 0 || dy !== 0;
+    const rate = f.phase === 'fall' ? 2.5 : active ? 8 : 11;
+    const k = 1 - Math.exp(-dt * rate);
+    f.vx += (tx - f.vx) * k;
+    f.vy += (ty - f.vy) * k;
+    if (!active && Math.hypot(f.vx, f.vy) < 4) { f.vx = 0; f.vy = 0; }
+    const ox = f.x, oy = f.y;
+    this.move(f, f.vx, f.vy, dt);
+    // an Wänden nicht weiter "anschieben"
+    if (dt > 0 && f.phase === 'ground') {
+      f.vx = lerpN(f.vx, (f.x - ox) / dt, 0.5);
+      f.vy = lerpN(f.vy, (f.y - oy) / dt, 0.5);
+    }
+    f.moving = f.phase === 'ground' && Math.hypot(f.vx, f.vy) > 25;
+  }
+
+  /** Spieler zielt selbst; optionale Zielhilfe für Touch */
+  private playerAim(f: Fighter, now: number) {
+    const a = this.input.aim;
+    if (a !== null) {
+      let ang = a;
+      if (this.input.assist) {
+        let best: Fighter | null = null, bestDiff = 0.22;
+        for (const o of this.fighters) {
+          if (o === f || !o.alive || o.phase !== 'ground' || o.hidden) continue;
+          const d = Math.hypot(o.x - f.x, o.y - f.y);
+          if (d > f.weapon.range) continue;
+          const diff = Math.abs(wrap(Math.atan2(o.y - f.y, o.x - f.x) - a));
+          if (diff < bestDiff && this.hasLOS(f.x, f.y, o.x, o.y)) { best = o; bestDiff = diff; }
+        }
+        if (best) ang = a + wrap(Math.atan2(best.y - f.y, best.x - f.x) - a) * 0.75;
+      }
+      f.aim = rotateTo(f.aim, ang, 0.5);
+    } else if (f.moveX || f.moveY) {
+      f.aim = rotateTo(f.aim, Math.atan2(f.moveY, f.moveX), 0.18);
+    }
+    if (this.input.firing && !f.healUntil) this.tryFire(f, now);
+    else if (f.mag < f.weapon.mag && f.ammo > 0 && now - f.lastShot > 1500) this.startReload(f, now);
   }
 
   // ---------- Kampf ----------
@@ -434,8 +521,12 @@ export class Game {
     }
     if (f.healUntil && now >= f.healUntil) {
       f.healUntil = 0;
-      f.hp = Math.min(100, f.hp + 50);
+      f.hp = Math.min(100, f.hp + f.healAmt);
       this.events.push({ type: 'heal', f });
+    }
+    if (f.isPlayer) {
+      this.playerAim(f, now);
+      return;
     }
     if (now >= f.nextScan) {
       f.nextScan = now + 140 + Math.random() * 80;
@@ -454,7 +545,7 @@ export class Game {
       f.aim = rotateTo(f.aim, Math.atan2(f.moveY, f.moveX), 0.2);
     }
 
-    const canFire = f.target && !f.healUntil && (f.isPlayer || now - f.targetSince > 550);
+    const canFire = f.target && !f.healUntil && now - f.targetSince > 650;
     if (canFire) this.tryFire(f, now);
     else if (!f.target && f.mag < f.weapon.mag && f.ammo > 0 && now - f.lastShot > 1500) this.startReload(f, now);
   }
@@ -484,17 +575,17 @@ export class Game {
     f.mag--;
     f.lastShot = now;
     f.lastFiredAt = now;
-    const extra = f.isPlayer ? 0 : 0.16;
+    const extra = f.isPlayer ? 0 : 0.2;
     const sx = f.x + Math.cos(f.aim) * 20, sy = f.y + Math.sin(f.aim) * 20;
     for (let i = 0; i < w.pellets; i++) {
       const a = f.aim + (Math.random() - 0.5) * 2 * (w.spread + extra);
       this.bullets.push({
         id: this.ids++, x: sx, y: sy, vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed,
-        owner: f, dmg: w.damage, traveled: 0, range: w.range * 1.1, weapon: w.name, dead: false,
+        owner: f, dmg: f.isPlayer ? w.damage : w.damage * 0.85, traveled: 0, range: w.range * 1.1, weapon: w.name, wid: w.id, dead: false,
       });
     }
     if (!f.isPlayer) f.aimError = (Math.random() - 0.5) * 0.4;
-    this.events.push({ type: 'shot', f, x: f.x + Math.cos(f.aim) * (w.length + 14), y: f.y + Math.sin(f.aim) * (w.length + 14), angle: f.aim });
+    this.events.push({ type: 'shot', f, x: f.x + Math.cos(f.aim) * (w.length + 14), y: f.y + Math.sin(f.aim) * (w.length + 14), angle: f.aim, wid: w.id });
     if (f.mag === 0) this.startReload(f, now);
   }
 
@@ -505,9 +596,12 @@ export class Game {
   }
 
   startHeal(f: Fighter, now: number) {
-    if (f.healUntil || f.medkits <= 0 || f.hp >= 100) return;
-    f.medkits--;
-    f.healUntil = now + 2000;
+    if (f.healUntil || f.hp >= 100 || (f.medkits <= 0 && f.bigmeds <= 0)) return;
+    // großes Medikit bei viel Schaden, sonst kleines
+    const big = f.bigmeds > 0 && (f.hp <= 45 || f.medkits <= 0);
+    if (big) { f.bigmeds--; f.healAmt = 70; f.healTotal = 3000; }
+    else { f.medkits--; f.healAmt = 30; f.healTotal = 1600; }
+    f.healUntil = now + f.healTotal;
   }
 
   private updateBullets(dt: number) {
@@ -528,6 +622,7 @@ export class Game {
         }
       }
       this.query(Math.min(b.x, nx), Math.min(b.y, ny), Math.max(b.x, nx), Math.max(b.y, ny), (o) => {
+        if (!o.blocks) return;
         const t = segRect(b.x, b.y, nx, ny, o.rect);
         if (t !== null && t < hitT) {
           hitT = t;
@@ -536,13 +631,19 @@ export class Game {
         }
       });
       const hx = b.x + dx * hitT, hy = b.y + dy * hitT;
+      const splash = WEAPONS[b.wid].splash;
+      if (splash && (hitF || hitO || b.traveled + Math.sqrt(seg2) >= b.range)) {
+        this.explode(hitF || hitO ? hx : nx, hitF || hitO ? hy : ny, splash, b);
+        b.dead = true;
+        continue;
+      }
       if (hitF) {
         const f = hitF as Fighter;
-        this.events.push({ type: 'hit', x: hx, y: hy, color: f.color, big: true });
+        this.events.push({ type: 'hit', x: hx, y: hy, color: f.color, big: true, byPlayer: b.owner === this.player });
         this.damage(f, b.dmg, b.owner, false, b.weapon);
         b.dead = true;
       } else if (hitO) {
-        this.events.push({ type: 'hit', x: hx, y: hy, color: 0xd8d0c0, big: false });
+        this.events.push({ type: 'hit', x: hx, y: hy, color: 0xd8d0c0, big: false, byPlayer: b.owner === this.player });
         b.dead = true;
       } else {
         b.x = nx;
@@ -552,6 +653,44 @@ export class Game {
       }
     }
     this.bullets = this.bullets.filter((b) => !b.dead);
+  }
+
+  private explode(x: number, y: number, r: number, b: Bullet) {
+    this.events.push({ type: 'explode', x, y, r });
+    for (const f of this.fighters) {
+      if (!f.alive || f.phase !== 'ground') continue;
+      const d = Math.hypot(f.x - x, f.y - y);
+      if (d > r + FIGHTER_R) continue;
+      if (!this.hasLOS(x, y, f.x, f.y) && d > 30) continue;
+      const k = Math.max(0.25, 1 - d / (r + FIGHTER_R));
+      this.damage(f, b.dmg * k * (f === b.owner ? 0.5 : 1), b.owner, false, b.weapon);
+    }
+  }
+
+  // ---------- Versorgungspakete ----------
+
+  private updateAirdrops(now: number, dt: number) {
+    if (this.nextAirdrop < AIRDROP_TIMES.length && now >= AIRDROP_TIMES[this.nextAirdrop]) {
+      this.nextAirdrop++;
+      const c = this.zoneNext.r > 0 ? this.zoneNext : this.zoneCur;
+      const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * c.r * 0.7;
+      const p = this.findFreeNear(c.x + Math.cos(a) * d, c.y + Math.sin(a) * d);
+      const drop: Airdrop = { id: this.ids++, x: p.x, y: p.y, z: AIRDROP_Z, obstacle: null };
+      this.airdrops.push(drop);
+      this.events.push({ type: 'airdrop', d: drop });
+      this.events.push({ type: 'toast', text: 'Versorgungspaket im Anflug!', color: '#ffa726' });
+    }
+    for (const d of this.airdrops) {
+      if (d.obstacle) continue;
+      d.z -= 75 * dt;
+      if (d.z <= 0) {
+        d.z = 0;
+        d.obstacle = this.addObstacle({ kind: 'airdrop', x: d.x, y: d.y, r: 28, w: 56, h: 56 });
+        // niemand soll im Paket stecken
+        for (const f of this.fighters) if (f.alive && f.phase === 'ground') this.resolve(f);
+        this.events.push({ type: 'airdropLand', d });
+      }
+    }
   }
 
   damage(f: Fighter, amount: number, attacker: Fighter | null, ignoreArmor: boolean, weapon: string) {
@@ -581,6 +720,7 @@ export class Game {
     if (f.weapon.id !== 'pistol') drops.push(`w:${f.weapon.id}` as LootKind);
     if (f.ammo >= 15) drops.push('ammo');
     for (let i = 0; i < Math.min(2, f.medkits); i++) drops.push('medkit');
+    if (f.bigmeds > 0) drops.push('bigmed');
     if (f.armor >= 25) drops.push('armor');
     const off = Math.random() * Math.PI;
     drops.forEach((k, i) => {
@@ -631,7 +771,7 @@ export class Game {
     const t = f.target;
     let dx = 0, dy = 0;
 
-    if (!t && f.hp < 65 && f.medkits > 0) this.startHeal(f, now);
+    if (!t && f.hp < 65 && (f.medkits > 0 || f.bigmeds > 0)) this.startHeal(f, now);
     if (f.lootTarget && (f.lootTarget.taken || now > f.lootUntil)) f.lootTarget = null;
 
     if (t) {
@@ -669,7 +809,7 @@ export class Game {
         dx = f.lootTarget.x - f.x;
         dy = f.lootTarget.y - f.y;
         // an der Kiste stehen bleiben, bis sie offen ist
-        if (Math.hypot(dx, dy) < 50 && 'kind' in f.lootTarget && (f.lootTarget as Obstacle).kind === 'crate') {
+        if (Math.hypot(dx, dy) < 50 && 'kind' in f.lootTarget && isContainer(f.lootTarget as Obstacle)) {
           dx = 0;
           dy = 0;
         }
@@ -709,6 +849,7 @@ export class Game {
     if (k === 'ammo') return f.ammo < 90;
     if (k === 'armor') return f.armor < 100;
     if (k === 'medkit') return f.medkits < 3;
+    if (k === 'bigmed') return f.bigmeds < 2;
     return WEAPONS[k.slice(2) as WeaponId].tier > f.weapon.tier;
   }
 
@@ -723,8 +864,8 @@ export class Game {
     }
     // Kisten sind wertvoll: zählen wie halbe Entfernung
     for (const o of this.obstacles) {
-      if (o.kind !== 'crate' || o.opened) continue;
-      const d = ((o.x - f.x) ** 2 + (o.y - f.y) ** 2) * 0.5;
+      if (!isContainer(o) || o.opened) continue;
+      const d = ((o.x - f.x) ** 2 + (o.y - f.y) ** 2) * (o.kind === 'crate' ? 0.5 : 0.2);
       if (d < bestD && inSafe(o.x, o.y)) { best = o; bestD = d; }
     }
     return best;
@@ -741,7 +882,7 @@ export class Game {
         if (!f.alive || f.phase !== 'ground') continue;
         const d2 = (f.x - l.x) ** 2 + (f.y - l.y) ** 2;
         if (d2 > PICKUP_R * PICKUP_R) continue;
-        if (this.tryPickup(f, l, false)) break;
+        if (!f.isPlayer && this.tryPickup(f, l, false)) break;
         if (f.isPlayer && l.kind.startsWith('w:') && d2 < nearD) {
           nearD = d2;
           this.nearbyWeapon = l;
@@ -751,7 +892,7 @@ export class Game {
     this.loot = this.loot.filter((l) => !l.taken);
 
     for (const o of this.obstacles) {
-      if (o.kind !== 'crate' || o.opened) continue;
+      if (!isContainer(o) || o.opened) continue;
       let near = false;
       for (const f of this.fighters) {
         if (!f.alive || f.phase !== 'ground') continue;
@@ -761,7 +902,7 @@ export class Game {
           break;
         }
       }
-      o.progress = near ? o.progress + 100 / CRATE_TIME : Math.max(0, o.progress - 0.1);
+      o.progress = near ? o.progress + 100 / OPEN_TIME[o.kind] : Math.max(0, o.progress - 0.1);
       if (o.progress >= 1) this.openCrate(o);
     }
   }
@@ -771,10 +912,17 @@ export class Game {
     o.taken = true;
     o.progress = 1;
     const w = Math.random();
-    const weapon: LootKind = w < 0.3 ? 'w:smg' : w < 0.52 ? 'w:shotgun' : w < 0.85 ? 'w:rifle' : 'w:sniper';
-    const extras: LootKind[] = ['armor', 'medkit', 'ammo'];
-    const kinds = [weapon, extras[Math.floor(Math.random() * extras.length)]];
-    if (Math.random() < 0.35) kinds.push(extras[Math.floor(Math.random() * extras.length)]);
+    const extras: LootKind[] = ['armor', 'medkit', 'ammo', 'bigmed'];
+    const pickExtra = () => extras[Math.floor(Math.random() * extras.length)];
+    let kinds: LootKind[];
+    if (o.kind === 'airdrop') {
+      kinds = [w < 0.5 ? 'w:minigun' : 'w:rocket', 'armor', 'bigmed', 'ammo'];
+    } else if (o.kind === 'chest') {
+      kinds = [w < 0.55 ? 'w:rifle' : 'w:sniper', 'armor', w < 0.5 ? 'bigmed' : 'medkit', 'ammo'];
+    } else {
+      kinds = [w < 0.32 ? 'w:smg' : w < 0.56 ? 'w:shotgun' : w < 0.9 ? 'w:rifle' : 'w:sniper', pickExtra()];
+      if (Math.random() < 0.35) kinds.push(pickExtra());
+    }
     const off = Math.random() * Math.PI * 2;
     kinds.forEach((k, i) => {
       const a = off + (i / kinds.length) * Math.PI * 2;
@@ -782,6 +930,30 @@ export class Game {
       this.spawnLoot(p.x, p.y, k);
     });
     this.events.push({ type: 'crate', o });
+  }
+
+  /** Spieler: Gegenstände werden mit Zeitring aufgehoben */
+  private updatePlayerPick(f: Fighter, dt: number) {
+    // automatisch: nützliche Verbrauchsgüter, auf denen man steht
+    if (!this.pick || this.pick.loot.taken) {
+      this.pick = null;
+      let best: Loot | null = null, bd = PICKUP_R * PICKUP_R;
+      for (const l of this.loot) {
+        if (l.taken || l.kind.startsWith('w:') || !this.isUseful(f, l.kind)) continue;
+        const d = (l.x - f.x) ** 2 + (l.y - f.y) ** 2;
+        if (d < bd) { bd = d; best = l; }
+      }
+      if (best) this.pick = { loot: best, t: 0, total: pickTime(best.kind) };
+    }
+    const p = this.pick;
+    if (!p) return;
+    const d = Math.hypot(p.loot.x - f.x, p.loot.y - f.y);
+    if (d > PICKUP_R + 14) { this.pick = null; return; }
+    p.t += dt * 1000;
+    if (p.t >= p.total) {
+      this.tryPickup(f, p.loot, p.loot.kind.startsWith('w:'));
+      this.pick = null;
+    }
   }
 
   tryPickup(f: Fighter, l: Loot, manual: boolean): boolean {
@@ -795,9 +967,12 @@ export class Game {
     } else if (k === 'medkit') {
       if (f.medkits >= 3) return false;
       f.medkits++;
+    } else if (k === 'bigmed') {
+      if (f.bigmeds >= 2) return false;
+      f.bigmeds++;
     } else {
       const w = WEAPONS[k.slice(2) as WeaponId];
-      if (!manual && w.tier <= f.weapon.tier) return false;
+      if (!manual && (f.isPlayer || w.tier <= f.weapon.tier)) return false;
       const old = f.weapon;
       f.weapon = w;
       f.mag = w.mag;

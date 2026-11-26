@@ -11,11 +11,11 @@ let game: Game | null = null;
 const hud = new Hud({
   play: () => startRound(),
   menu: () => showMenu(),
+  settingsChanged: (s) => renderer.setQuality(s.quality),
 });
 
 function showMenu() {
   game = null;
-  // Hintergrundkarte fürs Menü
   renderer.build(new Game(generateMap(Math.floor(Math.random() * 1e9))));
   hud.showMenu();
 }
@@ -34,12 +34,14 @@ function frame(now: number) {
   const dt = now - last;
   last = now;
   if (game) {
-    hud.applyInput(game);
-    game.update(dt);
+    if (!hud.paused) {
+      hud.applyInput(game, renderer);
+      game.update(dt);
+    }
     const events = game.events;
     game.events = [];
-    renderer.handle(events);
-    renderer.render(game, dt);
+    renderer.handle(events, game);
+    renderer.render(game, hud.paused ? 0 : dt);
     hud.handle(events, game, renderer);
     hud.update(game, renderer);
   } else {

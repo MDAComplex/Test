@@ -55,17 +55,21 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
 @keyframes toast { 0% { opacity: 1; transform: translateX(-50%) scale(1.2); } 15% { transform: translateX(-50%) scale(1); } 70% { opacity: 1; } 100% { opacity: 0; } }
 .prompt { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); font-size: 16px; text-shadow: var(--shadow); white-space: nowrap; }
 
-.buttons { position: absolute; right: 16px; bottom: 16px; width: 200px; height: 190px; pointer-events: none; }
+.buttons { position: absolute; right: 16px; top: 46%; display: flex; flex-direction: column; gap: 12px; pointer-events: none; }
+.buttons.left { right: auto; left: 16px; }
 .rb { position: absolute; width: 74px; height: 74px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.95); box-shadow: 0 5px 14px rgba(0,0,0,0.35), inset 0 -4px 0 rgba(0,0,0,0.18); color: #fff; font: inherit; font-size: 13px; line-height: 1.15; display: flex; flex-direction: column; align-items: center; justify-content: center; text-shadow: 0 2px 0 #000; pointer-events: auto; cursor: pointer; opacity: 0.9; }
 .rb small { font-size: 11px; opacity: 0.9; }
 .rb:active { transform: scale(0.92); }
 .rb.dim { opacity: 0.4; }
-.rb.heal { right: 0; bottom: 0; background: rgba(46, 158, 79, 0.85); }
-.rb.reload { right: 88px; bottom: 6px; background: rgba(176, 122, 30, 0.85); }
-.rb.pick { right: 30px; bottom: 92px; background: rgba(47, 111, 208, 0.9); }
-.rb.jump { right: 0; bottom: 0; width: 110px; height: 110px; font-size: 18px; background: rgba(230, 80, 50, 0.92); }
+.buttons .rb { position: relative; width: 66px; height: 66px; font-size: 12px; }
+.rb.heal { background: rgba(46, 158, 79, 0.85); }
+.rb.reload { background: rgba(176, 122, 30, 0.85); }
+.rb.jump { left: 50%; bottom: 120px; transform: translateX(-50%); width: 120px; height: 120px; font-size: 18px; background: rgba(230, 80, 50, 0.92); }
+.rb.jump:active { transform: translateX(-50%) scale(0.92); }
 
 .joy { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: rgba(255, 255, 255, 0.14); border: 3px solid rgba(255, 255, 255, 0.5); }
+.joy.aim { border-color: rgba(255, 120, 100, 0.7); background: rgba(255, 90, 70, 0.14); }
+.joy.aim i { background: rgba(255, 120, 100, 0.75); }
 .joy i { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: rgba(255, 255, 255, 0.6); }
 
 /* Namensschilder über den Figuren */
@@ -88,4 +92,65 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
   .bottom { left: 16px; transform: none; width: calc(100vw - 240px); min-width: 120px; }
   .prompt { left: 16px; transform: none; bottom: 88px; font-size: 14px; }
   .tl .alive { font-size: 19px; }
+}
+
+/* Einstellungen-Knopf */
+.gear { position: absolute; left: 14px; top: 92px; width: 42px; height: 42px; border-radius: 12px; border: 0; color: #fff; background: var(--panel); backdrop-filter: blur(6px); pointer-events: auto; cursor: pointer; display: grid; place-items: center; }
+.gear:focus-visible, .btn:focus-visible, .seg button:focus-visible, .pickcard:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+
+/* Aufheben-Karte */
+.pickcard { position: absolute; left: 50%; bottom: 128px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 16px; border: 3px solid #fff; background: rgba(12, 22, 36, 0.78); color: #fff; font: inherit; text-align: left; pointer-events: auto; cursor: pointer; box-shadow: 0 8px 20px rgba(0,0,0,0.35); animation: popin 0.18s ease-out; }
+.pickcard:active { transform: translateX(-50%) scale(0.96); }
+.pc-icon { width: 38px; height: 38px; border-radius: 10px; flex: none; box-shadow: inset 0 -4px 0 rgba(0,0,0,0.25); }
+.pc-text { display: flex; flex-direction: column; gap: 2px; }
+.pc-name { font-size: 17px; }
+.pc-stats { font-size: 11px; opacity: 0.85; font-weight: 700; }
+.pc-key { font-size: 13px; padding: 4px 9px; border-radius: 8px; background: rgba(255,255,255,0.18); }
+@keyframes popin { from { transform: translateX(-50%) scale(0.8); opacity: 0; } }
+@media (hover: none) { .pc-key { display: none; } }
+
+/* Fortschrittsring beim Aufheben/Öffnen */
+.pring { position: absolute; left: 0; top: 0; width: 60px; height: 60px; margin: -30px 0 0 -30px; }
+.pring svg { transform: rotate(-90deg); filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5)); }
+.pring circle { fill: none; stroke-width: 6; }
+.pring .bg { stroke: rgba(0, 0, 0, 0.35); }
+.pring .fg { stroke: #fff; stroke-linecap: round; }
+.pring::after { content: attr(data-label); position: absolute; left: 50%; top: 64px; transform: translateX(-50%); white-space: nowrap; font-size: 12px; text-shadow: 0 1px 2px #000; }
+
+.inv { display: flex; justify-content: space-between; font-size: 11px; opacity: 0.85; margin-top: 2px; }
+
+/* Einstellungen */
+#settings .panel { width: min(560px, 100%); padding: 22px; border-radius: 22px; background: rgba(12, 22, 36, 0.85); backdrop-filter: blur(8px); display: flex; flex-direction: column; gap: 14px; text-align: left; }
+#settings h2 { margin: 0 0 4px; font-size: 26px; }
+#settings .row { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.seg button { flex: 1 1 140px; font: inherit; font-size: 13px; color: #fff; padding: 10px 12px; border-radius: 12px; border: 2px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.06); cursor: pointer; }
+.seg button.on { background: #2aa64c; border-color: #6fe08b; }
+#settings .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+#settings .actions .btn { font-size: 20px; padding: 10px 30px; }
+
+@media (max-width: 640px) {
+  .gear { top: 116px; }
+  .pickcard { left: 16px; transform: none; bottom: 116px; }
+  .pickcard:active { transform: scale(0.96); }
+}
+
+/* flache Bildschirme (Handy quer) */
+@media (max-height: 520px) {
+  .tl { padding: 6px 12px; }
+  .tl .alive { font-size: 17px; }
+  .tl .kills { font-size: 13px; }
+  .gear { top: 76px; width: 38px; height: 38px; }
+  .zone { font-size: 14px; padding: 5px 14px; left: 50%; top: 10px; transform: translateX(-50%); }
+  .warn { top: 40px; left: 50%; transform: translateX(-50%); font-size: 14px; }
+  .mini { width: 108px; height: 108px; top: 10px; right: 10px; border-radius: 12px; }
+  .feed { top: 124px; font-size: 11px; }
+  .buttons { top: auto; bottom: 16px; flex-direction: row; right: 16px; }
+  .buttons .rb { width: 58px; height: 58px; font-size: 11px; }
+  .bottom { width: min(300px, 40vw); padding: 7px 12px 6px; bottom: 10px; }
+  .wrow { font-size: 13px; }
+  .bar.hp { height: 15px; }
+  .bar.hp span { line-height: 15px; font-size: 11px; }
+  .pickcard { bottom: 96px; padding: 7px 12px; }
+  .rb.jump { bottom: 80px; width: 100px; height: 100px; }
 }
