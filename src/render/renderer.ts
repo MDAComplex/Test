@@ -680,7 +680,7 @@ export class Renderer {
     shadow.position.y = 0.04;
     shadow.scale.setScalar(0.7);
     const lean = new THREE.Group();
-    const rig = buildCharacter({ kind: f.look.char, shirt: f.color, seed: f.id * 7 + 3, gradient: this.gradient, toon: this.charToon });
+    const rig = buildCharacter({ kind: f.look.char, shirt: f.color, seed: f.id * 7 + 3, gradient: this.gradient, toon: this.charToon, outfit: f.look.outfit });
     rig.gunKick.add(this.makeGun(f.weapon.id));
     lean.add(rig.body);
     const { chute, disposables } = buildChute(f.look.chute, f.color, this.gradient, this.m.line);

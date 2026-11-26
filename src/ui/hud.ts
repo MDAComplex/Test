@@ -149,6 +149,7 @@ export class Hud {
             <canvas class="pv" width="260" height="300" aria-label="Vorschau deiner Figur"></canvas>
             <div class="lockopts">
               <div class="row"><span>Figur</span><div class="seg" data-lock="char"><button data-v="man">Mann</button><button data-v="woman">Frau</button></div></div>
+              <div class="row"><span>Outfit</span><div class="seg" data-lock="outfit"><button data-v="none">Normal</button><button data-v="astronaut">Astronaut</button><button data-v="skeleton">Skelett</button><button data-v="office">Büro</button><button data-v="jogger">Jogger</button></div></div>
               <div class="row"><span>Farbe</span><div class="skins" aria-label="Farbe deiner Figur"></div></div>
               <div class="row"><span>Fallschirm</span><div class="seg" data-lock="chute"><button data-v="round">Rundkappe</button><button data-v="wing">Gleitschirm</button></div></div>
             </div>
@@ -190,7 +191,7 @@ export class Hud {
     this.lockerEl.querySelectorAll<HTMLElement>('[data-lock]').forEach((seg) =>
       seg.querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
         b.addEventListener('click', () => {
-          const key = seg.dataset.lock as 'char' | 'chute';
+          const key = seg.dataset.lock as 'char' | 'chute' | 'outfit';
           (this.profile as unknown as Record<string, string>)[key] = b.dataset.v!;
           this.previewChute = key === 'chute';
           saveProfile(this.profile);
@@ -365,7 +366,7 @@ export class Hud {
   }
 
   get playerColor() { return skinColor(this.profile); }
-  get playerLook() { return { char: this.profile.char, chute: this.profile.chute }; }
+  get playerLook() { return { char: this.profile.char, chute: this.profile.chute, outfit: this.profile.outfit }; }
 
   private openLocker() {
     this.menu.classList.add('hidden');
@@ -415,7 +416,7 @@ export class Hud {
       const cur = (pr as unknown as Record<string, string>)[seg.dataset.lock!];
       seg.querySelectorAll<HTMLElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.v === cur));
     });
-    this.preview?.set(pr.char, skinColor(pr), pr.chute, this.previewChute);
+    this.preview?.set(pr.char, skinColor(pr), pr.chute, this.previewChute, pr.outfit);
     const tl = this.menu.querySelector('.tasks')!;
     tl.innerHTML = '';
     for (const t of pr.daily.tasks) {
