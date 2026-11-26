@@ -58,6 +58,9 @@ function frame(now: number) {
     }
     const events = game.events;
     game.events = [];
+    renderer.fpp.on = hud.fppOn();
+    renderer.fpp.yaw = hud.fppYaw;
+    renderer.fpp.pitch = hud.fppPitch;
     renderer.handle(events, game);
     renderer.render(game, stop ? 0 : dt);
     hud.handle(events, game, renderer);

@@ -145,6 +145,12 @@ export class Renderer {
   private props: THREE.Object3D[] = [];
   private contrailT = 0;
   private playerRing!: THREE.Mesh;
+  /** Ich-Perspektive: von außen gesetzt (Blick + aktiv) */
+  fpp = { on: false, yaw: 0, pitch: 0 };
+  private fppView: THREE.Group | null = null;
+  private fppWeapon = '';
+  private fppBob = 0;
+  private fppMode = false;
   private doorTex: THREE.CanvasTexture | null = null;
   private doorGlowTex: THREE.CanvasTexture | null = null;
   private doorLights: THREE.Mesh[] = [];
@@ -245,6 +251,7 @@ export class Renderer {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.5, 800);
+    this.scene.add(this.camera);
 
     this.gradient = new THREE.DataTexture(new Uint8Array([120, 190, 255]), 3, 1, THREE.RedFormat);
     this.gradient.minFilter = this.gradient.magFilter = THREE.NearestFilter;
@@ -1646,12 +1653,12 @@ export class Renderer {
 
     for (const f of game.fighters) this.updateFighter(f, game, dt, playerHouse);
 
-    this.playerRing.visible = p.alive && p.phase === 'ground';
+    this.playerRing.visible = p.alive && p.phase === 'ground' && !this.fpp.on;
     this.playerRing.position.set(p.x * S, 0.13, p.y * S);
     this.playerRing.rotation.z = this.time;
 
     // Ziellinie des Spielers
-    const aiming = p.alive && p.phase === 'ground' && !p.downed && p.weapon.id !== 'fists' && game.input.aim !== null && !game.over;
+    const aiming = !this.fpp.on && p.alive && p.phase === 'ground' && !p.downed && p.weapon.id !== 'fists' && game.input.aim !== null && !game.over;
     this.aimLine.visible = aiming;
     if (aiming) {
       // Ziellinie zeigt zur Maus / zum rechten Stick, auch wenn die Figur in Laufrichtung schaut
@@ -1764,7 +1771,7 @@ export class Renderer {
     }
     const house = f.phase === 'ground' ? game.houseAt(f.x, f.y) : -1;
     const inOtherHouse = !f.isPlayer && house !== -1 && house !== playerHouse;
-    v.root.visible = f.phase !== 'plane' && !f.hidden && !inOtherHouse;
+    v.root.visible = f.phase !== 'plane' && !f.hidden && !inOtherHouse && !(f.isPlayer && this.fpp.on);
     v.root.position.set(f.x * S, f.z * S, f.y * S);
     const speed = Math.hypot(f.vx, f.vy);
     const falling = f.phase === 'fall';
@@ -2144,8 +2151,112 @@ export class Renderer {
     this.sun.target.position.set(t.x, 0, t.z);
   }
 
+  /** Hände und Waffe vor der Kamera (Ich-Perspektive) */
+  private updateViewModel(game: Game, dt: number) {
+    const p = game.player;
+    const show = this.fpp.on && p.alive && !p.downed;
+    if (!show) { if (this.fppView) this.fppView.visible = false; return; }
+    const key = p.weapon.id + p.color;
+    if (!this.fppView || this.fppWeapon !== key) {
+      if (this.fppView) this.camera.remove(this.fppView);
+      this.fppView = this.buildViewModel(p);
+      this.fppWeapon = key;
+      this.camera.add(this.fppView);
+    }
+    const vm = this.fppView;
+    vm.visible = true;
+    const v = this.fighterViews.get(p);
+    if (v) {
+      // die eigene Figur ist ausgeblendet: Rückstoß/Nachladen/Schlag hier weiterzählen
+      v.recoil = Math.max(0, v.recoil - dt * 9);
+      v.reloadBlend = lerp(v.reloadBlend, p.reloading ? 1 : 0, 1 - Math.exp(-dt * 12));
+      v.punchT = Math.max(0, v.punchT - dt * 6);
+    }
+    const speed = Math.hypot(p.vx, p.vy);
+    this.fppBob += dt * speed * 0.06;
+    const bob = Math.min(1, speed / 140);
+    const recoil = v ? v.recoil : 0;
+    const reload = v ? v.reloadBlend : 0;
+    const punch = v ? v.punchT : 0;
+    vm.position.set(Math.cos(this.fppBob) * 0.012 * bob, -Math.abs(Math.sin(this.fppBob)) * 0.016 * bob - reload * 0.12, recoil * 0.06);
+    vm.rotation.set(recoil * 0.12 + reload * -0.5, 0, reload * 0.35);
+    const fist = vm.getObjectByName('punch');
+    if (fist) fist.position.z = -Math.sin(Math.min(1, (1 - punch) * 1.6) * Math.PI) * 0.25 * (punch > 0 ? 1 : 0);
+  }
+
+  private buildViewModel(p: Fighter) {
+    const g = new THREE.Group();
+    const skin = this.charToon(0xf2c49b);
+    const sleeve = this.charToon(p.color);
+    const limb = (a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material) => {
+      const d = new THREE.Vector3().subVectors(b, a), len = d.length();
+      const m = new THREE.Mesh(this.g.cyl, mat);
+      m.scale.set(r, len, r);
+      m.position.copy(a).addScaledVector(d, 0.5);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+      g.add(m);
+    };
+    const hand = (pos: THREE.Vector3) => { const h = new THREE.Mesh(this.g.flash, skin); h.scale.setScalar(0.035); h.position.copy(pos); g.add(h); return h; };
+    if (p.weapon.id === 'fists') {
+      for (const side of [1, -1]) {
+        const grp = new THREE.Group();
+        if (side === 1) grp.name = 'punch';
+        const fistPos = new THREE.Vector3(0.13 * side, -0.16, -0.36);
+        const elbow = new THREE.Vector3(0.24 * side, -0.32, -0.12);
+        const tmp = new THREE.Group();
+        g.add(grp);
+        // Arm in eigener Gruppe, damit die rechte Faust nach vorne schlagen kann
+        const save = g.children.length;
+        limb(elbow, fistPos, 0.032, skin);
+        limb(new THREE.Vector3(0.3 * side, -0.5, 0.05), elbow, 0.045, sleeve);
+        const f = hand(fistPos); f.scale.setScalar(0.05);
+        for (const c of g.children.slice(save)) grp.add(c);
+        void tmp;
+      }
+      return g;
+    }
+    const gun = this.makeGun(p.weapon.id);
+    gun.scale.setScalar(0.3);
+    gun.rotation.y = Math.PI / 2;
+    // Griff (Waffen-Koordinaten ~ (0,-0.12,0)) an die rechte Hand
+    gun.position.set(0.17, -0.16, -0.36);
+    g.add(gun);
+    gun.updateMatrix();
+    const toCam = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).applyMatrix4(gun.matrix);
+    const rHand = toCam(0.0, -0.12, 0), lHand = toCam(p.weapon.twoHanded ? 0.42 : 0.0, -0.08, p.weapon.twoHanded ? 0 : -0.06);
+    hand(rHand); hand(lHand);
+    limb(new THREE.Vector3(0.28, -0.42, 0.05), rHand, 0.03, skin);
+    limb(new THREE.Vector3(0.32, -0.55, 0.15), new THREE.Vector3(0.28, -0.42, 0.05), 0.045, sleeve);
+    const lEl = new THREE.Vector3(-0.12, -0.36, -0.12);
+    limb(lEl, lHand, 0.03, skin);
+    limb(new THREE.Vector3(-0.22, -0.55, 0.1), lEl, 0.045, sleeve);
+    g.traverse((o) => { (o as THREE.Mesh).castShadow = false; });
+    return g;
+  }
+
   private updateCamera(game: Game, dt: number) {
     const p = game.player;
+    // Ich-Perspektive: Kamera auf Augenhöhe, Blick per Maus/Wischen
+    if (this.fpp.on !== this.fppMode) {
+      this.fppMode = this.fpp.on;
+      this.camera.fov = this.fpp.on ? 72 : 40;
+      this.camera.near = this.fpp.on ? 0.05 : 0.5;
+      this.camera.updateProjectionMatrix();
+      this.scene.background = this.fpp.on ? new THREE.Color(0x9fd4f2) : null;
+      this.scene.fog = this.fpp.on ? new THREE.Fog(0x9fd4f2, 70, 190) : null;
+    }
+    if (this.fpp.on) {
+      this.updateViewModel(game, dt);
+      this.camTarget.set(p.x * S, 0, p.y * S);
+      this.shake = Math.max(0, this.shake - dt * 3);
+      const sh = (Math.random() - 0.5) * this.shake * 0.15;
+      const eye = new THREE.Vector3(p.x * S, 1.95 + Math.abs(Math.sin(this.fppBob)) * 0.04 * Math.min(1, Math.hypot(p.vx, p.vy) / 140), p.y * S);
+      this.camera.position.copy(eye);
+      const cp = Math.cos(this.fpp.pitch);
+      this.camera.lookAt(eye.x + Math.cos(this.fpp.yaw) * cp, eye.y + Math.sin(this.fpp.pitch) + sh, eye.z + Math.sin(this.fpp.yaw) * cp);
+      return;
+    }
+    if (this.fppView) this.fppView.visible = false;
     let tx: number, ty: number, tz: number, zoom: number;
     const spec = !p.alive && game.spectate ? game.spectate : null;
     if (spec) {

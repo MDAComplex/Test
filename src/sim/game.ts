@@ -112,6 +112,12 @@ export class Fighter {
   downedBy: Fighter | null = null;
   reviveT = 0;
   leader: Fighter | null = null;
+  /** Bot-Können: 0.65 schwach, 1 normal, 1.35 stark */
+  skill = 1;
+  strafeUntil = 0;
+  /** Bot hebt gerade etwas auf (braucht wie der Spieler Zeit) */
+  pickLoot: Loot | null = null;
+  pickT = 0;
   /** Aussehen: Figur und Fallschirm */
   look: { char: 'man' | 'woman'; chute: 'round' | 'wing'; outfit?: 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger'; design?: ChuteDesign } = { char: 'man', chute: 'round', outfit: 'none' };
   vx = 0;
@@ -212,11 +218,13 @@ export class Game {
   zoneState: 'wait' | 'shrink' | 'done' = 'wait';
   plane: { x1: number; y1: number; x2: number; y2: number };
   events: GameEvent[] = [];
+  /** zuletzt gehörte Schüsse (für Bots: hinlaufen oder meiden) */
+  private shotsHeard: { x: number; y: number; t: number; by: Fighter }[] = [];
   airdrops: Airdrop[] = [];
   private nextAirdrop = 0;
   over = false;
   result: GameResult | null = null;
-  input = { mx: 0, my: 0, aim: null as number | null, firing: false, autoWeapon: false, jump: false, heal: false, reload: false, pickup: false, swap: false };
+  input = { mx: 0, my: 0, aim: null as number | null, firing: false, autoWeapon: false, fpp: false, jump: false, heal: false, reload: false, pickup: false, swap: false };
   /** Zähler für Aufgaben und Erfahrungspunkte */
   stats = { chests: 0, airdrops: 0, shields: 0, heals: 0 };
   /** Kamera folgt nach dem Tod diesem Kämpfer */
@@ -255,6 +263,8 @@ export class Game {
       f.strafe = Math.random() < 0.5 ? 1 : -1;
       const st = Math.random();
       f.style = st < 0.3 ? 'aggro' : st < 0.6 ? 'careful' : 'normal';
+      const sk = Math.random();
+      f.skill = sk < 0.3 ? 0.65 : sk < 0.85 ? 1 : 1.35;
       // erster Bot eines Teams plant den Absprung, die anderen folgen ihm
       const lead = this.fighters.find((x) => x.team === f.team && x !== f) ?? null;
       f.leader = lead;
@@ -617,7 +627,10 @@ export class Game {
   /** Spieler zielt selbst; optionale Zielhilfe für Touch */
   private playerAim(f: Fighter, now: number) {
     const a = this.input.aim;
-    if (a !== null && this.input.firing) {
+    if (a !== null && this.input.fpp) {
+      // Ich-Perspektive: Figur schaut immer in Blickrichtung
+      f.aim = a;
+    } else if (a !== null && this.input.firing) {
       // nur beim Schießen zum Ziel drehen (sofort, damit der Schuss sitzt)
       f.aim = a;
     } else if (now - f.lastShot < 300) {
@@ -665,7 +678,7 @@ export class Game {
       f.aim = rotateTo(f.aim, Math.atan2(f.moveY, f.moveX), 0.2);
     }
 
-    const canFire = f.target && !f.healUntil && now - f.targetSince > 650;
+    const canFire = f.target && !f.healUntil && now - f.targetSince > 650 / f.skill;
     if (canFire) this.tryFire(f, now);
     else if (!f.target && f.mag < f.weapon.mag && f.ammo > 0 && now - f.lastShot > 1500) this.startReload(f, now);
   }
@@ -673,7 +686,7 @@ export class Game {
   private findTarget(f: Fighter, now: number): Fighter | null {
     let best: Fighter | null = null;
     // Bots greifen anfangs zurückhaltender an, später voll
-    const ramp = clamp(0.55 + ((now - PLANE_TIME) / 90000) * 0.45, 0.55, 1);
+    const ramp = clamp(0.5 + ((now - PLANE_TIME) / 150000) * 0.5, 0.5, 1);
     const styleK = f.style === 'aggro' ? 1.05 : f.style === 'careful' ? 0.8 : 0.92;
     // ohne Waffe nur Gegner direkt in der Nähe angreifen, sonst zuerst Waffe suchen
     let bestD = f.weapon.id === 'fists' ? 95 : f.weapon.range * (f.isPlayer ? 1 : ramp * styleK);
@@ -741,8 +754,10 @@ export class Game {
       const d = f.target ? Math.hypot(f.target.x - f.x, f.target.y - f.y) : w.range;
       const warm = Math.max(0, 1 - (now - f.targetSince) / 1400) * 0.3;
       const flinch = now < f.flinchUntil ? 0.35 : 0;
-      f.aimError = (Math.random() - 0.5) * 2 * (0.12 + (d / w.range) * 0.3 + warm + flinch);
+      f.aimError = ((Math.random() - 0.5) * 2 * (0.12 + (d / w.range) * 0.3 + warm + flinch)) / f.skill;
     }
+    this.shotsHeard.push({ x: f.x, y: f.y, t: now, by: f });
+    if (this.shotsHeard.length > 40) this.shotsHeard.shift();
     this.events.push({ type: 'shot', f, x: f.x + Math.cos(f.aim) * (w.length + 14), y: f.y + Math.sin(f.aim) * (w.length + 14), angle: f.aim, wid: w.id });
     if (f.mag === 0) this.startReload(f, now);
   }
@@ -798,6 +813,8 @@ export class Game {
       }
       if (hitF) {
         const f = hitF as Fighter;
+        // Bots untereinander etwas weniger Schaden: Runden bleiben länger spannend
+        if (!f.isPlayer && !b.owner.isPlayer) b.dmg *= 0.6;
         this.events.push({ type: 'hit', x: hx, y: hy, color: f.color, big: true, byPlayer: b.owner === this.player });
         this.damage(f, b.dmg, b.owner, false, b.weapon);
         b.dead = true;
@@ -1014,6 +1031,7 @@ export class Game {
     const outside = dSafe > Math.max(40, safe.r * 0.8);
     const t = f.target;
     let dx = 0, dy = 0;
+    let goal: { x: number; y: number } | null = null;
     if (this.mode !== 'solo') {
       const mates = this.teammates(f).filter((x) => x.alive && x.phase === 'ground');
       if (f.downed) {
@@ -1037,7 +1055,8 @@ export class Game {
     if (f.lootTarget && (f.lootTarget.taken || now > f.lootUntil)) f.lootTarget = null;
 
     // unter Beschuss und angeschlagen: Deckung hinter einem Hindernis suchen
-    if (t && f.style !== 'aggro' && f.hp < 65 && now - f.lastHitAt < 1500 && now > f.coverUntil) {
+    const needCover = (f.hp < 65 && now - f.lastHitAt < 1500) || (f.reloading && f.skill >= 1) || (f.mag === 0 && f.weapon.id !== 'fists');
+    if (t && f.style !== 'aggro' && needCover && now > f.coverUntil && (f.skill >= 1 || Math.random() < 0.4)) {
       const c = this.findCover(f, t);
       if (c) { f.coverX = c.x; f.coverY = c.y; f.coverUntil = now + 2600; }
     }
@@ -1049,13 +1068,17 @@ export class Game {
       const ang = Math.atan2(t.y - f.y, t.x - f.x);
       const d = Math.hypot(t.x - f.x, t.y - f.y);
       const fleeHp = f.style === 'careful' ? 45 : f.style === 'aggro' ? 15 : 30;
-      if (f.hp < fleeHp && t.hp > f.hp + 15) {
+      const unarmedVsGun = f.weapon.id === 'fists' && t.weapon.id !== 'fists' && d > 70;
+      if ((f.hp < fleeHp && t.hp > f.hp + 15) || unarmedVsGun) {
         dx = -Math.cos(ang);
         dy = -Math.sin(ang);
       } else {
-        const pref = f.weapon.id === 'fists' ? 20 : f.weapon.range * (f.style === 'aggro' ? 0.35 : f.style === 'careful' ? 0.7 : 0.55);
+        let pref = f.weapon.id === 'fists' ? 20 : f.weapon.range * (f.style === 'aggro' ? 0.35 : f.style === 'careful' ? 0.7 : 0.55);
+        // Taktik: angeschlagene Gegner bedrängen, mit größerer Reichweite auf Abstand halten
+        if (t.hp + t.armor < 45 && f.hp > 55) pref = Math.min(pref, f.weapon.range * 0.3);
+        else if (f.skill >= 1 && t.weapon.range < f.weapon.range * 0.8) pref = f.weapon.range * 0.78;
         const radial = d > pref + 50 ? 1 : d < pref - 50 ? -0.8 : 0;
-        if (Math.random() < 0.12) f.strafe *= -1;
+        if (now > f.strafeUntil) { if (Math.random() < 0.6) f.strafe *= -1; f.strafeUntil = now + 350 + Math.random() * 900 / f.skill; }
         dx = Math.cos(ang) * radial + Math.cos(ang + Math.PI / 2) * f.strafe * 0.9;
         dy = Math.sin(ang) * radial + Math.sin(ang + Math.PI / 2) * f.strafe * 0.9;
       }
@@ -1069,6 +1092,15 @@ export class Game {
     } else if (f.lastAttacker && f.lastAttacker.alive && now - f.lastHitAt < 2500) {
       dx = f.lastAttacker.x - f.x;
       dy = f.lastAttacker.y - f.y;
+    } else if (f.pickLoot && !f.pickLoot.taken && Math.hypot(f.pickLoot.x - f.x, f.pickLoot.y - f.y) < PICKUP_R) {
+      // stehen bleiben, bis der Gegenstand aufgehoben ist
+      dx = 0; dy = 0;
+    } else if (this.heardFight(f, now)) {
+      const h = this.heardFight(f, now)!;
+      const bold = f.weapon.id !== 'fists' && f.hp > 60 && f.skill > 1.2;
+      // Mutige laufen zum Kampf (Dritt-Partei), Vorsichtige weichen aus
+      dx = (h.x - f.x) * (bold ? 1 : -1);
+      dy = (h.y - f.y) * (bold ? 1 : -1);
     } else {
       if (!f.lootTarget) {
         const l = this.findUsefulTarget(f, safe);
@@ -1095,6 +1127,7 @@ export class Game {
       } else if (f.lootTarget) {
         dx = f.lootTarget.x - f.x;
         dy = f.lootTarget.y - f.y;
+        goal = { x: f.lootTarget.x, y: f.lootTarget.y };
         // an der Kiste stehen bleiben, bis sie offen ist
         if (Math.hypot(dx, dy) < 50 && 'kind' in f.lootTarget && isContainer(f.lootTarget as Obstacle)) {
           dx = 0;
@@ -1109,6 +1142,7 @@ export class Game {
         }
         dx = f.wanderX - f.x;
         dy = f.wanderY - f.y;
+        goal = { x: f.wanderX, y: f.wanderY };
       }
     }
 
@@ -1116,7 +1150,9 @@ export class Game {
     if (len > 0) {
       dx /= len; dy /= len;
       // liegt das Ziel auf der anderen Flussseite? Dann zuerst zur nächsten Brücke
-      const route = this.bridgeRoute(f, f.x + dx * 500, f.y + dy * 500);
+      const gx = goal ? goal.x : f.x + dx * 500, gy = goal ? goal.y : f.y + dy * 500;
+      // durch Türen in Häuser hinein/hinaus, sonst über Brücken
+      const route = this.houseRoute(f, gx, gy) ?? this.bridgeRoute(f, gx, gy);
       if (route) {
         const rl = Math.hypot(route.x - f.x, route.y - f.y) || 1;
         dx = (route.x - f.x) / rl; dy = (route.y - f.y) / rl;
@@ -1139,6 +1175,41 @@ export class Game {
     }
     f.moveX = dx;
     f.moveY = dy;
+  }
+
+  /** zuletzt gehörter Kampf in der Nähe (nicht vom Bot selbst oder seinem Team) */
+  private heardFight(f: Fighter, now: number) {
+    for (let i = this.shotsHeard.length - 1; i >= 0; i--) {
+      const h = this.shotsHeard[i];
+      if (now - h.t > 3000) break;
+      if (h.by === f || this.ally(h.by, f)) continue;
+      const d = Math.hypot(h.x - f.x, h.y - f.y);
+      if (d > 150 && d < 750) return h;
+    }
+    return null;
+  }
+
+  /** Wegpunkt durch die nächste Tür, wenn das Ziel in einem anderen Haus (oder draußen) liegt */
+  private houseRoute(f: Fighter, tx: number, ty: number): { x: number; y: number } | null {
+    const hf = this.houseAt(f.x, f.y), ht = this.houseAt(tx, ty);
+    if (hf === ht) return null;
+    const pickDoor = (hi: number, fromX: number, fromY: number) => {
+      const h = this.houses[hi];
+      return h.doors.slice().sort((a, b) => Math.hypot(a.x - fromX, a.y - fromY) - Math.hypot(b.x - fromX, b.y - fromY))[0];
+    };
+    if (hf >= 0) {
+      // erst zur Tür hinaus
+      const d = pickDoor(hf, tx, ty);
+      if (!d) return null;
+      const inside = { x: d.x - d.nx * 40, y: d.y - d.ny * 40 }, out = { x: d.x + d.nx * 70, y: d.y + d.ny * 70 };
+      return Math.hypot(inside.x - f.x, inside.y - f.y) < 35 ? out : inside;
+    }
+    const d = pickDoor(ht, f.x, f.y);
+    if (!d) return null;
+    const out = { x: d.x + d.nx * 70, y: d.y + d.ny * 70 }, inside = { x: d.x - d.nx * 60, y: d.y - d.ny * 60 };
+    // vor der Tür: hinein; sonst erst vor die Tür
+    const nearDoor = Math.hypot(out.x - f.x, out.y - f.y) < 45 || Math.hypot(d.x - f.x, d.y - f.y) < 50;
+    return nearDoor ? inside : out;
   }
 
   /** Seite des Flusses (Vorzeichen des Abstands zur nächsten Flusslinie) */
@@ -1257,7 +1328,13 @@ export class Game {
         if (!f.alive || f.phase !== 'ground' || f.downed) continue;
         const d2 = (f.x - l.x) ** 2 + (f.y - l.y) ** 2;
         if (d2 > PICKUP_R * PICKUP_R) continue;
-        if (!f.isPlayer && this.tryPickup(f, l, false)) break;
+        if (!f.isPlayer) {
+          if (!this.isUseful(f, l.kind)) continue;
+          if (f.pickLoot !== l) { f.pickLoot = l; f.pickT = 0; }
+          f.pickT += 100;
+          if (f.pickT >= pickTime(l.kind) && this.tryPickup(f, l, false)) { f.pickLoot = null; break; }
+          continue;
+        }
         if (f.isPlayer && l.kind.startsWith('w:') && d2 < nearD) {
           nearD = d2;
           this.nearbyWeapon = l;

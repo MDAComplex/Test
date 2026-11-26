@@ -37,6 +37,12 @@ export class Hud {
   private bigOpen = false;
   private bigCanvas!: HTMLCanvasElement;
   private tabHeld = false;
+  /** Ich-Perspektive: Blickrichtung (Gier/Neigung) */
+  fppYaw = 0;
+  fppPitch = -0.05;
+  private fppWas = false;
+  private look = { id: -1, x: 0, y: 0 };
+  private fireHeld = false;
   private labels = new Map<Fighter, { el: HTMLElement; dn: HTMLElement }>();
   private ring: HTMLElement;
   private ringArc: SVGCircleElement;
@@ -97,6 +103,8 @@ export class Hud {
         <div class="team hidden"></div>
         <div class="downnote hidden"><b>Du bist niedergeschlagen</b><span>Dein Team kann dich wiederbeleben</span><div class="bar"><i></i></div></div>
         <div class="specbar hidden"><span>Du schaust zu: <b class="specname"></b></span><button class="btn secondary toresult">ERGEBNIS</button></div>
+        <div class="xhair hidden"></div>
+        <button class="rb fire hidden">FEUER</button>
         <div class="joy move hidden"><i></i></div>
         <div class="joy aim hidden"><i></i></div>
       </div>`);
@@ -137,6 +145,7 @@ export class Hud {
           <h2>Einstellungen</h2>
           <div class="row"><span>Steuerung am Handy</span><div class="seg" data-key="swap">
             <button data-v="false">Links laufen · Rechts zielen</button><button data-v="true">Links zielen · Rechts laufen</button></div></div>
+          <div class="row"><span>Ansicht</span><div class="seg" data-key="view"><button data-v="top">Von oben</button><button data-v="fpp">Ich-Perspektive</button></div></div>
           <div class="row"><span>Grafik</span><div class="seg" data-key="quality"><button data-v="auto">Automatisch</button><button data-v="high">Hoch</button><button data-v="low">Niedrig (flüssiger)</button></div></div>
           <div class="row"><span>Stick-Größe am Handy</span><div class="seg" data-key="stick"><button data-v="small">Klein</button><button data-v="medium">Mittel</button><button data-v="large">Groß</button></div></div>
           <div class="row"><span>Ton</span><div class="seg" data-key="sound"><button data-v="true">An</button><button data-v="false">Aus</button></div></div>
@@ -174,7 +183,7 @@ export class Hud {
     this.ringArc = this.ring.querySelector('.fg') as SVGCircleElement;
     this.ringArc.style.strokeDasharray = String(RING_C);
 
-    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname', 'killnote', 'team', 'downnote', 'bigmap', 'bighint']) {
+    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname', 'killnote', 'team', 'downnote', 'bigmap', 'bighint', 'xhair', 'fire']) {
       this.e[k] = this.hud.querySelector('.' + k)!;
     }
     this.e.arBar = this.hud.querySelector('.bar.ar i')!;
@@ -275,6 +284,10 @@ export class Hud {
       });
     press(this.e.jump, 'jump');
     press(this.e.reload, 'reload');
+    this.e.fire.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); this.fireHeld = true; this.e.fire.setPointerCapture(ev.pointerId); });
+    const fireUp = () => { this.fireHeld = false; };
+    this.e.fire.addEventListener('pointerup', fireUp);
+    this.e.fire.addEventListener('pointercancel', fireUp);
     press(this.e.pickcard, 'pickup');
 
     window.addEventListener('keydown', (ev) => {
@@ -303,11 +316,19 @@ export class Hud {
         this.mouse.x = ev.clientX;
         this.mouse.y = ev.clientY;
         if (ev.button === 0) this.mouse.down = true;
+        if (this.fppOn() && !document.pointerLockElement) {
+          try { const r = (document.body as HTMLElement).requestPointerLock() as unknown as Promise<void> | undefined; r?.catch?.(() => {}); } catch { /* nicht verfügbar */ }
+        }
         return;
       }
       this.mouse.on = false;
       const leftHalf = ev.clientX < window.innerWidth / 2;
       const moveLeft = !this.settings.swap;
+      // Ich-Perspektive: auf der Blick-Seite wischen dreht die Kamera
+      if (this.fppOn() && leftHalf !== moveLeft) {
+        if (this.look.id === -1) this.look = { id: ev.pointerId, x: ev.clientX, y: ev.clientY };
+        return;
+      }
       const stick = leftHalf === moveLeft ? this.move : this.aim;
       if (stick.active) return;
       Object.assign(stick, { active: true, id: ev.pointerId, bx: ev.clientX, by: ev.clientY, x: 0, y: 0 });
@@ -321,6 +342,12 @@ export class Hud {
         this.mouse.x = ev.clientX;
         this.mouse.y = ev.clientY;
         if (this.game) this.mouse.on = true;
+        if (this.fppOn() && !this.paused) this.turn(ev.movementX, ev.movementY, 0.0028);
+        return;
+      }
+      if (ev.pointerId === this.look.id) {
+        this.turn(ev.clientX - this.look.x, ev.clientY - this.look.y, 0.007);
+        this.look.x = ev.clientX; this.look.y = ev.clientY;
         return;
       }
       for (const s of [this.move, this.aim]) {
@@ -334,6 +361,7 @@ export class Hud {
       }
     });
     const up = (ev: PointerEvent) => {
+      if (ev.pointerId === this.look.id) this.look.id = -1;
       if (ev.pointerType === 'mouse') { if (ev.button === 0) this.mouse.down = false; return; }
       for (const s of [this.move, this.aim]) {
         if (ev.pointerId !== s.id) continue;
@@ -534,6 +562,17 @@ export class Hud {
       const len = Math.hypot(this.move.x, this.move.y);
       if (len > 0.12) { mx += this.move.x; my += this.move.y; }
     }
+    const fpp = this.fppOn();
+    if (fpp && !this.fppWas) { this.fppYaw = game.player.aim; this.fppPitch = -0.05; }
+    this.fppWas = fpp;
+    game.input.fpp = fpp;
+    if (fpp) {
+      // WASD / Stick relativ zur Blickrichtung (W = vorwärts)
+      const fx = Math.cos(this.fppYaw), fy = Math.sin(this.fppYaw);
+      const fwd = -my, side = mx;
+      mx = fx * fwd - fy * side;
+      my = fy * fwd + fx * side;
+    }
     game.input.mx = mx;
     game.input.my = my;
     // Aufheben überall gleich: kurz auf dem Gegenstand stehen bleiben
@@ -542,7 +581,10 @@ export class Hud {
     game.input.aim = null;
     game.input.firing = false;
     const p = game.player;
-    if (this.aim.active) {
+    if (fpp) {
+      game.input.aim = this.fppYaw;
+      game.input.firing = this.mouse.down || this.fireHeld;
+    } else if (this.aim.active) {
       const len = Math.hypot(this.aim.x, this.aim.y);
       if (len > 0.15) {
         game.input.aim = Math.atan2(this.aim.y, this.aim.x);
@@ -675,6 +717,17 @@ export class Hud {
     setTimeout(() => el.remove(), kill ? 600 : 260);
   }
 
+  /** Ich-Perspektive gerade aktiv (am Boden, am Leben) */
+  fppOn() {
+    const g = this.game;
+    return !!g && this.settings.view === 'fpp' && g.player.alive && g.player.phase === 'ground' && !g.over;
+  }
+
+  private turn(dx: number, dy: number, k: number) {
+    this.fppYaw += dx * k;
+    this.fppPitch = Math.max(-0.6, Math.min(0.35, this.fppPitch - dy * k));
+  }
+
   setBig(on: boolean) {
     this.bigOpen = on && !!this.game;
     this.e.bigmap.classList.toggle('hidden', !this.bigOpen);
@@ -707,7 +760,8 @@ export class Hud {
   private damageDir(angle: number) {
     const el = document.createElement('div');
     el.className = 'dmgdir';
-    el.style.transform = `rotate(${angle + Math.PI / 2}rad)`;
+    // in der Ich-Perspektive relativ zur Blickrichtung (oben = vorne)
+    el.style.transform = `rotate(${this.fppOn() ? angle - this.fppYaw : angle + Math.PI / 2}rad)`;
     this.dirsLayer.append(el);
     setTimeout(() => el.remove(), 1100);
   }
@@ -745,6 +799,10 @@ export class Hud {
   update(game: Game, r: Renderer) {
     this.sfx.frame();
     const p = game.player;
+    const fppNow = this.fppOn();
+    this.e.xhair.classList.toggle('hidden', !fppNow || p.downed);
+    this.e.fire.classList.toggle('hidden', !fppNow || !this.touch || p.downed);
+    if (!fppNow && document.pointerLockElement) document.exitPointerLock();
     // Schritte, Zonenwarnung, Flugzeug, Nachladen
     if (p.alive && p.phase === 'ground') {
       this.stepDist += Math.hypot(p.x - this.lastStepPos.x, p.y - this.lastStepPos.y);
