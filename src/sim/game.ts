@@ -139,7 +139,7 @@ const PICKUP_R = 40;
 const CRATE_REACH = 30;
 const CRATE_TIME = 1800;
 /** Aufhebe-Zeiten in ms */
-export const PICK_TIME: Record<string, number> = { ammo: 350, weapon: 600, armor: 900, medkit: 900, bigmed: 1250, crate: CRATE_TIME };
+export const PICK_TIME: Record<string, number> = { ammo: 350, ammo6: 450, weapon: 600, armor: 900, medkit: 900, bigmed: 1250, crate: CRATE_TIME };
 /** Öffnungszeiten der Behälter in ms */
 export const OPEN_TIME: Record<string, number> = { crate: CRATE_TIME, chest: 2200, airdrop: 3200 };
 export const isContainer = (o: { kind: string }) => o.kind === 'crate' || o.kind === 'chest' || o.kind === 'airdrop';
@@ -181,7 +181,7 @@ export function segRect(x1: number, y1: number, x2: number, y2: number, r: Rect)
 }
 
 export const lootLabel = (k: LootKind) =>
-  k === 'ammo' ? 'Munition' : k === 'armor' ? 'Rüstung' : k === 'medkit' ? 'Kleines Medikit' : k === 'bigmed' ? 'Großes Medikit' : WEAPONS[k.slice(2) as WeaponId].name;
+  k === 'ammo' ? 'Munition' : k === 'ammo6' ? 'Munition (groß)' : k === 'armor' ? 'Rüstung' : k === 'medkit' ? 'Kleines Medikit' : k === 'bigmed' ? 'Großes Medikit' : WEAPONS[k.slice(2) as WeaponId].name;
 
 // ---------- Spiel ----------
 
@@ -667,7 +667,8 @@ export class Game {
     // Bots greifen anfangs zurückhaltender an, später voll
     const ramp = clamp(0.55 + ((now - PLANE_TIME) / 90000) * 0.45, 0.55, 1);
     const styleK = f.style === 'aggro' ? 1.05 : f.style === 'careful' ? 0.8 : 0.92;
-    let bestD = f.weapon.id === 'fists' ? 220 : f.weapon.range * (f.isPlayer ? 1 : ramp * styleK);
+    // ohne Waffe nur Gegner direkt in der Nähe angreifen, sonst zuerst Waffe suchen
+    let bestD = f.weapon.id === 'fists' ? 95 : f.weapon.range * (f.isPlayer ? 1 : ramp * styleK);
     for (const o of this.fighters) {
       if (o === f || !o.alive || o.phase !== 'ground' || this.ally(o, f)) continue;
       // Niedergeschlagene werden erledigt, wenn kein stehender Gegner näher ist
@@ -1198,7 +1199,7 @@ export class Game {
   }
 
   private isUseful(f: Fighter, k: LootKind) {
-    if (k === 'ammo') return f.ammo < 90;
+    if (k === 'ammo' || k === 'ammo6') return f.ammo < 90;
     if (k === 'armor') return f.armor < 100;
     // Heilung wird sofort verbraucht: nur nützlich, wenn Leben fehlt
     if (k === 'medkit') return f.hp < (f.isPlayer ? 100 : 85);
@@ -1212,11 +1213,14 @@ export class Game {
 
   private findUsefulTarget(f: Fighter, safe: Circle): Target | null {
     let best: Target | null = null;
-    let bestD = (this.hasNoWeapon(f) ? 1100 : 700) ** 2;
+    let bestD = (this.hasNoWeapon(f) ? 900 : 700) ** 2;
     const inSafe = (x: number, y: number) => (x - safe.x) ** 2 + (y - safe.y) ** 2 < safe.r * safe.r;
+    const unarmed = this.hasNoWeapon(f);
     for (const l of this.loot) {
       if (l.taken || !this.isUseful(f, l.kind)) continue;
-      const d = (l.x - f.x) ** 2 + (l.y - f.y) ** 2;
+      // unbewaffnet: nur Waffen zählen, und die stark bevorzugt
+      if (unarmed && !l.kind.startsWith('w:')) continue;
+      const d = ((l.x - f.x) ** 2 + (l.y - f.y) ** 2) * (unarmed ? 0.25 : 1);
       if (d < bestD && inSafe(l.x, l.y)) { best = l; bestD = d; }
     }
     // fallende Versorgungspakete: Landeplatz ansteuern
@@ -1357,9 +1361,10 @@ export class Game {
 
   tryPickup(f: Fighter, l: Loot, manual: boolean): boolean {
     const k = l.kind;
-    if (k === 'ammo') {
+    if (k === 'ammo' || k === 'ammo6') {
       if (f.ammo >= 150) return false;
-      f.ammo = Math.min(180, f.ammo + 40);
+      // 6er-Packung gibt doppelt so viel
+      f.ammo = Math.min(k === 'ammo6' ? 220 : 180, f.ammo + (k === 'ammo6' ? 80 : 40));
     } else if (k === 'armor') {
       if (f.armor >= 100) return false;
       f.armor = Math.min(100, f.armor + 50);

@@ -715,15 +715,19 @@ export class Renderer {
       g.scale.setScalar(1.15);
       g.position.x = -0.45;
       item.add(g);
-    } else if (l.kind === 'ammo') {
-      for (let i = -1; i <= 1; i++) {
-        const c = new THREE.Mesh(this.g.cyl, this.m.ammo);
-        c.scale.set(0.1, 0.4, 0.1);
-        c.position.set(i * 0.24, 0, 0);
-        const tip = new THREE.Mesh(this.g.cyl, this.m.ammoTip);
-        tip.scale.set(0.07, 0.12, 0.07);
-        tip.position.set(i * 0.24, 0.25, 0);
-        item.add(c, tip);
+    } else if (l.kind === 'ammo' || l.kind === 'ammo6') {
+      // 3er-Packung; die 6er-Packung sind zwei 3er nebeneinander
+      const rows = l.kind === 'ammo6' ? [-0.15, 0.15] : [0];
+      for (const z of rows) {
+        for (let i = -1; i <= 1; i++) {
+          const c = new THREE.Mesh(this.g.cyl, this.m.ammo);
+          c.scale.set(0.1, 0.4, 0.1);
+          c.position.set(i * 0.24, 0, z);
+          const tip = new THREE.Mesh(this.g.cyl, this.m.ammoTip);
+          tip.scale.set(0.07, 0.12, 0.07);
+          tip.position.set(i * 0.24, 0.25, z);
+          item.add(c, tip);
+        }
       }
     } else if (l.kind === 'armor') {
       // Schild-Symbol: oben gerade, unten spitz, mit hellem Rand und Emblem
