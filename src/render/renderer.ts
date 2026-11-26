@@ -324,6 +324,8 @@ export class Renderer {
       fire: new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }),
       scorch: basicT(0x2a2620, 0.5),
       sparkle: new THREE.MeshBasicMaterial({ color: 0xffe27a }),
+      sniperBody: toon(0x4f5a3c),
+      scopeLens: new THREE.MeshBasicMaterial({ color: 0x6ad0ff }),
       windowGlass: toon(0x8fc9f0),
       bridgeRail: toon(0x7a5230),
       grassBlade: toon(0xffffff, { side: THREE.DoubleSide }),
@@ -587,17 +589,44 @@ export class Renderer {
         p(B, this.m.metal, 0.18, 0.06, 0.05, 0.15, 0.13);
         p(B, acc, 0.3, 0.04, 0.125, 0.5, 0.09);
         break;
-      case 'sniper':
-        p(B, this.m.metal, 0.5, 0.14, 0.11, 0.1, 0.02);
-        p(CX, this.m.metal, 0.95, 0.028, 0.028, 0.82, 0.03);
-        p(CX, this.m.metal2, 0.42, 0.055, 0.055, 0.14, 0.15);
-        p(CX, this.m.glass, 0.03, 0.06, 0.06, 0.36, 0.15);
-        p(B, this.m.wood, 0.44, 0.15, 0.09, -0.3, -0.02, 0, 0.08);
-        p(B, this.m.metal, 0.09, 0.2, 0.08, -0.02, -0.12, 0, -0.2);
-        p(B, this.m.metal2, 0.02, 0.26, 0.02, 0.9, -0.12, 0.05, 0.3);
-        p(B, this.m.metal2, 0.02, 0.26, 0.02, 0.9, -0.12, -0.05, 0.3);
-        p(B, acc, 0.24, 0.04, 0.115, 0.1, 0.09);
+      case 'sniper': {
+        // Repetierbüchse: langer Lauf mit Mündungsbremse, großes Zielfernrohr, Kammerstengel, Schaft mit Wangenauflage
+        const olive = this.m.sniperBody, dark = this.m.metal, mid = this.m.metal2;
+        p(B, olive, 0.62, 0.13, 0.11, 0.12, 0.0);                 // Gehäuse/Vorderschaft
+        p(B, olive, 0.3, 0.09, 0.1, 0.55, -0.01);                 // Vorderschaft vorne, schlanker
+        p(CX, dark, 0.78, 0.024, 0.024, 1.02, 0.02);              // Lauf
+        p(B, dark, 0.11, 0.05, 0.05, 1.43, 0.02);                 // Mündungsbremse
+        p(B, mid, 0.02, 0.055, 0.056, 1.42, 0.02);                // Schlitz der Bremse
+        p(B, dark, 0.32, 0.03, 0.06, 0.12, 0.08);                 // Montageschiene
+        // Zielfernrohr mit Linsen und Ringen
+        p(CX, dark, 0.46, 0.042, 0.042, 0.12, 0.16);
+        p(CX, dark, 0.09, 0.062, 0.062, 0.38, 0.16);              // Objektiv (vorne dicker)
+        p(CX, dark, 0.07, 0.052, 0.052, -0.13, 0.16);             // Okular
+        p(CX, this.m.scopeLens, 0.01, 0.054, 0.054, 0.43, 0.16);  // Linse vorne
+        p(CX, this.m.scopeLens, 0.01, 0.044, 0.044, -0.17, 0.16);
+        p(CX, mid, 0.03, 0.046, 0.046, 0.12, 0.16);               // Verstelltürmchen-Basis
+        p(B, mid, 0.04, 0.05, 0.04, 0.12, 0.21);                  // Höhenturm
+        p(B, mid, 0.04, 0.04, 0.05, 0.12, 0.16, 0.06);            // Seitenturm
+        for (const rx of [-0.02, 0.24]) p(B, dark, 0.035, 0.06, 0.07, rx, 0.11); // Ringe
+        // Kammerstengel mit Kugel
+        p(B, dark, 0.02, 0.02, 0.12, -0.03, 0.04, 0.07);
+        const knob = new THREE.Mesh(this.g.flash, dark);
+        knob.scale.setScalar(0.028); knob.position.set(-0.03, 0.04, 0.135); knob.castShadow = true; g.add(knob);
+        // Magazin, Abzugsbügel, Pistolengriff
+        p(B, dark, 0.1, 0.1, 0.08, 0.16, -0.1);
+        p(B, dark, 0.11, 0.02, 0.03, 0.0, -0.08);
+        p(B, olive, 0.08, 0.2, 0.08, -0.06, -0.13, 0, -0.35);
+        // Schaft mit Wangenauflage und Schaftkappe
+        p(B, olive, 0.42, 0.1, 0.08, -0.36, -0.02, 0, 0.05);
+        p(B, olive, 0.3, 0.05, 0.075, -0.33, 0.06);
+        p(B, olive, 0.08, 0.17, 0.08, -0.56, -0.04, 0, 0.05);
+        p(B, this.m.black, 0.03, 0.18, 0.085, -0.61, -0.04, 0, 0.05);
+        // eingeklapptes Zweibein
+        p(B, mid, 0.26, 0.018, 0.018, 0.64, -0.08, 0.03);
+        p(B, mid, 0.26, 0.018, 0.018, 0.64, -0.08, -0.03);
+        p(B, acc, 0.22, 0.03, 0.115, 0.42, 0.045);                 // Seltenheitsstreifen
         break;
+      }
       case 'minigun': {
         p(B, this.m.metal, 0.46, 0.26, 0.24, 0.02, 0.0);
         p(B, this.m.metal2, 0.22, 0.24, 0.22, -0.02, -0.24);
