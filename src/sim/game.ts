@@ -23,7 +23,7 @@ export interface Obstacle {
   /** zuletzt hat der Spieler am Öffnen mitgewirkt */
   playerNear?: boolean;
 }
-export interface Loot { id: number; kind: LootKind; x: number; y: number; taken: boolean }
+export interface Loot { id: number; kind: LootKind; x: number; y: number; taken: boolean; from?: { x: number; y: number } }
 export interface Bullet {
   id: number;
   x: number; y: number; vx: number; vy: number;
@@ -142,7 +142,8 @@ export const PICK_TIME: Record<string, number> = { ammo: 350, weapon: 600, armor
 /** Öffnungszeiten der Behälter in ms */
 export const OPEN_TIME: Record<string, number> = { crate: CRATE_TIME, chest: 2200, airdrop: 3200 };
 export const isContainer = (o: { kind: string }) => o.kind === 'crate' || o.kind === 'chest' || o.kind === 'airdrop';
-const AIRDROP_TIMES = [80000, 155000];
+// drei Versorgungspakete pro Match
+const AIRDROP_TIMES = [70000, 130000, 185000];
 const AIRDROP_Z = 900;
 export const pickTime = (k: LootKind) => (k.startsWith('w:') ? PICK_TIME.weapon : PICK_TIME[k]);
 
@@ -364,8 +365,8 @@ export class Game {
     f.jumpAt = t * PLANE_TIME;
   }
 
-  spawnLoot(x: number, y: number, kind: LootKind, announce = true) {
-    const l: Loot = { id: this.ids++, kind, x: clamp(x, 40, WORLD - 40), y: clamp(y, 40, WORLD - 40), taken: false };
+  spawnLoot(x: number, y: number, kind: LootKind, announce = true, from?: { x: number; y: number }) {
+    const l: Loot = { id: this.ids++, kind, x: clamp(x, 40, WORLD - 40), y: clamp(y, 40, WORLD - 40), taken: false, from };
     this.loot.push(l);
     if (announce) this.events.push({ type: 'loot', loot: l });
     return l;
@@ -428,6 +429,7 @@ export class Game {
       if (f.phase === 'ground' && !f.downed) this.updateCombat(f, now);
     }
     this.updateBullets(dt);
+    this.updateContainers(dt);
     if (now >= this.nextPickup) {
       this.nextPickup = now + 100;
       this.updatePickups();
@@ -461,9 +463,12 @@ export class Game {
         }
       } else if (f.phase === 'fall') {
         f.z -= FALL_SPEED * dt * (f.z > 300 ? 1.6 : 1);
+        // tief über einem Haus: vom Dach seitlich abrutschen, damit niemand ins Haus fällt
+        if (f.z < 220) this.pushOutOfHouse(f);
         if (f.z <= 0) {
           f.z = 0;
           f.phase = 'ground';
+          this.pushOutOfHouse(f);
           const p = this.findFreeNear(f.x, f.y);
           f.x = p.x;
           f.y = p.y;
@@ -472,6 +477,18 @@ export class Game {
           this.events.push({ type: 'land', f });
         }
       }
+    }
+  }
+
+  /** schiebt einen Fallschirmspringer zur nächsten Außenkante, wenn er über einem Haus ist */
+  private pushOutOfHouse(f: Fighter) {
+    const m = 40;
+    for (const h of this.houses) {
+      const hs = h.s / 2 + m;
+      const dx = f.x - h.x, dy = f.y - h.y;
+      if (Math.abs(dx) >= hs || Math.abs(dy) >= hs) continue;
+      if (hs - Math.abs(dx) < hs - Math.abs(dy)) f.x = h.x + Math.sign(dx || 1) * hs;
+      else f.y = h.y + Math.sign(dy || 1) * hs;
     }
   }
 
@@ -522,7 +539,8 @@ export class Game {
     const len = Math.hypot(mx, my);
     if (len > 1) { mx /= len; my /= len; }
     if (f.phase === 'plane') return;
-    f.aiming = f.phase === 'ground' && this.input.aim !== null;
+    // langsamer nur, solange geschossen wird (Zielen ohne Schießen gibt es nicht)
+    f.aiming = f.phase === 'ground' && (this.input.firing || now - f.lastShot < 250);
     this.drive(f, mx, my, this.speedOf(f), dt);
     f.moveX = mx;
     f.moveY = my;
@@ -1162,6 +1180,10 @@ export class Game {
     }
     this.loot = this.loot.filter((l) => !l.taken);
 
+  }
+
+  /** Öffnen der Kisten: jedes Bild, damit der Ring flüssig läuft */
+  private updateContainers(dt: number) {
     for (const o of this.obstacles) {
       if (!isContainer(o) || o.opened) continue;
       let near = false;
@@ -1174,7 +1196,7 @@ export class Game {
           break;
         }
       }
-      o.progress = near ? o.progress + 100 / OPEN_TIME[o.kind] : Math.max(0, o.progress - 0.1);
+      o.progress = near ? o.progress + (dt * 1000) / OPEN_TIME[o.kind] : Math.max(0, o.progress - dt);
       if (o.progress >= 1) this.openCrate(o);
     }
   }
@@ -1197,16 +1219,27 @@ export class Game {
       if (Math.random() < 0.35) kinds.push(pickExtra());
     }
     const off = Math.random() * Math.PI * 2;
+    const hi = this.houseAt(o.x, o.y);
+    const insideChest = (x: number, y: number) => Math.abs(x - o.x) < o.w / 2 + 30 && Math.abs(y - o.y) < o.h / 2 + 30;
+    const taken: { x: number; y: number }[] = [];
     kinds.forEach((k, i) => {
-      const a = off + (i / kinds.length) * Math.PI * 2;
-      let p = this.findFreeNear(o.x + Math.cos(a) * 55, o.y + Math.sin(a) * 55);
-      const hi = this.houseAt(o.x, o.y);
-      if (hi >= 0) {
-        // Inhalt bleibt im Haus und fällt nicht durch die Wand
-        const h = this.houses[hi], m = h.s / 2 - 48;
-        p = { x: clamp(p.x, h.x - m, h.x + m), y: clamp(p.y, h.y - m, h.y + m) };
+      let p = { x: o.x, y: o.y + o.h / 2 + 50 };
+      // mehrere Winkel probieren: außerhalb der Kiste, im Haus, nicht auf anderem Loot
+      for (let tries = 0; tries < 16; tries++) {
+        const a = off + ((i + tries * 0.37) / kinds.length) * Math.PI * 2;
+        const dist = Math.max(o.w, o.h) / 2 + 50 + (tries % 3) * 18;
+        let q = this.findFreeNear(o.x + Math.cos(a) * dist, o.y + Math.sin(a) * dist);
+        if (hi >= 0) {
+          // Inhalt bleibt im Haus und fällt nicht durch die Wand
+          const h = this.houses[hi], m = h.s / 2 - 48;
+          q = { x: clamp(q.x, h.x - m, h.x + m), y: clamp(q.y, h.y - m, h.y + m) };
+        }
+        if (insideChest(q.x, q.y) || taken.some((t) => Math.hypot(t.x - q.x, t.y - q.y) < 45)) continue;
+        p = q;
+        break;
       }
-      this.spawnLoot(p.x, p.y, k);
+      taken.push(p);
+      this.spawnLoot(p.x, p.y, k, true, { x: o.x, y: o.y });
     });
     const byPlayer = !!o.playerNear;
     if (byPlayer) { if (o.kind === 'airdrop') this.stats.airdrops++; else this.stats.chests++; }

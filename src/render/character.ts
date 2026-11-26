@@ -154,6 +154,12 @@ const POSES: Record<string, ArmPose> = {
   carry2: { r: [0.35, 0.12, 1.05], l: [0.75, -0.55, 1.1], gun: [0.26, 1.2, 0.06], gunRot: [0.8, 0.35] },
   aim1: { r: [1.5, 0.12, 0.05], l: [0, 0, 0.25], gun: [0.68, 1.5, 0.3], gunRot: [0, 0] },
   carry1: { r: [0.12, 0, 0.45], l: [0, 0, 0.3], gun: [0.22, 1.0, 0.42], gunRot: [0, -1.1] },
+  // Raketenwerfer auf der Schulter
+  aimRocket: { r: [1.0, 0.45, 1.6], l: [1.05, -0.8, 0.9], gun: [0.05, 1.68, 0.24], gunRot: [0, 0] },
+  carryRocket: { r: [0.9, 0.45, 1.8], l: [0.5, -0.3, 0.8], gun: [-0.05, 1.66, 0.26], gunRot: [0, 0.18] },
+  // Minigun an der Hüfte, beide Hände unten
+  aimMinigun: { r: [0.6, 0.25, 0.7], l: [0.75, -0.6, 0.95], gun: [0.28, 1.02, 0.08], gunRot: [0, 0] },
+  carryMinigun: { r: [0.45, 0.25, 0.8], l: [0.6, -0.55, 1.0], gun: [0.22, 0.98, 0.08], gunRot: [0.25, 0.12] },
 };
 
 export interface AnimState {
@@ -162,6 +168,8 @@ export interface AnimState {
   amp: number;
   aim: number;
   twoHanded: boolean;
+  /** Waffen-Id für eigene Haltungen (Raketenwerfer, Minigun) */
+  weapon?: string;
   reload: number;
   time: number;
   falling: boolean;
@@ -201,8 +209,8 @@ export function animateRig(rig: Rig, s: AnimState) {
   rig.torso.position.y = 1.0 + (1 - amp) * Math.sin(s.time * 2.2) * 0.012;
 
   const two = s.twoHanded;
-  const a = two ? POSES.aim2 : POSES.aim1;
-  const c = two ? POSES.carry2 : POSES.carry1;
+  const a = s.weapon === 'rocket' ? POSES.aimRocket : s.weapon === 'minigun' ? POSES.aimMinigun : two ? POSES.aim2 : POSES.aim1;
+  const c = s.weapon === 'rocket' ? POSES.carryRocket : s.weapon === 'minigun' ? POSES.carryMinigun : two ? POSES.carry2 : POSES.carry1;
   const k = s.aim;
   const swingR = -Math.sin(phase + Math.PI) * 0.45 * amp; // rechter Arm gegen rechtes Bein
   const swingL = -Math.sin(phase) * 0.45 * amp;

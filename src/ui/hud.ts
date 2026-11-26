@@ -109,7 +109,7 @@ export class Hud {
         </div>
         <div class="stats"></div>
         <div class="help">
-          <b>PC:</b> WASD laufen  •  Maus zielen  •  Linksklick schießen  •  E Waffe aufheben  •  R nachladen<br>
+          <b>PC:</b> WASD laufen  •  Maus zielen  •  Linksklick schießen  •  auf Gegenstände stellen zum Aufheben  •  Q Waffe wechseln  •  R nachladen<br>
           <b>Handy:</b> linker Stick laufen  •  rechter Stick zielen und schießen (in den Einstellungen tauschbar)<br>
           Spring aus dem Flugzeug, öffne Kisten, Truhen und Versorgungspakete und bleib in der Zone
         </div>
@@ -491,7 +491,8 @@ export class Hud {
     }
     game.input.mx = mx;
     game.input.my = my;
-    game.input.autoWeapon = this.touch;
+    // Aufheben überall gleich: kurz auf dem Gegenstand stehen bleiben
+    game.input.autoWeapon = true;
 
     game.input.aim = null;
     game.input.firing = false;
@@ -738,7 +739,7 @@ export class Hud {
     this.e.buttons.classList.toggle('hidden', !ground);
 
     // Aufheben-Karte für Waffen
-    const nw = ground && !this.touch && game.nearbyWeapon ? game.nearbyWeapon : null;
+    const nw = null as typeof game.nearbyWeapon;
     this.e.pickcard.classList.toggle('hidden', !nw);
     if (nw) {
       const w = WEAPONS[nw.kind.slice(2) as WeaponId];

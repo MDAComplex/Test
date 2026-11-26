@@ -62,7 +62,7 @@ interface FighterView {
 }
 interface Particle { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; life: number; max: number }
 interface Puff { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number; max: number; size: number; grow: number }
-interface LootView { root: THREE.Group; item: THREE.Group; pop: number; x: number; y: number }
+interface LootView { root: THREE.Group; item: THREE.Group; pop: number; x: number; y: number; from?: { x: number; y: number } }
 interface CrateView { lid: THREE.Group; glow: THREE.Mesh; openT: number; kind: string; body: THREE.Group; o: Obstacle }
 interface FadeView { meshes: THREE.Mesh[]; x: number; y: number; r: number; faded: boolean; normal: THREE.Material; fade: THREE.Material; wobble: number; base: THREE.Vector3[] }
 interface HouseView { roof: THREE.Group; roofMats: THREE.Material[]; wallMat: THREE.MeshToonMaterial; fade: number }
@@ -688,7 +688,8 @@ export class Renderer {
     ring.position.y = 0.06;
     ring.scale.setScalar(1.15);
     root.add(ring);
-    if (tier >= 3) {
+    // Lichtstrahl nur bei sehr seltenen Waffen (lila/gold)
+    if (tier >= 4 && l.kind.startsWith('w:')) {
       const beam = new THREE.Mesh(this.g.beam, this.beam[tier]);
       beam.scale.set(1.4, tier >= 5 ? 6 : 3.2, 1.4);
       beam.position.y = tier >= 5 ? 3 : 1.6;
@@ -744,7 +745,7 @@ export class Renderer {
     root.add(item);
     if (pop) root.scale.setScalar(0.01);
     this.world!.add(root);
-    this.lootViews.set(l.id, { root, item, pop: pop ? 0 : 1, x: l.x, y: l.y });
+    this.lootViews.set(l.id, { root, item, pop: pop ? 0 : 1, x: l.x, y: l.y, from: pop ? l.from : undefined });
   }
 
   private lootTier(k: LootKind) {
@@ -1426,6 +1427,12 @@ export class Renderer {
               const a = Math.random() * Math.PI * 2;
               this.puff(e.o.x * S, 1.2, e.o.y * S, this.m.sparkle, 0.08, 0.2, 0.7, Math.cos(a) * 2.5, 3 + Math.random() * 2, Math.sin(a) * 2.5);
             }
+            // goldene Lichtsäule steigt aus der offenen Kiste
+            const bm = new THREE.MeshBasicMaterial({ color: e.o.kind === 'airdrop' ? 0xffb060 : 0xffd27a, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+            this.perRound.push(bm);
+            const col = new THREE.Mesh(this.g.beam, bm);
+            col.position.set(e.o.x * S, 0.9, e.o.y * S);
+            this.addTimed(col, 0.7, (t) => { const k = 1 - t; col.scale.set(1.6 + k * 0.8, 0.2 + k * 5, 1.6 + k * 0.8); col.position.y = 0.9 + col.scale.y / 2; bm.opacity = t * 0.6; });
           }
           break;
         }
@@ -1666,10 +1673,12 @@ export class Renderer {
     // Schrittlänge passend zum Tempo: ein Doppelschritt ≈ 3 Einheiten
     v.walkT += (speed * S * dt / 3.0) * Math.PI * 2;
     v.amp = lerp(v.amp, f.moving ? Math.min(1, speed / 150) : 0, 1 - Math.exp(-dt * 8));
-    v.aimBlend = lerp(v.aimBlend, f.aiming || game.time - f.lastShot < 600 ? 1 : 0, 1 - Math.exp(-dt * 12));
+    const shooting = f.isPlayer ? game.input.firing || game.time - f.lastShot < 350 : f.aiming || game.time - f.lastShot < 500;
+    // hoch in die Schusshaltung geht es schnell, zurück etwas weicher
+    v.aimBlend = lerp(v.aimBlend, shooting ? 1 : 0, 1 - Math.exp(-dt * (shooting ? 26 : 9)));
     v.reloadBlend = lerp(v.reloadBlend, f.reloading ? 1 : 0, 1 - Math.exp(-dt * 12));
     rig.head.rotation.z = 0;
-    animateRig(rig, { phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, reload: v.reloadBlend, time: this.time + f.id, falling });
+    animateRig(rig, { phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, weapon: f.weapon.id, reload: v.reloadBlend, time: this.time + f.id, falling });
 
     v.recoil = Math.max(0, v.recoil - dt * 9);
     rig.gunKick.position.x = -v.recoil * (f.weapon.id === 'shotgun' || f.weapon.id === 'sniper' || f.weapon.id === 'rocket' ? 0.22 : 0.1);
@@ -1850,8 +1859,17 @@ export class Renderer {
   private updateLootAndContainers(dt: number) {
     for (const v of this.lootViews.values()) {
       if (v.pop < 1) {
-        v.pop = Math.min(1, v.pop + dt * 4);
-        v.root.scale.setScalar(Math.max(0.01, v.pop * (1 + Math.sin(v.pop * Math.PI) * 0.3)));
+        if (v.from) {
+          // aus der Kiste im Bogen zum Landeplatz fliegen
+          v.pop = Math.min(1, v.pop + dt * 2.4);
+          const t = v.pop, e = 1 - Math.pow(1 - t, 2);
+          v.root.position.set(lerp(v.from.x, v.x, e) * S, Math.sin(t * Math.PI) * 2.2 + (1 - t) * 0.9, lerp(v.from.y, v.y, e) * S);
+          v.root.scale.setScalar(Math.max(0.01, 0.5 + t * 0.5));
+          if (t >= 1) v.root.position.set(v.x * S, 0, v.y * S);
+        } else {
+          v.pop = Math.min(1, v.pop + dt * 4);
+          v.root.scale.setScalar(Math.max(0.01, v.pop * (1 + Math.sin(v.pop * Math.PI) * 0.3)));
+        }
       }
       if (this.near(v.x, v.y, 40)) {
         v.item.rotation.y = this.time * 1.6 + v.x;

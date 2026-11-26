@@ -170,3 +170,35 @@ describe('Team-Modi', () => {
     expect(g.over).toBe(true);
   });
 });
+
+describe('Fallschirm', () => {
+  it('landet nie in einem Haus', () => {
+    const g = new Game(generateMap(5));
+    const p = g.player;
+    const h = g.houses[0];
+    g.time = 25000;
+    p.phase = 'fall';
+    p.z = 150;
+    p.x = h.x;
+    p.y = h.y;
+    for (let t = 0; t < 4000 && (p.phase as string) !== 'ground'; t += 16) g.update(16);
+    expect(p.phase).toBe('ground');
+    expect(g.houseAt(p.x, p.y)).toBe(-1);
+  });
+});
+
+describe('Loot-Kisten (Platzierung)', () => {
+  it('kein Gegenstand landet in der Kiste', () => {
+    for (const seed of [11, 12, 13]) {
+      const g = new Game(generateMap(seed));
+      for (const c of g.obstacles.filter((o) => o.kind === 'chest')) {
+        const before = g.loot.length;
+        (g as unknown as { openCrate: (o: unknown) => void }).openCrate(c);
+        for (const l of g.loot.slice(before)) {
+          const inside = Math.abs(l.x - c.x) < c.w / 2 + 10 && Math.abs(l.y - c.y) < c.h / 2 + 10;
+          expect(inside).toBe(false);
+        }
+      }
+    }
+  });
+});

@@ -173,7 +173,8 @@ export function generateMap(seed: number): MapData {
       }
     }
     // Truhen gibt es nur in Häusern: meist eine, in großen Häusern manchmal zwei
-    const chestAt = (cx: number, cy: number) => obstacles.push({ kind: 'chest', x: cx, y: cy, r: 24, w: 54, h: 40 });
+    // schmalere Loot-Kisten
+    const chestAt = (cx: number, cy: number) => obstacles.push({ kind: 'chest', x: cx, y: cy, r: 22, w: 48, h: 28 });
     if (r() < 0.75) chestAt(p.x - h + t + 36, p.y - h + t + 30);
     if (s > 320 && r() < 0.6) chestAt(p.x + h - t - 36, p.y + h - t - 30);
     const n = 1 + Math.floor(r() * 2) + (s > 330 ? 1 : 0);
