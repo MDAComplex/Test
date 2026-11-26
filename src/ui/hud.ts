@@ -515,7 +515,7 @@ export class Hud {
     if (this.miniBase) g.drawImage(this.miniBase, 0, 0);
     for (const o of game.obstacles) {
       if (!isContainer(o) || o.opened) continue;
-      g.fillStyle = o.kind === 'crate' ? '#ffd54a' : o.kind === 'chest' ? '#c070ff' : '#ff8a1e';
+      g.fillStyle = o.kind === 'crate' ? '#ffd54a' : o.kind === 'chest' ? '#ffc93c' : '#ff8a1e';
       const s = o.kind === 'crate' ? 3 : 5;
       g.fillRect(o.x * k - s / 2, o.y * k - s / 2, s, s);
     }

@@ -99,11 +99,10 @@ export function generateMap(seed: number): MapData {
     seg(true, p.y + h - t / 2, p.x - h, p.x + h, isDoor(1));
     seg(false, p.x - h + t / 2, p.y - h + t, p.y + h - t, isDoor(2));
     seg(false, p.x + h - t / 2, p.y - h + t, p.y + h - t, isDoor(3));
-    // selten: goldene Truhe, sonst manchmal eine normale Kiste
-    const cx = p.x - h + t + 32, cy = p.y - h + t + 32;
-    const v = r();
-    if (v < 0.28) obstacles.push({ kind: 'chest', x: cx, y: cy, r: 24, w: 52, h: 40 });
-    else if (v < 0.65) obstacles.push({ kind: 'crate', x: cx, y: cy, r: 22, w: 44, h: 44 });
+    // Truhen gibt es nur in Häusern: meist eine, in großen Häusern manchmal zwei
+    const chestAt = (cx: number, cy: number) => obstacles.push({ kind: 'chest', x: cx, y: cy, r: 24, w: 54, h: 40 });
+    if (r() < 0.75) chestAt(p.x - h + t + 36, p.y - h + t + 30);
+    if (s > 320 && r() < 0.6) chestAt(p.x + h - t - 36, p.y + h - t - 30);
     const n = 2 + Math.floor(r() * 2) + (s > 330 ? 2 : 0);
     for (let k = 0; k < n; k++) loot.push({ x: p.x + (r() - 0.5) * (s - 140), y: p.y + (r() - 0.5) * (s - 140), kind: randomLootKind(r) });
 
@@ -193,12 +192,6 @@ export function generateMap(seed: number): MapData {
   for (let i = 0; i < 16; i++) { const rad = ROCK_SIZES[Math.floor(r() * 3)]; addRock(rad, placeNear(rocky.x, rocky.y, 420, rad, 20)); }
   for (let i = 0; i < 50; i++) { const rad = ROCK_SIZES[Math.floor(r() * 3)]; addRock(rad, place(rad)); }
 
-  for (let i = 0; i < 70; i++) {
-    const p = place(34);
-    if (!p) continue;
-    blocks.push({ x: p.x, y: p.y, r: 34 });
-    obstacles.push({ kind: 'crate', x: p.x, y: p.y, r: 22, w: 44, h: 44 });
-  }
   for (let i = 0; i < 90; i++) {
     const f = forests[i % forests.length];
     const p = i < 30 ? placeNear(f.x, f.y, f.r, 38, 16) : place(38, 20);
@@ -212,7 +205,7 @@ export function generateMap(seed: number): MapData {
     blocks.push({ x: p.x, y: p.y, r: 20 });
     obstacles.push({ kind: 'barrel', x: p.x, y: p.y, r: 17, w: 34, h: 34 });
   }
-  for (let i = 0; i < 170; i++) {
+  for (let i = 0; i < 210; i++) {
     const p = place(14, 8);
     if (!p) continue;
     loot.push({ x: p.x, y: p.y, kind: randomLootKind(r) });

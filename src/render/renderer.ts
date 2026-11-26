@@ -75,7 +75,7 @@ interface FighterView {
 interface Particle { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; life: number; max: number }
 interface Puff { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number; max: number; size: number; grow: number }
 interface LootView { root: THREE.Group; item: THREE.Group; pop: number; x: number; y: number }
-interface CrateView { lid: THREE.Group; glow: THREE.Mesh; openT: number; kind: string }
+interface CrateView { lid: THREE.Group; glow: THREE.Mesh; openT: number; kind: string; body: THREE.Group; o: Obstacle }
 interface FadeView { meshes: THREE.Mesh[]; x: number; y: number; r: number; faded: boolean; normal: THREE.Material; fade: THREE.Material; wobble: number; base: THREE.Vector3[] }
 interface HouseView { roof: THREE.Group; roofMats: THREE.Material[]; wallMat: THREE.MeshToonMaterial; fade: number }
 interface Timed { obj: THREE.Object3D; life: number; max: number; update: (t: number) => void }
@@ -143,6 +143,8 @@ export class Renderer {
   private playerRing!: THREE.Mesh;
   private progMesh: THREE.Mesh | null = null;
   private progKey = '';
+  private progTrack: THREE.Mesh | null = null;
+  private progTrackMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false });
   private progMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
   private perRound: { dispose(): void }[] = [];
   private time = 0;
@@ -259,8 +261,8 @@ export class Renderer {
       rocketBody: toon(0x6b7a3a),
       playerRing: new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false }),
       crateGlow: basicT(0xffd54a, 0.4),
-      chestGlow: basicT(0xffb300, 0.55),
-      dropGlow: basicT(0xff8a1e, 0.55),
+      chestGlow: basicT(0xffc24a, 0.22),
+      dropGlow: basicT(0xff8a1e, 0.25),
       sandBase: toon(0xd9bf83),
       seaFloor: new THREE.MeshBasicMaterial({ color: WATER }),
       dust: basicT(0xe8d8b0, 0.55),
@@ -270,6 +272,7 @@ export class Renderer {
       contrail: basicT(0xffffff, 0.55),
       fire: new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }),
       scorch: basicT(0x2a2620, 0.5),
+      sparkle: new THREE.MeshBasicMaterial({ color: 0xffe27a }),
     };
     for (const t of [1, 2, 3, 4, 5]) {
       this.disc[t] = new THREE.MeshBasicMaterial({ color: TIER_COLORS[t], transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide });
@@ -695,9 +698,29 @@ export class Renderer {
   }
 
   /** Kiste / Truhe / Versorgungspaket mit aufklappbarem Deckel */
+  private chestTex: THREE.CanvasTexture | null = null;
+  private chestMat(): THREE.MeshToonMaterial {
+    if (!this.chestTex) {
+      this.chestTex = canvasTexture(128, 128, (c) => {
+        c.fillStyle = '#a8703c';
+        c.fillRect(0, 0, 128, 128);
+        c.strokeStyle = '#7f5129';
+        c.lineWidth = 4;
+        for (let y = 0; y <= 128; y += 32) { c.beginPath(); c.moveTo(0, y); c.lineTo(128, y); c.stroke(); }
+        c.strokeStyle = 'rgba(255,255,255,0.08)';
+        c.lineWidth = 2;
+        for (let y = 8; y < 128; y += 32) { c.beginPath(); c.moveTo(6, y); c.lineTo(122, y); c.stroke(); }
+      });
+    }
+    if (!this.m.chestWood) this.m.chestWood = new THREE.MeshToonMaterial({ map: this.chestTex, gradientMap: this.gradient });
+    return this.m.chestWood as THREE.MeshToonMaterial;
+  }
+
+  /** Truhe / Versorgungspaket (Kiste nur noch als Fallback) mit aufklappbarem Deckel */
   private makeContainer(o: Obstacle, parent: THREE.Object3D) {
-    const x = o.x * S, z = o.y * S;
-    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, px: number, py: number, pz: number, sx: number, sy: number, sz: number, p: THREE.Object3D = parent) => {
+    const body = new THREE.Group();
+    body.position.set(o.x * S, 0, o.y * S);
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, px: number, py: number, pz: number, sx: number, sy: number, sz: number, p: THREE.Object3D = body) => {
       const m = new THREE.Mesh(geo, mat);
       m.position.set(px, py, pz);
       m.scale.set(sx, sy, sz);
@@ -706,39 +729,41 @@ export class Renderer {
       p.add(m);
       return m;
     };
-    const glowMat = o.kind === 'chest' ? this.m.chestGlow : o.kind === 'airdrop' ? this.m.dropGlow : this.m.crateGlow;
     const s = Math.max(o.w, o.h) * S;
-    const glow = add(this.g.ring, glowMat, x, 0.05, z, s * 0.85, s * 0.85, 1);
+    const glowMat = o.kind === 'airdrop' ? this.m.dropGlow : this.m.chestGlow;
+    const glow = add(this.g.circle, glowMat, 0, 0.04, 0, s * 0.9, s * 0.9, 1);
     glow.rotation.x = -Math.PI / 2;
     glow.castShadow = false;
     const lid = new THREE.Group();
-    if (o.kind === 'crate') {
-      add(this.g.box, this.crateMat, x, 0.72, z, s, 1.44, s);
-      lid.position.set(x, 1.44, z - s / 2);
-      add(this.g.box, this.crateMat, 0, 0.12, s / 2, s + 0.12, 0.24, s + 0.12, lid);
-    } else if (o.kind === 'chest') {
-      const w = o.w * S, d = o.h * S;
-      add(this.g.box, this.m.purple, x, 0.55, z, w, 1.1, d);
-      add(this.g.box, this.m.gold, x, 0.55, z, w + 0.06, 0.16, d + 0.06);
-      add(this.g.box, this.m.gold, x - w / 2 + 0.12, 0.55, z, 0.16, 1.12, d + 0.07);
-      add(this.g.box, this.m.gold, x + w / 2 - 0.12, 0.55, z, 0.16, 1.12, d + 0.07);
-      lid.position.set(x, 1.1, z - d / 2);
-      add(this.g.halfCylX, this.m.purple, 0, 0, d / 2, w, d * 0.5, d * 0.5, lid);
-      add(this.g.box, this.m.goldDark, 0, 0.12, d, 0.24, 0.3, 0.08, lid);
-      const beam = new THREE.Mesh(this.g.beam, this.beam[4]);
-      beam.scale.set(2.2, 6, 2.2);
-      beam.position.set(x, 3, z);
-      parent.add(beam);
-    } else {
-      add(this.g.box, this.m.dropBody, x, 0.9, z, s, 1.8, s);
-      add(this.g.box, this.m.dropStripe, x, 0.9, z, s + 0.05, 0.3, s + 0.05);
-      add(this.g.box, this.m.dropStripe, x, 0.9, z, 0.3, 1.82, s + 0.06);
-      lid.position.set(x, 1.8, z - s / 2);
+    if (o.kind === 'chest') {
+      const w = o.w * S, d = o.h * S, h = 0.95;
+      const wood = this.chestMat();
+      add(this.g.box, wood, 0, h / 2, 0, w, h, d);
+      // Metallbänder und Ecken
+      for (const bx of [-w * 0.3, w * 0.3]) add(this.g.box, this.m.gold, bx, h / 2, 0, 0.16, h + 0.02, d + 0.05);
+      add(this.g.box, this.m.goldDark, 0, 0.06, 0, w + 0.05, 0.12, d + 0.05);
+      // Deckel: Drehpunkt an der Hinterkante
+      lid.position.set(0, h, -d / 2);
+      add(this.g.halfCylX, wood, 0, 0, d / 2, w, d * 0.5, d * 0.5, lid);
+      for (const bx of [-w * 0.3, w * 0.3]) add(this.g.halfCylX, this.m.gold, bx, 0, d / 2, 0.17, d * 0.52, d * 0.52, lid);
+      // Schloss vorne
+      add(this.g.box, this.m.gold, 0, -0.05, d + 0.03, 0.34, 0.4, 0.08, lid);
+      add(this.g.box, this.m.black, 0, -0.1, d + 0.08, 0.08, 0.14, 0.04, lid);
+    } else if (o.kind === 'airdrop') {
+      add(this.g.box, this.m.dropBody, 0, 0.9, 0, s, 1.8, s);
+      add(this.g.box, this.m.dropStripe, 0, 0.9, 0, s + 0.05, 0.3, s + 0.05);
+      add(this.g.box, this.m.dropStripe, 0, 0.9, 0, 0.3, 1.82, s + 0.06);
+      lid.position.set(0, 1.8, -s / 2);
       add(this.g.box, this.m.dropBody, 0, 0.12, s / 2, s + 0.1, 0.24, s + 0.1, lid);
       add(this.g.box, this.m.dropStripe, 0, 0.26, s / 2, 0.3, 0.06, s + 0.12, lid);
+    } else {
+      add(this.g.box, this.crateMat, 0, 0.72, 0, s, 1.44, s);
+      lid.position.set(0, 1.44, -s / 2);
+      add(this.g.box, this.crateMat, 0, 0.12, s / 2, s + 0.12, 0.24, s + 0.12, lid);
     }
-    parent.add(lid);
-    this.crateViews.set(o.id, { lid, glow, openT: 0, kind: o.kind });
+    body.add(lid);
+    parent.add(body);
+    this.crateViews.set(o.id, { lid, glow, openT: 0, kind: o.kind, body, o });
   }
 
   // ---------- Aufbau ----------
@@ -761,6 +786,7 @@ export class Renderer {
     this.houses = [];
     this.ponds = [];
     this.progMesh = null;
+    this.progTrack = null;
     this.progKey = '';
 
     const world = new THREE.Group();
@@ -1157,8 +1183,19 @@ export class Renderer {
           if (v) {
             v.openT = 0.0001;
             v.glow.visible = false;
+            v.body.rotation.z = 0;
           }
-          this.burst(e.o.x, e.o.y, 1.6, e.o.kind === 'crate' ? 0xffd54a : 0xffb300, e.o.kind === 'crate' ? 14 : 26, 6);
+          if (this.near(e.o.x, e.o.y)) {
+            const mat = new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending });
+            this.perRound.push(mat);
+            const fl = new THREE.Mesh(this.g.flash, mat);
+            fl.position.set(e.o.x * S, 1.3, e.o.y * S);
+            this.addTimed(fl, 0.35, (t) => { fl.scale.setScalar(0.4 + (1 - t) * 1.8); mat.opacity = t * 0.8; });
+            for (let i = 0; i < 10; i++) {
+              const a = Math.random() * Math.PI * 2;
+              this.puff(e.o.x * S, 1.2, e.o.y * S, this.m.sparkle, 0.08, 0.2, 0.7, Math.cos(a) * 2.5, 3 + Math.random() * 2, Math.sin(a) * 2.5);
+            }
+          }
           break;
         }
         case 'damage': {
@@ -1453,19 +1490,30 @@ export class Renderer {
         for (const o of game.obstacles) {
           if (!isContainer(o) || o.opened || o.progress <= 0) continue;
           if ((o.x - p.x) ** 2 + (o.y - p.y) ** 2 < 130 * 130) {
-            target = { x: o.x, y: o.y, t: o.progress, r: Math.max(o.w, o.h) * S * 0.85, color: 0xffffff };
+            target = { x: o.x, y: o.y, t: o.progress, r: Math.max(o.w, o.h) * S * 0.9, color: o.kind === 'airdrop' ? 0xff9a3a : 0xffc93c };
           }
         }
       }
     }
     if (!target || target.t <= 0) {
       if (this.progMesh) this.progMesh.visible = false;
+      if (this.progTrack) this.progTrack.visible = false;
       return;
     }
+    const container = target.color !== 0xffffff;
+    if (!this.progTrack) {
+      this.progTrack = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, 64), this.progTrackMat);
+      this.progTrack.rotation.x = -Math.PI / 2;
+      this.progTrack.renderOrder = 4;
+    }
+    if (this.progTrack.parent !== this.world) this.world!.add(this.progTrack);
+    this.progTrack.visible = container;
+    this.progTrack.position.set(target.x * S, 0.085, target.y * S);
+    this.progTrack.scale.setScalar(target.r);
     const steps = Math.max(1, Math.round(Math.min(1, target.t) * 64));
     const key = `${steps}`;
     if (!this.progMesh || key !== this.progKey) {
-      const geo = new THREE.RingGeometry(0.8, 1.04, 64, 1, Math.PI / 2, -(steps / 64) * Math.PI * 2);
+      const geo = new THREE.RingGeometry(0.9, 1.02, 64, 1, Math.PI / 2, -(steps / 64) * Math.PI * 2);
       if (this.progMesh) {
         this.progMesh.geometry.dispose();
         this.progMesh.geometry = geo;
@@ -1479,6 +1527,7 @@ export class Renderer {
     if (this.progMesh.parent !== this.world) this.world!.add(this.progMesh);
     this.progMesh.visible = true;
     this.progMat.color.setHex(target.color);
+    this.progMat.opacity = container ? 0.95 : 0.55;
     this.progMesh.position.set(target.x * S, 0.09, target.y * S);
     this.progMesh.scale.setScalar(target.r);
   }
@@ -1496,10 +1545,26 @@ export class Renderer {
     }
     for (const v of this.crateViews.values()) {
       if (v.openT > 0 && v.openT < 1) {
-        v.openT = Math.min(1, v.openT + dt * 3);
-        v.lid.rotation.x = -(1 - (1 - v.openT) ** 3) * (v.kind === 'chest' ? 1.7 : 1.9);
+        // Deckel schwingt mit leichtem Überschwingen auf
+        v.openT = Math.min(1, v.openT + dt * 2.6);
+        const t = v.openT, c = 1.7;
+        const back = 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2);
+        v.lid.rotation.x = -back * (v.kind === 'chest' ? 1.75 : 1.9);
+        v.body.rotation.z = 0;
+        v.body.scale.set(1 + Math.sin(t * Math.PI) * 0.06, 1 - Math.sin(t * Math.PI) * 0.05, 1 + Math.sin(t * Math.PI) * 0.06);
       } else if (v.openT === 0) {
-        (v.glow.material as THREE.MeshBasicMaterial).opacity = 0.35 + Math.sin(this.time * 4) * 0.15;
+        const pr = v.o.progress;
+        v.glow.visible = pr <= 0;
+        if (pr > 0 && this.near(v.o.x, v.o.y, 40)) {
+          // während des Öffnens: Deckel klappert leicht, Truhe ruckelt
+          v.lid.rotation.x = -0.05 - Math.abs(Math.sin(this.time * 26)) * 0.07 * (0.4 + pr);
+          v.body.rotation.z = Math.sin(this.time * 31) * 0.015 * pr;
+        } else {
+          v.lid.rotation.x = 0;
+          v.body.rotation.z = 0;
+        }
+      } else if (v.body.scale.x !== 1) {
+        v.body.scale.set(1, 1, 1);
       }
     }
   }

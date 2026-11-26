@@ -112,7 +112,7 @@ const CRATE_TIME = 1800;
 /** Aufhebe-Zeiten in ms */
 export const PICK_TIME: Record<string, number> = { ammo: 350, weapon: 600, armor: 900, medkit: 900, bigmed: 1250, crate: CRATE_TIME };
 /** Öffnungszeiten der Behälter in ms */
-export const OPEN_TIME: Record<string, number> = { crate: CRATE_TIME, chest: 2600, airdrop: 3200 };
+export const OPEN_TIME: Record<string, number> = { crate: CRATE_TIME, chest: 2200, airdrop: 3200 };
 export const isContainer = (o: { kind: string }) => o.kind === 'crate' || o.kind === 'chest' || o.kind === 'airdrop';
 const AIRDROP_TIMES = [80000, 155000];
 const AIRDROP_Z = 900;
@@ -923,7 +923,8 @@ export class Game {
     if (o.kind === 'airdrop') {
       kinds = [w < 0.5 ? 'w:minigun' : 'w:rocket', 'armor', 'bigmed', 'ammo'];
     } else if (o.kind === 'chest') {
-      kinds = [w < 0.55 ? 'w:rifle' : 'w:sniper', 'armor', w < 0.5 ? 'bigmed' : 'medkit', 'ammo'];
+      kinds = [w < 0.28 ? 'w:smg' : w < 0.5 ? 'w:shotgun' : w < 0.85 ? 'w:rifle' : 'w:sniper', 'ammo', pickExtra()];
+      if (Math.random() < 0.4) kinds.push(pickExtra());
     } else {
       kinds = [w < 0.32 ? 'w:smg' : w < 0.56 ? 'w:shotgun' : w < 0.9 ? 'w:rifle' : 'w:sniper', pickExtra()];
       if (Math.random() < 0.35) kinds.push(pickExtra());
