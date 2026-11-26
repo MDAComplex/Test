@@ -690,7 +690,8 @@ export class Renderer {
     ring.scale.setScalar(1.15);
     root.add(ring);
     // Lichtstrahl nur bei sehr seltenen Waffen (lila/gold)
-    if (tier >= 4 && l.kind.startsWith('w:')) {
+    // keine Lichtsäulen mehr über Gegenständen, nur der Ring am Boden
+    if (false as boolean) {
       const beam = new THREE.Mesh(this.g.beam, this.beam[tier]);
       beam.scale.set(1.4, tier >= 5 ? 6 : 3.2, 1.4);
       beam.position.y = tier >= 5 ? 3 : 1.6;
