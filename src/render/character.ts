@@ -236,6 +236,7 @@ export function buildCharacter(opts: {
   const arms = [shoulderW, -shoulderW].map((z) => {
     const shoulder = new THREE.Bone();
     shoulder.position.set(0, 0.52, z);
+    shoulder.userData.rest = shoulder.position.clone();
     const elbow = new THREE.Bone();
     elbow.position.y = -UPPER;
     shoulder.add(elbow);
@@ -261,7 +262,7 @@ interface ArmPose { r: [number, number, number]; l: [number, number, number]; gu
 // Schulter rotation.z, rotation.x, Ellbogen rotation.z; Waffenposition; Waffenrotation [y, z]
 const POSES: Record<string, ArmPose> = {
   aim2: { r: [1.2, 0.3, 0.35], l: [1.12, -0.85, 0.55], gun: [0.2, 1.43, 0.1], gunRot: [0, 0] },
-  carry2: { r: [0.35, 0.12, 1.05], l: [0.75, -0.55, 1.1], gun: [0.28, 1.12, 0.12], gunRot: [0.55, -0.45] },
+  carry2: { r: [0.35, 0.12, 1.05], l: [0.75, -0.55, 1.1], gun: [0.28, 1.14, 0.12], gunRot: [0.55, -0.28] },
   aim1: { r: [1.5, 0.12, 0.05], l: [0, 0, 0.25], gun: [0.5, 1.44, 0.04], gunRot: [0, 0] },
   carry1: { r: [0.12, 0, 0.45], l: [0, 0, 0.3], gun: [0.2, 0.95, 0.42], gunRot: [0, -1.2] },
   // Raketenwerfer auf der Schulter
@@ -309,7 +310,7 @@ const _v = new THREE.Vector3(), _t = new THREE.Vector3(), _e = new THREE.Vector3
 const DOWN = new THREE.Vector3(0, -1, 0);
 
 /** Zwei-Knochen-IK: Hand an einen Punkt (in Torso-Koordinaten) setzen, Ellbogen zeigt nach außen-unten */
-function reach(arm: { shoulder: THREE.Object3D; elbow: THREE.Object3D }, target: THREE.Vector3, side: number) {
+function reach(arm: { shoulder: THREE.Object3D; elbow: THREE.Object3D }, target: THREE.Vector3, side: number, sway = 0) {
   const sp = arm.shoulder.position;
   _v.subVectors(target, sp);
   let d = _v.length();
@@ -318,7 +319,7 @@ function reach(arm: { shoulder: THREE.Object3D; elbow: THREE.Object3D }, target:
   const cosA = (UPPER * UPPER + d * d - LOWER * LOWER) / (2 * UPPER * d);
   const a = Math.acos(Math.min(1, Math.max(-1, cosA)));
   // Ellbogen-Richtung: nach unten und zur Körperseite
-  const pole = _e.set(-0.2, -1, side * 0.9).normalize();
+  const pole = _e.set(-0.2 + sway * 0.3, -1, side * (0.9 + sway * 0.25)).normalize();
   const perp = pole.sub(dir.clone().multiplyScalar(pole.dot(dir))).normalize();
   const elbowPos = sp.clone().add(dir.clone().multiplyScalar(UPPER * Math.cos(a))).add(perp.multiplyScalar(UPPER * Math.sin(a)));
   // Oberarm ausrichten
@@ -341,9 +342,20 @@ function gripInTorso(rig: Rig, local: [number, number, number], out: THREE.Vecto
   return out;
 }
 
+/** Schultern: Ruheposition plus kleine Verschiebung (vor/zurück, hoch/runter) */
+function shoulders(rig: Rig, fwdR = 0, fwdL = 0, upR = 0, upL = 0) {
+  rig.arms.forEach((a, i) => {
+    const r = a.shoulder.userData.rest as THREE.Vector3 | undefined;
+    if (r) a.shoulder.position.set(r.x + (i ? fwdL : fwdR), r.y + (i ? upL : upR), r.z);
+  });
+}
+
 /** Gehen mit Knie- und Ellbogenbeugung, Hüftwippen und Gegendrehung des Oberkörpers */
 export function animateRig(rig: Rig, s: AnimState) {
   const { phase, amp } = s;
+  // Schultern gehen im Schritt mit: die Schulter des vorschwingenden Arms schiebt leicht nach vorne
+  const sh = Math.sin(phase + Math.PI - 0.25) * amp;
+  shoulders(rig, sh * 0.045, -sh * 0.045, Math.max(0, -sh) * 0.02, Math.max(0, sh) * 0.02);
   if (s.falling) {
     // am Fallschirm: Arme halten die Leinen, Beine baumeln
     const sway = Math.sin(s.time * 2.4 + phase);
@@ -391,13 +403,20 @@ export function animateRig(rig: Rig, s: AnimState) {
     const sw = swingable ? free(i) : 0;
     arm.shoulder.rotation.z = lerp(carry[0] + sw, aim[0], k);
     arm.shoulder.rotation.x = lerp(carry[1], aim[1], k);
-    arm.elbow.rotation.z = lerp(carry[2] + (swingable ? Math.max(0, sw) * 0.5 : 0), aim[2], k);
+    // Ellbogen: beim Vorschwingen deutlich gebeugt, beim Zurückschwingen fast gestreckt
+    const bend = swingable ? 0.18 * amp + Math.max(0, sw) * 1.5 : 0;
+    arm.elbow.rotation.x = 0;
+    arm.elbow.rotation.z = lerp(carry[2] + bend, aim[2], k);
   };
   set(0, c.r, a.r, !two);
   set(1, c.l, a.l, !two);
   if (fists) {
     // beide Arme schwingen frei; beim Schlag schnellt ein Arm gerade nach vorne
-    if (k < 0.05) { rig.arms[0].shoulder.rotation.z = swingR; rig.arms[1].shoulder.rotation.z = swingL; }
+    if (k < 0.05) {
+      rig.arms[0].shoulder.rotation.z = swingR; rig.arms[1].shoulder.rotation.z = swingL;
+      rig.arms[0].elbow.rotation.z = 0.3 + 0.18 * amp + Math.max(0, swingR) * 1.5;
+      rig.arms[1].elbow.rotation.z = 0.3 + 0.18 * amp + Math.max(0, swingL) * 1.5;
+    }
     const pt = s.punch ?? 0;
     if (pt > 0) {
       const ext = Math.sin(Math.min(1, (1 - pt) * 1.6) * Math.PI); // raus und zurück
@@ -410,24 +429,35 @@ export function animateRig(rig: Rig, s: AnimState) {
   } else if (!two) {
     // freie linke Hand schwingt auch beim Zielen mit der Pistole
     rig.arms[1].shoulder.rotation.z = swingL;
+    rig.arms[1].elbow.rotation.z = 0.25 + 0.18 * amp + Math.max(0, swingL) * 1.5;
   }
   rig.gunPivot.position.set(lerp(c.gun[0], a.gun[0], k), lerp(c.gun[1], a.gun[1], k) + rig.body.position.y, lerp(c.gun[2], a.gun[2], k));
   rig.gunPivot.rotation.set(0, lerp(c.gunRot[0], a.gunRot[0], k), lerp(c.gunRot[1], a.gunRot[1], k));
+  // beim Tragen wippt und pendelt die Waffe im Schritt mit (Arme folgen über IK)
+  const carryK = (1 - k) * amp;
+  if (carryK > 0.01 && !fists) {
+    rig.gunPivot.position.x += Math.sin(phase) * 0.035 * carryK;
+    rig.gunPivot.position.y += Math.abs(Math.cos(phase)) * 0.045 * carryK;
+    rig.gunPivot.position.z += Math.sin(phase) * 0.03 * carryK;
+    rig.gunPivot.rotation.y += Math.sin(phase) * 0.12 * carryK;
+    rig.gunPivot.rotation.x = Math.sin(phase) * 0.08 * carryK;
+  }
   if (s.reload > 0.01) {
     rig.gunPivot.rotation.z -= 0.75 * s.reload;
     rig.gunPivot.rotation.x = Math.sin(s.time * 14) * 0.15 * s.reload;
     rig.gunPivot.position.y -= 0.18 * s.reload;
     rig.arms[1].shoulder.rotation.z = lerp(rig.arms[1].shoulder.rotation.z, 0.9, s.reload);
     rig.arms[1].elbow.rotation.z = lerp(rig.arms[1].elbow.rotation.z, 1.2, s.reload);
-  } else {
+  } else if (!(carryK > 0.01 && !fists)) {
     rig.gunPivot.rotation.x = 0;
   }
   // Hände an die Waffe setzen (rechts immer am Griff, links vorne bzw. beim Pistolenanschlag)
   const g = s.weapon ? GRIPS[s.weapon] : undefined;
   if (g) {
-    reach(rig.arms[0], gripInTorso(rig, g.r, new THREE.Vector3()), 1);
+    const sw = Math.sin(phase) * carryK;
+    reach(rig.arms[0], gripInTorso(rig, g.r, new THREE.Vector3()), 1, sw);
     const leftOn = g.l && (two || k > 0.5) && s.reload < 0.5;
-    if (leftOn) reach(rig.arms[1], gripInTorso(rig, g.l!, new THREE.Vector3()), -1);
+    if (leftOn) reach(rig.arms[1], gripInTorso(rig, g.l!, new THREE.Vector3()), -1, -sw);
     else if (s.reload >= 0.5) reach(rig.arms[1], gripInTorso(rig, [0.18, -0.32, 0], new THREE.Vector3()), -1);
   }
 }
@@ -435,6 +465,7 @@ export function animateRig(rig: Rig, s: AnimState) {
 /** niedergeschlagen: auf Händen und Knien krabbeln (diagonaler Gang) */
 export function poseCrawl(rig: Rig, t: number, moving: number) {
   rig.gunPivot.visible = false;
+  shoulders(rig);
   const m = moving;
   const c = Math.sin(t), c2 = Math.sin(t + Math.PI);
   // Becken tief, Oberschenkel senkrecht, Unterschenkel liegen nach hinten auf dem Boden
@@ -457,6 +488,7 @@ export function poseCrawl(rig: Rig, t: number, moving: number) {
 
 /** liegende Pose (tot) */
 export function poseLying(rig: Rig, t: number, crawl: boolean) {
+  shoulders(rig);
   rig.head.rotation.z = 0;
   rig.head.rotation.x = 0;
   rig.legs.forEach((l) => l.hip.rotation.set(0, 0, 0));

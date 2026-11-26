@@ -136,6 +136,7 @@ export class Renderer {
   private zoneMat!: THREE.ShaderMaterial;
   private wallMat!: THREE.ShaderMaterial;
   private waterMat!: THREE.ShaderMaterial;
+  private riverMat: THREE.ShaderMaterial | null = null;
   private aimMat!: THREE.ShaderMaterial;
   private aimLine!: THREE.Mesh;
   private zoneWall!: THREE.Mesh;
@@ -1094,7 +1095,52 @@ export class Renderer {
       }
     }
 
-    for (const w of game.map.river.water) waterParts.push({ x: w.x * S, z: w.y * S, r: (game.map.river.width / 2) * S });
+    // Fluss als durchgehendes Band mit eigenem, fließendem Wasser
+    {
+      const rv = game.map.river;
+      const curve = new THREE.CatmullRomCurve3(rv.pts.map((p) => new THREE.Vector3(p.x * S, 0, p.y * S)));
+      const n = 320, half = (rv.width / 2 + 8) * S;
+      const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+      let along = 0;
+      let prev = curve.getPointAt(0);
+      for (let i = 0; i <= n; i++) {
+        const t = i / n, p = curve.getPointAt(t), tg = curve.getTangentAt(t);
+        along += p.distanceTo(prev);
+        prev = p;
+        const nx = -tg.z, nz = tg.x;
+        pos.push(p.x + nx * half, 0.05, p.z + nz * half, p.x - nx * half, 0.05, p.z - nz * half);
+        uv.push(along, 0, along, 1);
+        if (i < n) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      }
+      const rg = new THREE.BufferGeometry();
+      rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      rg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      rg.setIndex(idx);
+      this.riverMat = new THREE.ShaderMaterial({
+        side: THREE.DoubleSide,
+        uniforms: { uT: this.windTime },
+        vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+        fragmentShader: `uniform float uT; varying vec2 vUv;
+          void main(){
+            float u = vUv.x, v = vUv.y;
+            float edge = abs(v - 0.5) * 2.0;
+            vec3 deep = vec3(0.13, 0.47, 0.74), shallow = vec3(0.38, 0.8, 0.86);
+            vec3 col = mix(deep, shallow, smoothstep(0.3, 1.0, edge));
+            // Strömungsstreifen, die flussabwärts wandern
+            float s1 = sin(u * 0.8 - uT * 2.2 + sin(v * 9.0 + u * 0.25) * 1.2);
+            float s2 = sin(u * 1.7 - uT * 3.1 + v * 14.0);
+            col += vec3(smoothstep(0.88, 1.0, s1) * 0.15 + smoothstep(0.93, 1.0, s2) * 0.08) * (1.0 - edge * 0.6);
+            // Schaum am Ufer
+            float foam = smoothstep(0.8, 0.96, edge) * (0.65 + 0.35 * sin(u * 2.3 - uT * 2.6));
+            col = mix(col, vec3(0.95, 0.98, 1.0), foam);
+            gl_FragColor = vec4(col, 1.0);
+          }`,
+      });
+      this.perRound.push(rg, this.riverMat);
+      const rm = new THREE.Mesh(rg, this.riverMat);
+      rm.renderOrder = 1;
+      world.add(rm);
+    }
     // Fluss und Teiche: alle Wasserscheiben in ein Mesh
     if (waterParts.length) {
       const geos = waterParts.map((w) => {
