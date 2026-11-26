@@ -276,6 +276,7 @@ export class Renderer {
       dropBody: toon(0x5a6b3a),
       dropStripe: toon(0xff8a1e),
       rocketBody: toon(0x6b7a3a),
+      mateRing: new THREE.MeshBasicMaterial({ color: 0x4aa8ff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }),
       playerRing: new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false }),
       crateGlow: basicT(0xffd54a, 0.4),
       chestGlow: basicT(0xffc24a, 0.22),
@@ -588,8 +589,16 @@ export class Renderer {
     return chute;
   }
 
-  private addFighter(f: Fighter) {
+  private addFighter(f: Fighter, mate = false) {
     const root = new THREE.Group();
+    if (mate) {
+      // Teamkameraden: blauer Ring am Boden
+      const ring = new THREE.Mesh(this.g.ring, this.m.mateRing);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.06;
+      ring.scale.setScalar(1.1);
+      root.add(ring);
+    }
     const shadow = new THREE.Mesh(this.g.circle, this.m.shadow);
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.04;
@@ -826,6 +835,8 @@ export class Renderer {
     this.progTrack = null;
     this.reloadMesh = null;
     this.reloadStep = -1;
+    this.reviveMesh = null;
+    this.reviveStep = -1;
     this.progKey = '';
 
     const world = new THREE.Group();
@@ -1049,7 +1060,7 @@ export class Renderer {
     }
 
     for (const l of game.loot) this.addLoot(l, false);
-    for (const f of game.fighters) this.addFighter(f);
+    for (const f of game.fighters) this.addFighter(f, game.mode !== 'solo' && !f.isPlayer && f.team === game.player.team);
 
     // Zone
     this.zoneMat = new THREE.ShaderMaterial({
@@ -1394,6 +1405,7 @@ export class Renderer {
     this.updateBullets(game, dt);
     this.updateProgress(game);
     this.updateReloadRing(game);
+    this.updateReviveRing(game);
     this.updateLootAndContainers(dt);
     this.updateEffects(dt);
     this.updateFades(game, dt, playerHouse);
@@ -1521,6 +1533,20 @@ export class Renderer {
 
     const speed = Math.hypot(f.vx, f.vy);
     const sNorm = Math.min(1.2, speed / 170);
+    // niedergeschlagen: auf der Seite liegen und kriechen
+    v.body.rotation.z = lerp(v.body.rotation.z, f.downed ? Math.PI / 2 * 0.9 : 0, 1 - Math.exp(-dt * 10));
+    if (f.downed) {
+      v.walkT += dt * (f.moving ? 7 : 1.5);
+      v.legs[0].rotation.z = Math.sin(v.walkT) * 0.4;
+      v.legs[1].rotation.z = -Math.sin(v.walkT) * 0.4;
+      v.arms[0].rotation.z = 2.4 + Math.sin(v.walkT) * 0.4;
+      v.arms[1].rotation.z = 2.4 - Math.sin(v.walkT) * 0.4;
+      v.gunPivot.visible = false;
+      const pulse = 0.25 + Math.sin(this.time * 6) * 0.15;
+      v.bodyMat.emissive.setRGB(pulse, 0, 0);
+      return;
+    }
+    v.gunPivot.visible = true;
     // in Laufrichtung lehnen
     const lk = f.phase === 'fall' ? 0.0012 : 0.0008;
     v.lean.rotation.x = lerp(v.lean.rotation.x, f.vy * lk, 0.2);
@@ -1711,6 +1737,27 @@ export class Renderer {
     if (this.reloadMesh.parent !== this.world) this.world!.add(this.reloadMesh);
     this.reloadMesh.visible = true;
     this.reloadMesh.position.set(p.x * S, 0.08, p.y * S);
+  }
+
+  private reviveMesh: THREE.Mesh | null = null;
+  private reviveStep = -1;
+  private reviveMat = new THREE.MeshBasicMaterial({ color: 0x5dff7a, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide });
+  private updateReviveRing(game: Game) {
+    let target: Fighter | null = null;
+    for (const f of game.fighters) {
+      if (f.alive && f.downed && f.team === game.player.team && f.reviveT > 0 && (!target || f.reviveT > target.reviveT)) target = f;
+    }
+    if (!target) { if (this.reviveMesh) this.reviveMesh.visible = false; return; }
+    const steps = Math.max(1, Math.round(Math.min(1, target.reviveT / 3.5) * 48));
+    if (!this.reviveMesh || steps !== this.reviveStep) {
+      const geo = new THREE.RingGeometry(1.3, 1.5, 48, 1, Math.PI / 2, -(steps / 48) * Math.PI * 2);
+      if (this.reviveMesh) { this.reviveMesh.geometry.dispose(); this.reviveMesh.geometry = geo; }
+      else { this.reviveMesh = new THREE.Mesh(geo, this.reviveMat); this.reviveMesh.rotation.x = -Math.PI / 2; this.reviveMesh.renderOrder = 5; }
+      this.reviveStep = steps;
+    }
+    if (this.reviveMesh.parent !== this.world) this.world!.add(this.reviveMesh);
+    this.reviveMesh.visible = true;
+    this.reviveMesh.position.set(target.x * S, 0.09, target.y * S);
   }
 
   private updateLootAndContainers(dt: number) {

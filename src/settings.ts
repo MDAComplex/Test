@@ -4,10 +4,11 @@ export interface Settings {
   quality: 'auto' | 'high' | 'low';
   stick: 'small' | 'medium' | 'large';
   sound: boolean;
+  mode: 'solo' | 'duo' | 'squad';
 }
 
 const KEY = 'zonerush.settings.v1';
-const defaults = (): Settings => ({ swap: false, quality: 'auto', stick: 'medium', sound: true });
+const defaults = (): Settings => ({ swap: false, quality: 'auto', stick: 'medium', sound: true, mode: 'solo' });
 
 export function loadSettings(): Settings {
   try {

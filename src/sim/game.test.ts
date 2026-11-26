@@ -122,3 +122,45 @@ describe('Bewegung', () => {
 });
 
 void Fighter;
+
+describe('Team-Modi', () => {
+  const teamGame = (mode: 'duo' | 'squad') => {
+    const g = new Game(generateMap(42), 0xffd23f, mode);
+    g.time = 30000;
+    for (const f of g.fighters) { f.phase = 'ground'; f.z = 0; f.x = 3800; f.y = 3800; }
+    const spot = g.findFreeNear(2000, 2000);
+    g.player.x = spot.x; g.player.y = spot.y;
+    return g;
+  };
+  it('bildet die richtige Anzahl Teams', () => {
+    expect(teamGame('duo').teamCount()).toBe(12);
+    expect(teamGame('squad').teamCount()).toBe(6);
+    const sq = teamGame('squad');
+    expect(sq.teammates(sq.player).length).toBe(3);
+  });
+  it('kein Eigenbeschuss und Niederschlagen statt sofortigem Tod', () => {
+    const g = teamGame('duo');
+    const mate = g.teammates(g.player)[0];
+    mate.x = g.player.x + 60; mate.y = g.player.y;
+    const enemy = g.fighters.find((f) => f.team !== g.player.team)!;
+    // Spieler wird von Gegner auf 0 gebracht, Teamkamerad steht noch
+    g.damage(g.player, 500, enemy, true, 'Test');
+    expect(g.player.alive).toBe(true);
+    expect(g.player.downed).toBe(true);
+    // Teamkamerad steht daneben: nach 3,5 s wiederbelebt
+    for (let t = 0; t < 3700; t += 16) g.update(16);
+    expect(g.player.downed).toBe(false);
+    expect(g.player.hp).toBe(30);
+  });
+  it('Team ist raus, wenn alle niedergeschlagen sind', () => {
+    const g = teamGame('duo');
+    const mate = g.teammates(g.player)[0];
+    const enemy = g.fighters.find((f) => f.team !== g.player.team)!;
+    g.damage(mate, 500, enemy, true, 'Test');
+    expect(mate.downed).toBe(true);
+    g.damage(g.player, 500, enemy, true, 'Test');
+    expect(g.player.alive).toBe(false);
+    expect(mate.alive).toBe(false);
+    expect(g.over).toBe(true);
+  });
+});

@@ -250,3 +250,29 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
 @keyframes killnote { 0% { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.9); } 10% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.05); } 18% { transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-4px); } }
 @media (max-width: 640px) { .killnote { left: 16px; transform: none; bottom: 100px; } @keyframes killnote { 0% { opacity: 0; } 10%, 80% { opacity: 1; } 100% { opacity: 0; } } }
 @media (max-height: 520px) { .killnote { bottom: 92px; font-size: 13px; } }
+
+/* Spielmodus im Menü */
+.modeseg { width: min(360px, 90vw); }
+.modeseg button { flex: 1 1 0; font-size: 15px; padding: 9px 10px; }
+
+/* Teamleiste */
+.team { position: absolute; left: 14px; top: 64px; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 12px; background: var(--panel); backdrop-filter: blur(6px); min-width: 150px; }
+.tm { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #9fd0ff; }
+.tm-bar { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.15); overflow: hidden; }
+.tm-bar i { display: block; height: 100%; background: linear-gradient(180deg, #7cf08f, #3cc35a); transition: width 0.2s; }
+.tm.down { color: #ff8a8a; }
+.tm.down .tm-bar i { background: #ff4d4d; }
+.tm.dead { opacity: 0.45; text-decoration: line-through; }
+.lbl.mate .n { color: #8ec8ff; }
+
+/* niedergeschlagen */
+.downnote { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 12px 20px; border-radius: 16px; background: rgba(60, 10, 10, 0.75); border: 2px solid #ff4d4d; text-align: center; }
+.downnote b { font-size: 18px; color: #ff8a8a; }
+.downnote span { font-size: 13px; }
+.downnote .bar { width: 220px; height: 8px; margin: 4px 0 0; }
+.downnote .bar i { background: #ff4d4d; }
+
+@media (max-width: 640px), (max-height: 520px) {
+  .team { top: 58px; min-width: 120px; padding: 6px 8px; }
+  .tm { font-size: 11px; }
+}

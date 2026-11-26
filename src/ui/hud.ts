@@ -53,6 +53,7 @@ export class Hud {
   private rotateEl: HTMLElement;
   private dirsLayer: HTMLElement;
   private stickMax = 55;
+  private teamRows: { f: Fighter; row: HTMLElement; bar: HTMLElement }[] = [];
 
   constructor(private cb: { play: () => void; menu: () => void; settingsChanged: (s: Settings) => void }) {
     this.labelsLayer = $('<div id="labels"></div>');
@@ -83,6 +84,8 @@ export class Hud {
         </div>
         <button class="rb jump hidden">SPRINGEN<small>Leertaste</small></button>
         <div class="tip hidden"></div>
+        <div class="team hidden"></div>
+        <div class="downnote hidden"><b>Du bist niedergeschlagen</b><span>Dein Team kann dich wiederbeleben</span><div class="bar"><i></i></div></div>
         <div class="specbar hidden"><span>Du schaust zu: <b class="specname"></b></span><button class="btn secondary toresult">ERGEBNIS</button></div>
         <div class="joy move hidden"><i></i></div>
         <div class="joy aim hidden"><i></i></div>
@@ -90,7 +93,10 @@ export class Hud {
     this.menu = $(`
       <div class="screen" id="menu">
         <div class="title">ZONE RUSH</div>
-        <div class="subtitle">3D Battle Royale  •  ${FIGHTER_COUNT} Kämpfer  •  Nur einer überlebt</div>
+        <div class="subtitle msub"></div>
+        <div class="seg modeseg" role="radiogroup" aria-label="Spielmodus">
+          <button data-mode="solo">Solo</button><button data-mode="duo">Duo</button><button data-mode="squad">Squad</button>
+        </div>
         <button class="btn pulse play">SPIELEN</button>
         <button class="btn secondary opensettings">EINSTELLUNGEN</button>
         <div class="prof">
@@ -139,7 +145,7 @@ export class Hud {
     this.ringArc = this.ring.querySelector('.fg') as SVGCircleElement;
     this.ringArc.style.strokeDasharray = String(RING_C);
 
-    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname', 'killnote']) {
+    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname', 'killnote', 'team', 'downnote']) {
       this.e[k] = this.hud.querySelector('.' + k)!;
     }
     this.e.arBar = this.hud.querySelector('.bar.ar i')!;
@@ -164,6 +170,13 @@ export class Hud {
     this.over.querySelector('.again')!.addEventListener('click', () => { startAudio(); this.cb.play(); });
     this.over.querySelector('.tomenu')!.addEventListener('click', () => this.cb.menu());
     this.e.gear.addEventListener('click', () => this.openSettings(true));
+    this.menu.querySelectorAll<HTMLButtonElement>('.modeseg button').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.settings.mode = b.dataset.mode as Settings['mode'];
+        saveSettings(this.settings);
+        this.renderMode();
+      }),
+    );
     this.e.altslot.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); this.pending.swap = true; });
     this.over.querySelector('.watch')!.addEventListener('click', () => {
       if (!this.game) return;
@@ -316,10 +329,20 @@ export class Hud {
     this.menu.querySelector('.portrait')!.classList.toggle('hidden', window.innerWidth > window.innerHeight);
     this.e.specbar.classList.add('hidden');
     this.renderProfile();
+    this.renderMode();
     this.sfx.menuMusic(true);
   }
 
   get playerColor() { return skinColor(this.profile); }
+
+  private renderMode() {
+    const m = this.settings.mode;
+    this.menu.querySelectorAll<HTMLElement>('.modeseg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
+    this.menu.querySelector('.msub')!.textContent =
+      m === 'solo' ? `3D Battle Royale  •  ${FIGHTER_COUNT} Kämpfer  •  Nur einer überlebt`
+      : m === 'duo' ? '3D Battle Royale  •  12 Teams à 2  •  Das letzte Team gewinnt'
+      : '3D Battle Royale  •  6 Teams à 4  •  Das letzte Team gewinnt';
+  }
 
   private renderProfile() {
     const pr = this.profile;
@@ -375,9 +398,20 @@ export class Hud {
     this.tut = { step: this.profile.tutorialDone ? -1 : 0, t: 0 };
     this.lastStepPos = { x: game.player.x, y: game.player.y };
     this.buildMiniBase(game);
+    this.e.team.innerHTML = '';
+    this.teamRows = [];
+    const mates = game.mode === 'solo' ? [] : game.teammates(game.player);
+    this.e.team.classList.toggle('hidden', mates.length === 0);
+    for (const m of mates) {
+      const row = $(`<div class="tm"><span class="tm-n"></span><div class="tm-bar"><i></i></div></div>`);
+      row.querySelector('.tm-n')!.textContent = m.name;
+      this.e.team.append(row);
+      this.teamRows.push({ f: m, row, bar: row.querySelector('i') as HTMLElement });
+    }
     for (const f of game.fighters) {
       if (f.isPlayer) continue;
       const el = $(`<div class="lbl"><div class="n"></div></div>`);
+      if (game.mode !== 'solo' && f.team === game.player.team) el.classList.add('mate');
       el.querySelector('.n')!.textContent = f.name;
       this.labelsLayer.append(el);
       this.labels.set(f, { el });
@@ -450,6 +484,23 @@ export class Hud {
         case 'airdrop':
           this.sfx.incoming();
           break;
+        case 'down': {
+          const mine = ev.by === p, me = ev.f === p;
+          this.feedLine(`${ev.by ? ev.by.name : 'Die Zone'} hat ${me ? 'dich' : ev.f.name} niedergeschlagen`, me ? '#ff6b6b' : mine ? '#ffb347' : '#dddddd');
+          if (mine) { this.sfx.hit(); this.hitMarker(r, ev.f.x, ev.f.y, false); }
+          if (me) this.sfx.hurt();
+          break;
+        }
+        case 'revive':
+          if (ev.f.team === p.team) this.feedLine(ev.f === p ? 'Du wurdest wiederbelebt' : `${ev.f.name} wurde wiederbelebt`, '#6fe08b');
+          break;
+        case 'playerOut':
+          this.notice('Du bist raus. Du schaust deinem Team zu');
+          if (game.spectate) {
+            this.e.specbar.classList.remove('hidden');
+            (this.e.specbar.querySelector('.toresult') as HTMLElement).classList.add('hidden');
+          }
+          break;
         case 'pickup':
           this.sfx.pickup();
           break;
@@ -462,12 +513,7 @@ export class Hud {
         case 'kill': {
           const color = ev.me ? '#ff6b6b' : ev.mine ? '#ffd23f' : '#ffffff';
           const txt = ev.killer === 'Zone' ? `${ev.victim} von der Zone erwischt` : `${ev.killer} → ${ev.victim} (${ev.weapon})`;
-          const el = document.createElement('div');
-          el.textContent = txt;
-          el.style.color = color;
-          this.e.feed.append(el);
-          this.feed.push({ el, t: performance.now() });
-          while (this.feed.length > 5) this.feed.shift()!.el.remove();
+          this.feedLine(txt, color);
           if (ev.mine) { this.sfx.kill(); this.hitMarker(r, ev.f.x, ev.f.y, true); this.killNote(ev.victim); }
           break;
         }
@@ -526,6 +572,15 @@ export class Hud {
     setTimeout(() => el.remove(), kill ? 600 : 260);
   }
 
+  private feedLine(txt: string, color: string) {
+    const el = document.createElement('div');
+    el.textContent = txt;
+    el.style.color = color;
+    this.e.feed.append(el);
+    this.feed.push({ el, t: performance.now() });
+    while (this.feed.length > 5) this.feed.shift()!.el.remove();
+  }
+
   /** kleines Fadenkreuz mit Namen über der Lebensleiste, blendet wieder aus */
   private killNoteTimer = 0;
   private killNote(name: string) {
@@ -563,11 +618,15 @@ export class Hud {
       for (const l of rw.lines) { const d = document.createElement('div'); d.textContent = l; box.append(d); }
       for (const t of rw.tasksDone) { const d = document.createElement('div'); d.className = 'rw-task'; d.textContent = `Aufgabe erledigt: ${t}`; box.append(d); }
     }
-    this.over.querySelector('.watch')!.classList.toggle('hidden', r.win || this.game.aliveCount() < 2);
+    this.over.querySelector('.watch')!.classList.toggle('hidden', r.win || this.game.aliveCount() < 1);
     const big = this.over.querySelector('.big') as HTMLElement;
     big.textContent = r.win ? 'SIEG!' : `Platz #${r.place}`;
+    (this.e.specbar.querySelector('.toresult') as HTMLElement).classList.remove('hidden');
     big.classList.toggle('win', r.win);
-    this.over.querySelector('.osub')!.textContent = r.win ? 'Du bist der letzte Überlebende' : `von ${FIGHTER_COUNT} Kämpfern`;
+    const solo = this.game.mode === 'solo';
+    this.over.querySelector('.osub')!.textContent = r.win
+      ? (solo ? 'Du bist der letzte Überlebende' : 'Dein Team hat gewonnen')
+      : solo ? `von ${r.teams} Kämpfern` : `von ${r.teams} Teams`;
     const s = Math.floor(r.time / 1000);
     this.over.querySelector('.ostats')!.textContent = `Abschüsse: ${r.kills}   •   Überlebt: ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     this.over.classList.remove('hidden');
@@ -593,6 +652,15 @@ export class Hud {
       this.e.altname.style.color = hex(TIER_COLORS[p.backup.w.tier]);
       this.e.altslot.querySelector('.altkey')!.textContent = this.touch ? 'Tippen' : 'Q';
     }
+    // Teamleiste
+    for (const t of this.teamRows) {
+      const f = t.f;
+      t.row.classList.toggle('dead', !f.alive);
+      t.row.classList.toggle('down', f.alive && f.downed);
+      t.bar.style.width = `${!f.alive ? 0 : f.downed ? f.downHp : Math.max(0, f.hp)}%`;
+    }
+    this.e.downnote.classList.toggle('hidden', !(p.alive && p.downed));
+    if (p.downed) (this.e.downnote.querySelector('i') as HTMLElement).style.width = `${p.downHp}%`;
     // Zuschauen
     if (game.spectate && !this.e.specbar.classList.contains('hidden')) this.e.specname.textContent = game.spectate.name;
     this.updateTutorial(game);
@@ -757,6 +825,14 @@ export class Hud {
       g.beginPath(); g.arc(zn.x * k, zn.y * k, zn.r * k, 0, 7); g.stroke();
     }
     const p = game.player;
+    if (game.mode !== 'solo') {
+      g.fillStyle = '#4aa8ff'; g.strokeStyle = '#000'; g.lineWidth = 2;
+      for (const m of game.teammates(p)) {
+        if (!m.alive) continue;
+        const pos = m.phase === 'plane' ? game.planePos() : m;
+        g.beginPath(); g.arc(pos.x * k, pos.y * k, 5, 0, 7); g.fill(); g.stroke();
+      }
+    }
     if (p.alive) {
       const pos = p.phase === 'plane' ? game.planePos() : p;
       g.fillStyle = '#ffd23f'; g.strokeStyle = '#000'; g.lineWidth = 2;

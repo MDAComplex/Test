@@ -35,7 +35,7 @@ export interface Bullet {
 export interface Circle { x: number; y: number; r: number }
 export interface Airdrop { id: number; x: number; y: number; z: number; obstacle: Obstacle | null }
 export interface Bush { x: number; y: number; r: number }
-export interface GameResult { win: boolean; place: number; kills: number; time: number }
+export interface GameResult { win: boolean; place: number; kills: number; time: number; teams: number }
 interface Target { x: number; y: number; taken: boolean }
 
 export type GameEvent =
@@ -55,9 +55,15 @@ export type GameEvent =
   | { type: 'pickup'; f: Fighter }
   | { type: 'jump'; f: Fighter }
   | { type: 'land'; f: Fighter }
-  | { type: 'gameover'; result: GameResult };
+  | { type: 'gameover'; result: GameResult }
+  | { type: 'down'; f: Fighter; by: Fighter | null }
+  | { type: 'revive'; f: Fighter }
+  | { type: 'playerOut' };
 
 export type Phase = 'plane' | 'fall' | 'ground';
+export type Mode = 'solo' | 'duo' | 'squad';
+export const TEAM_SIZE: Record<Mode, number> = { solo: 1, duo: 2, squad: 4 };
+export const MODE_COUNT: Record<Mode, number> = { solo: 25, duo: 24, squad: 24 };
 
 export class Fighter {
   id: number;
@@ -90,6 +96,14 @@ export class Fighter {
   /** zweiter Waffenplatz (nur Spieler) */
   backup: { w: WeaponDef; mag: number } | null = null;
   killedBy: Fighter | null = null;
+  /** Team-Nummer (Solo: jeder sein eigenes Team) */
+  team = 0;
+  /** niedergeschlagen: kriecht, kann nicht schießen, wartet auf Wiederbelebung */
+  downed = false;
+  downHp = 100;
+  downedBy: Fighter | null = null;
+  reviveT = 0;
+  leader: Fighter | null = null;
   vx = 0;
   vy = 0;
   aiming = false;
@@ -203,7 +217,9 @@ export class Game {
   nextZoneTick = 0;
   private ids = 1;
 
-  constructor(map: MapData, playerColor = PLAYER_COLOR) {
+  mode: Mode;
+  constructor(map: MapData, playerColor = PLAYER_COLOR, mode: Mode = 'solo') {
+    this.mode = mode;
     this.map = map;
     this.houses = map.houses;
     this.grid = Array.from({ length: GRID * GRID }, () => []);
@@ -218,13 +234,26 @@ export class Game {
       : { x1: a, y1: -m, x2: b, y2: WORLD + m };
 
     this.player = this.addFighter('Du', true, playerColor);
-    const names = botNames(FIGHTER_COUNT - 1);
-    for (let i = 0; i < FIGHTER_COUNT - 1; i++) {
+    const size = TEAM_SIZE[mode], count = mode === 'solo' ? FIGHTER_COUNT : MODE_COUNT[mode];
+    const names = botNames(count - 1);
+    for (let i = 0; i < count - 1; i++) {
       const f = this.addFighter(names[i], false, BODY_COLORS[i % BODY_COLORS.length]);
+      f.team = Math.floor((i + 1) / size);
       f.strafe = Math.random() < 0.5 ? 1 : -1;
       const st = Math.random();
       f.style = st < 0.3 ? 'aggro' : st < 0.6 ? 'careful' : 'normal';
-      this.planBotDrop(f);
+      // erster Bot eines Teams plant den Absprung, die anderen folgen ihm
+      const lead = this.fighters.find((x) => x.team === f.team && x !== f) ?? null;
+      f.leader = lead;
+      if (f.team === 0) {
+        f.jumpAt = Infinity; // springt mit dem Spieler
+      } else if (lead) {
+        f.jumpAt = lead.jumpAt + 150 + Math.random() * 300;
+        f.landX = lead.landX + (Math.random() - 0.5) * 220;
+        f.landY = lead.landY + (Math.random() - 0.5) * 220;
+      } else {
+        this.planBotDrop(f);
+      }
     }
     const pp = this.planePos();
     for (const f of this.fighters) { f.x = pp.x; f.y = pp.y; }
@@ -351,6 +380,26 @@ export class Game {
     return n;
   }
 
+  ally(a: Fighter, b: Fighter) { return a.team === b.team; }
+
+  /** Teams, in denen noch jemand lebt */
+  aliveTeams() {
+    const t = new Set<number>();
+    for (const f of this.fighters) if (f.alive) t.add(f.team);
+    return t;
+  }
+
+  teamCount() {
+    return new Set(this.fighters.map((f) => f.team)).size;
+  }
+
+  teammates(f: Fighter) { return this.fighters.filter((x) => x !== f && x.team === f.team); }
+
+  /** steht im Team noch jemand (nicht niedergeschlagen)? */
+  private teamStanding(f: Fighter) {
+    return this.fighters.some((x) => x !== f && x.team === f.team && x.alive && !x.downed);
+  }
+
   // ---------- Hauptschleife ----------
 
   update(dtMs: number) {
@@ -361,7 +410,7 @@ export class Game {
     this.updateZone(now);
     this.updateDrop(now, dt);
 
-    if (this.player.alive && !this.over) this.handlePlayer(now, dt);
+    if (this.player.alive) this.handlePlayer(now, dt);
     this.input.jump = this.input.heal = this.input.reload = this.input.pickup = this.input.swap = false;
     if (this.spectate && !this.spectate.alive) this.spectate = this.nextSpectate(this.spectate);
 
@@ -372,7 +421,7 @@ export class Game {
         f.aiming = !!f.target;
         this.drive(f, f.moveX, f.moveY, this.speedOf(f), dt);
       }
-      if (f.phase === 'ground') this.updateCombat(f, now);
+      if (f.phase === 'ground' && !f.downed) this.updateCombat(f, now);
     }
     this.updateBullets(dt);
     if (now >= this.nextPickup) {
@@ -385,6 +434,7 @@ export class Game {
     }
     this.updateCover(now);
     this.updateAirdrops(now, dt);
+    if (this.mode !== 'solo') this.updateDowned(dt);
   }
 
   private updateDrop(now: number, dt: number) {
@@ -393,7 +443,9 @@ export class Game {
     for (const f of this.fighters) {
       if (!f.alive) continue;
       if (f.phase === 'plane') {
-        const go = f.isPlayer ? this.input.jump || end : now >= f.jumpAt || end;
+        const go = f.isPlayer ? this.input.jump || end
+          : f.team === this.player.team && this.mode !== 'solo' ? this.player.phase !== 'plane' || end
+          : now >= f.jumpAt || end;
         f.x = pp.x;
         f.y = pp.y;
         if (go) {
@@ -470,7 +522,7 @@ export class Game {
     this.drive(f, mx, my, this.speedOf(f), dt);
     f.moveX = mx;
     f.moveY = my;
-    if (f.phase !== 'ground') return;
+    if (f.phase !== 'ground' || f.downed) return;
     if (this.input.reload) this.startReload(f, now);
     if (this.input.pickup && this.nearbyWeapon && !this.nearbyWeapon.taken && (!this.pick || this.pick.loot !== this.nearbyWeapon)) {
       this.pick = { loot: this.nearbyWeapon, t: 0, total: PICK_TIME.weapon };
@@ -500,6 +552,7 @@ export class Game {
   /** Laufgeschwindigkeit: Waffe, Zielen und Heilen machen langsamer */
   speedOf(f: Fighter) {
     if (f.phase === 'fall') return f.isPlayer ? 230 : 210;
+    if (f.downed) return 55;
     const base = f.isPlayer ? PLAYER_SPEED : BOT_SPEED;
     return base * f.weapon.moveMul * (f.aiming ? 0.7 : 1) * (f.healUntil ? 0.5 : 1);
   }
@@ -589,8 +642,8 @@ export class Game {
     const styleK = f.style === 'aggro' ? 1.05 : f.style === 'careful' ? 0.8 : 0.92;
     let bestD = f.weapon.range * (f.isPlayer ? 1 : ramp * styleK);
     for (const o of this.fighters) {
-      if (o === f || !o.alive || o.phase !== 'ground') continue;
-      const d = Math.hypot(o.x - f.x, o.y - f.y);
+      if (o === f || !o.alive || o.phase !== 'ground' || this.ally(o, f)) continue;
+      const d = Math.hypot(o.x - f.x, o.y - f.y) * (o.downed ? 1.6 : 1);
       if (d >= bestD) continue;
       if (o.inBush && d > 140 && now - o.lastFiredAt > 900) continue;
       if (!this.hasLOS(f.x, f.y, o.x, o.y)) continue;
@@ -662,7 +715,7 @@ export class Game {
       let hitF: Fighter | null = null;
       let hitO = false;
       for (const f of this.fighters) {
-        if (!f.alive || f === b.owner || f.phase !== 'ground') continue;
+        if (!f.alive || f === b.owner || f.phase !== 'ground' || this.ally(f, b.owner)) continue;
         const t = clamp(((f.x - b.x) * dx + (f.y - b.y) * dy) / seg2, 0, 1);
         const cx = b.x + dx * t - f.x, cy = b.y + dy * t - f.y;
         if (cx * cx + cy * cy <= (FIGHTER_R + 4) ** 2 && t < hitT) {
@@ -717,7 +770,7 @@ export class Game {
   private explode(x: number, y: number, r: number, b: Bullet) {
     this.events.push({ type: 'explode', x, y, r });
     for (const f of this.fighters) {
-      if (!f.alive || f.phase !== 'ground') continue;
+      if (!f.alive || f.phase !== 'ground' || (f !== b.owner && this.ally(f, b.owner))) continue;
       const d = Math.hypot(f.x - x, f.y - y);
       if (d > r + FIGHTER_R) continue;
       if (!this.hasLOS(x, y, f.x, f.y) && d > 30) continue;
@@ -754,6 +807,12 @@ export class Game {
 
   damage(f: Fighter, amount: number, attacker: Fighter | null, ignoreArmor: boolean, weapon: string) {
     if (!f.alive) return;
+    if (f.downed) {
+      f.downHp -= amount;
+      this.events.push({ type: 'damage', f, amount: Math.round(amount), byPlayer: attacker === this.player, toPlayer: f === this.player, shield: false, fromX: attacker ? attacker.x : null, fromY: attacker ? attacker.y : null });
+      if (f.downHp <= 0) this.kill(f, attacker ?? f.downedBy, weapon);
+      return;
+    }
     let dmg = amount;
     const shield = !ignoreArmor && f.armor > 0;
     if (shield) {
@@ -771,7 +830,10 @@ export class Game {
       type: 'damage', f, amount: Math.round(f === this.player ? dmg : amount), byPlayer: attacker === this.player, toPlayer: f === this.player, shield,
       fromX: attacker ? attacker.x : null, fromY: attacker ? attacker.y : null,
     });
-    if (f.hp <= 0) this.kill(f, attacker, weapon);
+    if (f.hp <= 0) {
+      if (this.mode !== 'solo' && this.teamStanding(f)) this.knockDown(f, attacker);
+      else this.kill(f, attacker, weapon);
+    }
   }
 
   private kill(f: Fighter, attacker: Fighter | null, weapon: string) {
@@ -791,6 +853,7 @@ export class Game {
       const a = off + (i / drops.length) * Math.PI * 2;
       this.spawnLoot(f.x + Math.cos(a) * 32, f.y + Math.sin(a) * 32, k);
     });
+    f.downed = false;
     const alive = this.aliveCount();
     this.events.push({
       type: 'kill', f,
@@ -800,14 +863,72 @@ export class Game {
       mine: attacker === this.player,
       me: f === this.player,
     });
-    if (f === this.player) this.endGame(false, alive + 1);
-    else if (alive === 1 && this.player.alive) this.endGame(true, 1);
+    this.checkTeams();
+    if (this.over) return;
+    if (f === this.player && this.aliveTeams().has(this.player.team)) {
+      // Spieler ist raus, das Team kämpft weiter: automatisch zuschauen
+      this.spectate = this.teammates(f).find((x) => x.alive) ?? null;
+      this.events.push({ type: 'playerOut' });
+    }
+    void alive;
+  }
+
+  /** Team ausgelöscht, wenn niemand mehr steht; Sieg, wenn nur noch ein Team lebt */
+  private checkTeams() {
+    if (this.mode !== 'solo') {
+      for (const team of this.aliveTeams()) {
+        const members = this.fighters.filter((x) => x.team === team && x.alive);
+        if (members.length && members.every((x) => x.downed)) {
+          for (const m of members) this.kill(m, m.downedBy, 'Niedergeschlagen');
+          return;
+        }
+      }
+    }
+    if (this.over) return;
+    const teams = this.aliveTeams();
+    const mine = this.player.team;
+    if (!teams.has(mine)) this.endGame(false, teams.size + 1);
+    else if (teams.size === 1) this.endGame(true, 1);
+  }
+
+  private knockDown(f: Fighter, by: Fighter | null) {
+    f.downed = true;
+    f.hp = 0;
+    f.downHp = 100;
+    f.downedBy = by;
+    f.reviveT = 0;
+    f.target = null;
+    f.reloading = false;
+    f.healUntil = 0;
+    this.events.push({ type: 'down', f, by });
+    this.checkTeams();
+  }
+
+  /** Niedergeschlagene bluten aus; Teamkameraden in der Nähe beleben wieder */
+  private updateDowned(dt: number) {
+    for (const f of this.fighters) {
+      if (!f.alive || !f.downed) continue;
+      f.downHp -= dt * 100 / 30;
+      if (f.downHp <= 0) { this.kill(f, f.downedBy, 'Verblutet'); continue; }
+      const helper = this.fighters.find((x) => x !== f && x.alive && !x.downed && x.phase === 'ground' && this.ally(x, f) && Math.hypot(x.x - f.x, x.y - f.y) < 55);
+      if (helper) {
+        f.reviveT += dt;
+        if (f.reviveT >= 3.5) {
+          f.downed = false;
+          f.hp = 30;
+          f.reviveT = 0;
+          this.events.push({ type: 'revive', f });
+        }
+      } else {
+        f.reviveT = Math.max(0, f.reviveT - dt * 2);
+      }
+    }
   }
 
   private endGame(win: boolean, place: number) {
     if (this.over) return;
     this.over = true;
-    this.result = { win, place, kills: this.player.kills, time: this.time };
+    this.result = { win, place, kills: this.player.kills, time: this.time, teams: this.teamCount() };
     recordResult(place, this.player.kills, win);
     this.events.push({ type: 'gameover', result: this.result });
   }
@@ -823,6 +944,8 @@ export class Game {
   private think(f: Fighter, now: number) {
     f.nextThink = now + 220 + Math.random() * 120;
     if (f.phase === 'fall') {
+      const lead = this.mode !== 'solo' ? (f.team === this.player.team ? this.player : f.leader) : null;
+      if (lead && lead.alive) { f.landX = lead.x + ((f.id % 3) - 1) * 90; f.landY = lead.y + ((f.id % 2) ? 70 : -70); }
       const dx = f.landX - f.x, dy = f.landY - f.y, d = Math.hypot(dx, dy);
       f.moveX = d > 20 ? dx / d : 0;
       f.moveY = d > 20 ? dy / d : 0;
@@ -833,6 +956,24 @@ export class Game {
     const outside = dSafe > Math.max(40, safe.r * 0.8);
     const t = f.target;
     let dx = 0, dy = 0;
+    if (this.mode !== 'solo') {
+      const mates = this.teammates(f).filter((x) => x.alive && x.phase === 'ground');
+      if (f.downed) {
+        // zum nächsten stehenden Teamkameraden kriechen
+        const m = mates.filter((x) => !x.downed).sort((a, b) => Math.hypot(a.x - f.x, a.y - f.y) - Math.hypot(b.x - f.x, b.y - f.y))[0];
+        f.moveX = m ? Math.sign(m.x - f.x) * Math.min(1, Math.abs(m.x - f.x) / 60) : 0;
+        f.moveY = m ? Math.sign(m.y - f.y) * Math.min(1, Math.abs(m.y - f.y) / 60) : 0;
+        return;
+      }
+      // niedergeschlagenen Teamkameraden wiederbeleben, wenn kein Gegner in Sicht
+      const hurt = mates.find((x) => x.downed && Math.hypot(x.x - f.x, x.y - f.y) < 900);
+      if (hurt && !t) {
+        const d = Math.hypot(hurt.x - f.x, hurt.y - f.y);
+        f.moveX = d > 30 ? (hurt.x - f.x) / d : 0;
+        f.moveY = d > 30 ? (hurt.y - f.y) / d : 0;
+        return;
+      }
+    }
 
     if (f.lootTarget && (f.lootTarget.taken || now > f.lootUntil)) f.lootTarget = null;
 
@@ -887,6 +1028,11 @@ export class Game {
         dx = f.campX - f.x;
         dy = f.campY - f.y;
         if (Math.hypot(dx, dy) < 14) { dx = 0; dy = 0; }
+      } else if (this.followGap(f) > 340) {
+        // beim Team bleiben
+        const lead = this.teamLead(f)!;
+        dx = lead.x - f.x;
+        dy = lead.y - f.y;
       } else if (f.lootTarget) {
         dx = f.lootTarget.x - f.x;
         dy = f.lootTarget.y - f.y;
@@ -925,6 +1071,18 @@ export class Game {
     }
     f.moveX = dx;
     f.moveY = dy;
+  }
+
+  /** Anführer, dem ein Bot im Team folgt (Spieler oder erster Bot) */
+  private teamLead(f: Fighter): Fighter | null {
+    if (this.mode === 'solo') return null;
+    const lead = f.team === this.player.team ? this.player : f.leader;
+    return lead && lead !== f && lead.alive && lead.phase === 'ground' ? lead : null;
+  }
+
+  private followGap(f: Fighter) {
+    const lead = this.teamLead(f);
+    return lead ? Math.hypot(lead.x - f.x, lead.y - f.y) : 0;
   }
 
   /** Deckungspunkt hinter einem Hindernis, vom Angreifer aus gesehen */
@@ -984,7 +1142,7 @@ export class Game {
     for (const l of this.loot) {
       if (l.taken) continue;
       for (const f of this.fighters) {
-        if (!f.alive || f.phase !== 'ground') continue;
+        if (!f.alive || f.phase !== 'ground' || f.downed) continue;
         const d2 = (f.x - l.x) ** 2 + (f.y - l.y) ** 2;
         if (d2 > PICKUP_R * PICKUP_R) continue;
         if (!f.isPlayer && this.tryPickup(f, l, false)) break;
@@ -1000,7 +1158,7 @@ export class Game {
       if (!isContainer(o) || o.opened) continue;
       let near = false;
       for (const f of this.fighters) {
-        if (!f.alive || f.phase !== 'ground') continue;
+        if (!f.alive || f.phase !== 'ground' || f.downed) continue;
         const cx = clamp(f.x, o.rect.x, o.rect.x + o.rect.w), cy = clamp(f.y, o.rect.y, o.rect.y + o.rect.h);
         if (Math.hypot(f.x - cx, f.y - cy) <= FIGHTER_R + CRATE_REACH) {
           near = true;
