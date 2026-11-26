@@ -85,6 +85,13 @@ interface DropView { root: THREE.Group; chute: THREE.Group; smokeT: number; land
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
+interface Tod { name: string; sky: number; ground: number; hemi: number; sun: number; sunI: number; off: [number, number, number]; water: number }
+const TODS: Tod[] = [
+  { name: 'Mittag', sky: 0xdff1ff, ground: 0x6f8f55, hemi: 1.5, sun: 0xfff3dc, sunI: 2.6, off: [-30, 70, 22], water: 0x3aa6dc },
+  { name: 'Abendrot', sky: 0xffeadb, ground: 0x6f6650, hemi: 1.4, sun: 0xffc895, sunI: 2.25, off: [-70, 38, 18], water: 0x3a90c2 },
+  { name: 'Morgen', sky: 0xd6e8ff, ground: 0x5f8a66, hemi: 1.35, sun: 0xffe2b8, sunI: 2.2, off: [62, 42, -24], water: 0x3b9ccc },
+];
+
 function canvasTexture(w: number, h: number, draw: (c: CanvasRenderingContext2D) => void) {
   const cv = document.createElement('canvas');
   cv.width = w;
@@ -118,6 +125,10 @@ export class Renderer {
   baseDist = 30;
   pitch = PITCH;
   private sun: THREE.DirectionalLight;
+  private hemi: THREE.HemisphereLight;
+  /** Tageszeit der Runde: Licht, Farben, Sonnenrichtung */
+  tod = TODS[0];
+  private windTime = { value: 0 };
   private shake = 0;
 
   private fighterViews = new Map<Fighter, FighterView>();
@@ -219,7 +230,8 @@ export class Renderer {
     this.gradient.minFilter = this.gradient.magFilter = THREE.NearestFilter;
     this.gradient.needsUpdate = true;
 
-    this.scene.add(new THREE.HemisphereLight(0xdff1ff, 0x6f8f55, 1.5));
+    this.hemi = new THREE.HemisphereLight(0xdff1ff, 0x6f8f55, 1.5);
+    this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xfff3dc, 2.6);
     this.sun.castShadow = true;
     const mobile = Math.min(window.innerWidth, window.innerHeight) < 600;
@@ -296,6 +308,23 @@ export class Renderer {
       caseLatch: toon(0xb8bec8),
       caseGlow: new THREE.MeshBasicMaterial({ color: 0xffb627 }),
     };
+    // Wind: Kronen und Büsche wiegen sich (Vertex-Verschiebung, oben stärker)
+    const wind = (m: THREE.Material, amp: number) => {
+      m.onBeforeCompile = (sh) => {
+        sh.uniforms.uWind = this.windTime;
+        sh.vertexShader = sh.vertexShader
+          .replace('#include <common>', '#include <common>\nuniform float uWind;')
+          .replace('#include <begin_vertex>', `#include <begin_vertex>
+            vec4 wpos = modelMatrix * vec4(position, 1.0);
+            float sway = sin(uWind * 1.5 + wpos.x * 0.35 + wpos.z * 0.27) * ${amp.toFixed(3)} + sin(uWind * 2.6 + wpos.x * 0.8) * ${(amp * 0.4).toFixed(3)};
+            float h = clamp(position.y + 1.0, 0.0, 2.0);
+            transformed.x += sway * h;
+            transformed.z += sway * 0.6 * h;`);
+      };
+      m.customProgramCacheKey = () => 'wind' + amp;
+    };
+    for (const k of ['leaves0', 'leaves1', 'leaves2', 'leavesFade']) wind(this.m[k], 0.05);
+    for (const k of ['bush', 'bushFade']) wind(this.m[k], 0.035);
     for (const t of [1, 2, 3, 4, 5]) {
       this.disc[t] = new THREE.MeshBasicMaterial({ color: TIER_COLORS[t], transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide });
       this.beam[t] = new THREE.MeshBasicMaterial({ color: TIER_COLORS[t], transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
@@ -814,8 +843,15 @@ export class Renderer {
 
   // ---------- Aufbau ----------
 
-  build(game: Game) {
+  build(game: Game, tod?: number) {
     if (this.world) this.scene.remove(this.world);
+    this.tod = TODS[tod ?? 0];
+    this.hemi.color.setHex(this.tod.sky);
+    this.hemi.groundColor.setHex(this.tod.ground);
+    this.hemi.intensity = this.tod.hemi;
+    this.sun.color.setHex(this.tod.sun);
+    this.sun.intensity = this.tod.sunI;
+    this.renderer.setClearColor(this.tod.water);
     this.perRound.forEach((m) => m.dispose());
     this.perRound = [];
     this.fighterViews.clear();
@@ -859,18 +895,30 @@ export class Renderer {
 
     // Wasser
     this.waterMat = new THREE.ShaderMaterial({
-      uniforms: { uT: { value: 0 }, uC: { value: new THREE.Color(WATER) } },
+      uniforms: { uT: { value: 0 }, uC: { value: new THREE.Color(this.tod.water) }, uHalf: { value: W / 2 }, uCenter: { value: new THREE.Vector2(W / 2, W / 2) } },
       vertexShader: `varying vec2 vXZ; void main(){ vec4 wp = modelMatrix * vec4(position,1.0); vXZ = wp.xz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
-      fragmentShader: `uniform float uT; uniform vec3 uC; varying vec2 vXZ;
+      fragmentShader: `uniform float uT; uniform vec3 uC; uniform float uHalf; uniform vec2 uCenter; varying vec2 vXZ;
         void main(){
           float w = sin(vXZ.x * 0.35 + uT * 0.8) * sin(vXZ.y * 0.3 - uT * 0.6);
           float glint = smoothstep(0.82, 1.0, w);
           vec3 col = uC * (0.92 + w * 0.06) + vec3(glint * 0.35);
+          // Abstand zur Inselkante (nur außerhalb der Insel > 0)
+          vec2 q = abs(vXZ - uCenter) - vec2(uHalf);
+          float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+          if (d > 0.0) {
+            // flaches, helles Wasser am Ufer
+            col = mix(vec3(0.45, 0.85, 0.9), col, smoothstep(0.0, 9.0, d));
+            // Wellen, die zum Strand laufen
+            float wave = sin(d * 1.3 + uT * 2.2 + sin(vXZ.x * 0.15 + vXZ.y * 0.12) * 1.5);
+            float foam = smoothstep(0.86, 1.0, wave) * (1.0 - smoothstep(1.0, 7.0, d));
+            float edge = 1.0 - smoothstep(0.0, 0.9 + sin(uT * 1.7 + vXZ.x * 0.4 + vXZ.y * 0.3) * 0.35, d);
+            col = mix(col, vec3(1.0), clamp(foam * 0.8 + edge * 0.9, 0.0, 1.0));
+          }
           gl_FragColor = vec4(col, 1.0);
         }`,
     });
     this.perRound.push(this.waterMat);
-    flat(add(this.g.plane, this.waterMat, W / 2, -1.2, W / 2, 1800, 1800, 1)).receiveShadow = false;
+    flat(add(this.g.plane, this.waterMat, W / 2, -0.4, W / 2, 1800, 1800, 1)).receiveShadow = false;
     add(this.g.box, this.m.sandBase, W / 2, -0.62, W / 2, W, 1.2, W, world, false);
     const tex = this.groundTexture(game);
     const groundMat = new THREE.MeshToonMaterial({ map: tex, gradientMap: this.gradient });
@@ -1434,6 +1482,7 @@ export class Renderer {
     this.zoneMat.uniforms.uNR.value = game.zoneState !== 'done' ? zn.r * S : 0;
     this.wallMat.uniforms.uT.value = this.time;
     this.waterMat.uniforms.uT.value = this.time;
+    this.windTime.value = this.time;
     if (this.doorLights.length) {
       const k = 0.85 + Math.sin(this.time * 2.2) * 0.15;
       (this.doorLights[0].material as THREE.MeshBasicMaterial).opacity = k;
@@ -1882,7 +1931,8 @@ export class Renderer {
 
   private updateSun() {
     const t = this.camTarget;
-    this.sun.position.set(t.x - 30, 70, t.z + 22);
+    const o = this.tod.off;
+    this.sun.position.set(t.x + o[0], o[1], t.z + o[2]);
     this.sun.target.position.set(t.x, 0, t.z);
   }
 
@@ -1938,6 +1988,7 @@ export class Renderer {
     sc.updateProjectionMatrix();
     this.updateSun();
     if (this.waterMat) this.waterMat.uniforms.uT.value = this.time;
+    this.windTime.value = this.time;
     if (this.plane) this.plane.visible = false;
     if (this.playerRing) this.playerRing.visible = false;
     if (this.aimLine) this.aimLine.visible = false;

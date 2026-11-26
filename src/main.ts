@@ -22,7 +22,8 @@ function showMenu() {
 
 function startRound() {
   game = new Game(generateMap(Math.floor(Math.random() * 1e9)), hud.playerColor, hud.settings.mode);
-  renderer.build(game);
+  // Tageszeit zufällig: Mittag, Abendrot oder Morgen
+  renderer.build(game, Math.floor(Math.random() * 3));
   fps.samples = [];
   renderer.resetShadowArea();
   hud.startRound(game);
@@ -71,4 +72,4 @@ showMenu();
 requestAnimationFrame(frame);
 
 // Für Tests/Debugging im Browser erreichbar
-(window as unknown as { __zr: { game: () => Game | null } }).__zr = { game: () => game };
+(window as unknown as { __zr: object }).__zr = { game: () => game, renderer };
