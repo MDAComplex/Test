@@ -199,20 +199,18 @@ export class Renderer {
     particle: new THREE.BoxGeometry(0.16, 0.16, 0.16),
     bullet: new THREE.BoxGeometry(1, 1, 1),
     flash: new THREE.SphereGeometry(1, 10, 8),
-    // breites Grasblatt (Basis bei y = 0, Spitze oben), leicht nach vorne gewölbt
+    // rundes Grasblatt (Basis bei y = 0, Spitze oben): fein unterteilt, weich gewölbt
     blade: (() => {
-      const sh = new THREE.Shape();
-      sh.moveTo(-0.05, 0);
-      sh.quadraticCurveTo(-0.34, 0.45, -0.02, 1.0);
-      sh.lineTo(0.02, 1.0);
-      sh.quadraticCurveTo(0.34, 0.45, 0.05, 0);
-      sh.closePath();
-      const g = new THREE.ShapeGeometry(sh, 6);
+      const g = new THREE.PlaneGeometry(1, 1, 6, 10);
       const pos = g.attributes.position as THREE.BufferAttribute;
       for (let i = 0; i < pos.count; i++) {
-        const y = pos.getY(i), x = pos.getX(i);
-        // Mittelrippe nach vorne, Ränder zurück: wirkt räumlicher
-        pos.setZ(i, 0.12 * y * y - Math.abs(x) * 0.25);
+        const u = pos.getX(i) + 0.5, v = pos.getY(i) + 0.5; // 0..1
+        // Blattbreite: unten schmal, Mitte breit, oben rund zulaufend
+        const w = 0.34 * Math.pow(Math.sin(Math.PI * Math.min(1, v * 0.92 + 0.04)), 0.75) * (1 - v * 0.25);
+        const x = (u - 0.5) * 2 * w;
+        // gewölbt: Mitte vorne, Ränder hinten, Spitze nach vorne geneigt
+        const z = 0.16 * v * v - (x * x) * 1.6;
+        pos.setXYZ(i, x, v, z);
       }
       g.computeVertexNormals();
       return g;
@@ -1194,7 +1192,8 @@ export class Renderer {
       world.add(grp);
     }
     // dichte Wiesen: Büschel aus breiten, überlappenden Blättern (InstancedMesh, wiegen sich im Wind)
-    const greens = [0x62b84c, 0x55a842, 0x6fc458, 0x4b9a3c, 0x5daf47];
+    // dunkleres, satteres Grün als der Boden, damit die Wiese klar erkennbar ist
+    const greens = [0x3f9440, 0x348537, 0x47a046, 0x2e7a33, 0x3b8e3c];
     for (const gf of game.map.grass) {
       const R = gf.r * S;
       // Büschel in einem lockeren Raster mit Zufallsversatz -> dicht, aber ohne Lücken
