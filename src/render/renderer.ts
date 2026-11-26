@@ -4,7 +4,7 @@ import { S, WORLD, PLANE_Z, PLANE_TIME } from '../config';
 import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop, isContainer } from '../sim/game';
 import { WEAPONS, TIER_COLORS, WeaponId } from '../weapons';
 import { LootKind } from '../mapgen';
-import { buildCharacter, buildChute, animateRig, poseLying, makeToon, Rig } from './character';
+import { buildCharacter, buildChute, animateRig, poseLying, poseCrawl, makeToon, Rig } from './character';
 
 const W = WORLD * S;
 const WALL_H = 2.1;
@@ -1650,12 +1650,14 @@ export class Renderer {
     v.lean.rotation.x = lerp(v.lean.rotation.x, f.vy * lk, 0.12);
     v.lean.rotation.z = lerp(v.lean.rotation.z, -f.vx * lk, 0.12);
 
-    // niedergeschlagen: auf der Seite liegen und kriechen
-    rig.body.rotation.z = lerp(rig.body.rotation.z, f.downed ? Math.PI / 2 * 0.9 : 0, 1 - Math.exp(-dt * 10));
+    // niedergeschlagen: auf den Bauch fallen und langsam kriechen
+    rig.body.rotation.z = lerp(rig.body.rotation.z, f.downed ? -Math.PI / 2 * 0.92 : 0, 1 - Math.exp(-dt * 8));
     if (f.downed) {
-      v.walkT += dt * (f.moving ? 7 : 1.5);
-      poseLying(rig, v.walkT, true);
-      rig.body.position.y = 0;
+      const crawl = Math.min(1, speed / 40);
+      v.walkT += dt * (2 + crawl * 5);
+      poseCrawl(rig, v.walkT, crawl);
+      rig.body.position.y = 0.22 + Math.abs(Math.sin(v.walkT)) * 0.04 * crawl;
+      v.lean.rotation.set(0, 0, 0);
       const pulse = 0.25 + Math.sin(this.time * 6) * 0.15;
       rig.shirtMat.emissive.setRGB(pulse, 0, 0);
       return;
@@ -1666,6 +1668,7 @@ export class Renderer {
     v.amp = lerp(v.amp, f.moving ? Math.min(1, speed / 150) : 0, 1 - Math.exp(-dt * 8));
     v.aimBlend = lerp(v.aimBlend, f.aiming || game.time - f.lastShot < 600 ? 1 : 0, 1 - Math.exp(-dt * 12));
     v.reloadBlend = lerp(v.reloadBlend, f.reloading ? 1 : 0, 1 - Math.exp(-dt * 12));
+    rig.head.rotation.z = 0;
     animateRig(rig, { phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, reload: v.reloadBlend, time: this.time + f.id, falling });
 
     v.recoil = Math.max(0, v.recoil - dt * 9);

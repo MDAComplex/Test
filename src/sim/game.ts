@@ -526,6 +526,7 @@ export class Game {
     this.drive(f, mx, my, this.speedOf(f), dt);
     f.moveX = mx;
     f.moveY = my;
+    if (f.downed && (mx || my)) f.aim = rotateTo(f.aim, Math.atan2(my, mx), 0.15);
     if (f.phase !== 'ground' || f.downed) return;
     if (this.input.reload) this.startReload(f, now);
     if (this.input.pickup && this.nearbyWeapon && !this.nearbyWeapon.taken && (!this.pick || this.pick.loot !== this.nearbyWeapon)) {
@@ -556,7 +557,7 @@ export class Game {
   /** Laufgeschwindigkeit: Waffe, Zielen und Heilen machen langsamer */
   speedOf(f: Fighter) {
     if (f.phase === 'fall') return f.isPlayer ? 230 : 210;
-    if (f.downed) return 55;
+    if (f.downed) return 48;
     const base = f.isPlayer ? PLAYER_SPEED : BOT_SPEED;
     return base * f.weapon.moveMul * (f.aiming ? 0.7 : 1) * (f.healUntil ? 0.5 : 1);
   }
@@ -647,7 +648,8 @@ export class Game {
     let bestD = f.weapon.range * (f.isPlayer ? 1 : ramp * styleK);
     for (const o of this.fighters) {
       if (o === f || !o.alive || o.phase !== 'ground' || this.ally(o, f)) continue;
-      const d = Math.hypot(o.x - f.x, o.y - f.y) * (o.downed ? 1.6 : 1);
+      // Niedergeschlagene werden erledigt, wenn kein stehender Gegner näher ist
+      const d = Math.hypot(o.x - f.x, o.y - f.y) * (o.downed ? 1.25 : 1);
       if (d >= bestD) continue;
       if (o.inBush && d > 140 && now - o.lastFiredAt > 900) continue;
       if (!this.hasLOS(f.x, f.y, o.x, o.y)) continue;
@@ -912,7 +914,8 @@ export class Game {
   private updateDowned(dt: number) {
     for (const f of this.fighters) {
       if (!f.alive || !f.downed) continue;
-      f.downHp -= dt * 100 / 30;
+      // nach ca. 50 Sekunden ausgeblutet
+      f.downHp -= dt * 100 / 50;
       if (f.downHp <= 0) { this.kill(f, f.downedBy, 'Verblutet'); continue; }
       const helper = this.fighters.find((x) => x !== f && x.alive && !x.downed && x.phase === 'ground' && this.ally(x, f) && Math.hypot(x.x - f.x, x.y - f.y) < 55);
       if (helper) {
@@ -967,6 +970,7 @@ export class Game {
         const m = mates.filter((x) => !x.downed).sort((a, b) => Math.hypot(a.x - f.x, a.y - f.y) - Math.hypot(b.x - f.x, b.y - f.y))[0];
         f.moveX = m ? Math.sign(m.x - f.x) * Math.min(1, Math.abs(m.x - f.x) / 60) : 0;
         f.moveY = m ? Math.sign(m.y - f.y) * Math.min(1, Math.abs(m.y - f.y) / 60) : 0;
+        if (f.moveX || f.moveY) f.aim = rotateTo(f.aim, Math.atan2(f.moveY, f.moveX), 0.3);
         return;
       }
       // niedergeschlagenen Teamkameraden wiederbeleben, wenn kein Gegner in Sicht

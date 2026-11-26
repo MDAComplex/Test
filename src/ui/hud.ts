@@ -32,7 +32,7 @@ export class Hud {
   private e: Record<string, HTMLElement> = {};
   private mini: HTMLCanvasElement;
   private miniBase: HTMLCanvasElement | null = null;
-  private labels = new Map<Fighter, { el: HTMLElement }>();
+  private labels = new Map<Fighter, { el: HTMLElement; dn: HTMLElement }>();
   private ring: HTMLElement;
   private ringArc: SVGCircleElement;
   private move: Stick;
@@ -463,11 +463,11 @@ export class Hud {
     }
     for (const f of game.fighters) {
       if (f.isPlayer) continue;
-      const el = $(`<div class="lbl"><div class="n"></div></div>`);
+      const el = $(`<div class="lbl"><div class="n"></div><div class="b dn"><i></i></div></div>`);
       if (game.mode !== 'solo' && f.team === game.player.team) el.classList.add('mate');
       el.querySelector('.n')!.textContent = f.name;
       this.labelsLayer.append(el);
-      this.labels.set(f, { el });
+      this.labels.set(f, { el, dn: el.querySelector('.dn') as HTMLElement });
     }
   }
 
@@ -539,7 +539,8 @@ export class Hud {
           break;
         case 'down': {
           const mine = ev.by === p, me = ev.f === p;
-          this.feedLine(`${ev.by ? ev.by.name : 'Die Zone'} hat ${me ? 'dich' : ev.f.name} niedergeschlagen`, me ? '#ff6b6b' : mine ? '#ffb347' : '#dddddd');
+          const who = mine ? 'Du hast' : `${ev.by ? ev.by.name : 'Die Zone'} hat`;
+          this.feedLine(`${who} ${me ? 'dich' : ev.f.name} niedergeschlagen`, me ? '#ff6b6b' : mine ? '#ffb347' : '#dddddd');
           if (mine) { this.sfx.hit(); this.hitMarker(r, ev.f.x, ev.f.y, false); }
           if (me) this.sfx.hurt();
           break;
@@ -769,6 +770,9 @@ export class Hud {
       }
       l.el.style.display = '';
       l.el.style.transform = `translate(${s.x}px, ${s.y - 18}px)`;
+      // rote Leiste nur bei Niedergeschlagenen
+      l.dn.style.display = f.downed ? '' : 'none';
+      if (f.downed) (l.dn.firstElementChild as HTMLElement).style.width = `${Math.max(0, f.downHp)}%`;
     }
 
     const now = performance.now();

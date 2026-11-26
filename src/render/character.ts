@@ -233,8 +233,27 @@ export function animateRig(rig: Rig, s: AnimState) {
   }
 }
 
-/** liegende Pose (niedergeschlagen kriechen oder tot) */
+/** niedergeschlagen: auf dem Bauch kriechen (Kopf in Bewegungsrichtung) */
+export function poseCrawl(rig: Rig, t: number, moving: number) {
+  rig.gunPivot.visible = false;
+  const c = Math.sin(t), c2 = Math.cos(t);
+  // Arme greifen abwechselnd nach vorne (im Bauchlage-Körper ist "oben" = vorne)
+  rig.arms[0].shoulder.rotation.set(0.25, 0, 2.75 + c * 0.35 * moving);
+  rig.arms[1].shoulder.rotation.set(-0.25, 0, 2.75 - c * 0.35 * moving);
+  rig.arms[0].elbow.rotation.z = 0.5 + Math.max(0, -c) * 0.8 * moving;
+  rig.arms[1].elbow.rotation.z = 0.5 + Math.max(0, c) * 0.8 * moving;
+  // Beine schieben abwechselnd nach
+  rig.legs[0].hip.rotation.z = -0.15 + c * 0.25 * moving;
+  rig.legs[1].hip.rotation.z = -0.15 - c * 0.25 * moving;
+  rig.legs[0].knee.rotation.z = -0.3 - Math.max(0, c2) * 0.9 * moving;
+  rig.legs[1].knee.rotation.z = -0.3 - Math.max(0, -c2) * 0.9 * moving;
+  rig.torso.rotation.set(Math.sin(t * 2) * 0.06 * moving, 0, 0);
+  rig.head.rotation.z = 0.9; // Kopf hebt sich und schaut nach vorne
+}
+
+/** liegende Pose (tot) */
 export function poseLying(rig: Rig, t: number, crawl: boolean) {
+  rig.head.rotation.z = 0;
   rig.gunPivot.visible = false;
   const c = crawl ? Math.sin(t) : 0;
   rig.legs[0].hip.rotation.z = 0.2 + c * 0.4;

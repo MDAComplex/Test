@@ -292,3 +292,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
 .lockpanel .row { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
 .lockpanel .actions { display: flex; justify-content: center; }
 .lockpanel .actions .btn { font-size: 20px; padding: 10px 30px; }
+
+.lbl .dn { width: 50px; margin: 2px auto 0; }
+.lbl .dn i { background: #ff3b3b; }
