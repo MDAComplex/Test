@@ -1518,9 +1518,11 @@ export class Renderer {
     const aiming = p.alive && p.phase === 'ground' && !p.downed && p.weapon.id !== 'fists' && game.input.aim !== null && !game.over;
     this.aimLine.visible = aiming;
     if (aiming) {
-      const len = game.rayLength(p.x, p.y, p.aim, p.weapon.range) * S;
-      this.aimLine.position.set(p.x * S + Math.cos(p.aim) * 0.9, 0.12, p.y * S + Math.sin(p.aim) * 0.9);
-      this.aimLine.rotation.y = -p.aim;
+      // Ziellinie zeigt zur Maus / zum rechten Stick, auch wenn die Figur in Laufrichtung schaut
+      const aimA = game.input.aim ?? p.aim;
+      const len = game.rayLength(p.x, p.y, aimA, p.weapon.range) * S;
+      this.aimLine.position.set(p.x * S + Math.cos(aimA) * 0.9, 0.12, p.y * S + Math.sin(aimA) * 0.9);
+      this.aimLine.rotation.y = -aimA;
       const l = Math.max(0.5, len - 0.9);
       this.aimLine.scale.set(l, 1, 0.4);
       this.aimMat.uniforms.uLen.value = l;
@@ -2030,8 +2032,9 @@ export class Renderer {
       // beim Zielen etwas in Blickrichtung vorausschauen
       if (game.input.aim !== null && p.phase === 'ground') {
         const look = Math.min(6, p.weapon.range * S * 0.18);
-        tx += Math.cos(p.aim) * look;
-        tz += Math.sin(p.aim) * look;
+        const la = game.input.aim;
+        tx += Math.cos(la) * look;
+        tz += Math.sin(la) * look;
       }
     }
     const k = 1 - Math.exp(-dt * 6);

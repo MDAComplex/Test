@@ -131,6 +131,22 @@ describe('Fäuste', () => {
   });
 });
 
+describe('Blickrichtung', () => {
+  it('schaut in Laufrichtung, nur beim Schießen zum Ziel', () => {
+    const { g, p } = groundGame();
+    g.input.mx = 1; g.input.my = 0;      // nach rechts laufen
+    g.input.aim = -Math.PI / 2;          // Maus zeigt nach oben
+    g.input.firing = false;
+    for (let t = 0; t < 600; t += 16) g.update(16);
+    expect(Math.abs(p.aim)).toBeLessThan(0.1);
+    expect(p.vx).toBeGreaterThan(50);
+    g.input.firing = true;               // schießen: zur Maus drehen, weiter nach rechts laufen
+    g.update(16);
+    expect(p.aim).toBeCloseTo(-Math.PI / 2, 2);
+    expect(p.vx).toBeGreaterThan(50);
+  });
+});
+
 describe('Bewegung', () => {
   it('beschleunigt weich statt sofort', () => {
     const { g, p } = groundGame();

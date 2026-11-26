@@ -609,11 +609,14 @@ export class Game {
   /** Spieler zielt selbst; optionale Zielhilfe für Touch */
   private playerAim(f: Fighter, now: number) {
     const a = this.input.aim;
-    if (a !== null) {
-      const ang = a;
-      f.aim = rotateTo(f.aim, ang, 0.5);
+    if (a !== null && this.input.firing) {
+      // nur beim Schießen zum Ziel drehen (sofort, damit der Schuss sitzt)
+      f.aim = a;
+    } else if (now - f.lastShot < 300) {
+      // kurz nach dem Schuss in Schussrichtung bleiben
     } else if (f.moveX || f.moveY) {
-      f.aim = rotateTo(f.aim, Math.atan2(f.moveY, f.moveX), 0.18);
+      // sonst immer in Laufrichtung (WASD / linker Stick) schauen
+      f.aim = rotateTo(f.aim, Math.atan2(f.moveY, f.moveX), 0.25);
     }
     if (this.input.firing && !f.healUntil) this.tryFire(f, now);
     else if (f.mag < f.weapon.mag && f.ammo > 0 && now - f.lastShot > 1500) this.startReload(f, now);
