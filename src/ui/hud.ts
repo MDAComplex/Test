@@ -45,11 +45,14 @@ export class Hud {
     this.labelsLayer = $('<div id="labels"></div>');
     this.hud = $(`
       <div id="hud" class="hidden">
-        <div class="tl"><div class="alive"></div><div class="kills"></div></div>
         <button class="gear" aria-label="Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.4 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.9c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
         <div class="zone"></div>
         <div class="warn hidden">Du bist außerhalb der Zone!</div>
         <canvas class="mini" width="320" height="320"></canvas>
+        <div class="mstats">
+          <span class="ms" title="Noch am Leben"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="7" r="4.2" fill="currentColor"/><path d="M3.5 21c0-4.8 3.8-8 8.5-8s8.5 3.2 8.5 8z" fill="currentColor"/></svg><b class="alive"></b></span>
+          <span class="ms" title="Deine Abschüsse"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><b class="kills"></b></span>
+        </div>
         <div class="feed"></div>
         <div class="center"></div>
         <div class="toast"></div>
@@ -418,8 +421,8 @@ export class Hud {
   update(game: Game, r: Renderer) {
     this.sfx.frame();
     const p = game.player;
-    this.e.alive.textContent = `Übrig: ${game.aliveCount()}`;
-    this.e.kills.textContent = `Abschüsse: ${p.kills}`;
+    this.e.alive.textContent = String(game.aliveCount());
+    this.e.kills.textContent = String(p.kills);
     const zi = game.zoneInfo();
     this.e.zone.textContent = zi.text;
     this.e.zone.classList.toggle('urgent', zi.urgent);

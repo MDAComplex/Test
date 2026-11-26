@@ -154,3 +154,28 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
   .pickcard { bottom: 96px; padding: 7px 12px; }
   .rb.jump { bottom: 80px; width: 100px; height: 100px; }
 }
+
+/* Zähler unter der Minikarte: Piktogramm + Zahl */
+.mstats { position: absolute; right: 14px; top: 184px; width: 160px; display: flex; gap: 6px; }
+.ms { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 8px; border-radius: 10px; background: var(--panel); backdrop-filter: blur(6px); font-size: 17px; font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+.ms svg { flex: none; opacity: 0.95; }
+.ms:last-child { color: var(--gold); }
+.gear { top: 14px; }
+.feed { top: 224px; }
+@media (max-width: 640px) {
+  .mstats { width: 112px; top: 134px; gap: 4px; }
+  .ms { font-size: 14px; padding: 4px 5px; gap: 4px; }
+  .ms svg { width: 14px; height: 14px; }
+  .feed { top: 168px; }
+  .gear { top: 14px; }
+  .zone { left: 14px; top: 64px; }
+  .warn { left: 14px; top: 90px; }
+}
+@media (max-height: 520px) {
+  .mstats { width: 108px; top: 124px; right: 10px; gap: 4px; }
+  .ms { font-size: 13px; padding: 3px 5px; gap: 4px; }
+  .ms svg { width: 14px; height: 14px; }
+  .feed { top: 154px; }
+  .gear { top: 10px; }
+  .zone { left: 50%; top: 10px; }
+}
