@@ -88,7 +88,7 @@ function canvasTexture(w: number, h: number, draw: (c: CanvasRenderingContext2D)
   draw(cv.getContext('2d')!);
   const t = new THREE.CanvasTexture(cv);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = 16;
   return t;
 }
 
@@ -390,7 +390,8 @@ export class Renderer {
   // ---------- Boden ----------
 
   private groundTexture(game: Game) {
-    const N = 2048, k = N / WORLD;
+    // höhere Auflösung auf größeren Bildschirmen (PC), Handy bleibt sparsam
+    const N = Math.min(window.innerWidth, window.innerHeight) >= 600 ? 4096 : 2048, k = N / WORLD;
     const map = game.map;
     return canvasTexture(N, N, (c) => {
       const inset = 80 * k, rad = 200 * k;
@@ -499,21 +500,16 @@ export class Renderer {
         c.arc(p.x * k, p.y * k, (p.r + 46) * k, 0, Math.PI * 2);
         c.fill();
       }
-      for (let i = 0; i < 3800; i++) {
+      // Blumen (feine Grashalme kommen aus der scharfen Detail-Textur)
+      const fs = N / 2048;
+      for (let i = 0; i < 700; i++) {
         const x = rnd() * N, y = rnd() * N;
-        if (rnd() < 0.88) {
-          c.strokeStyle = 'rgba(70,140,50,0.42)';
-          c.lineWidth = 1.4;
-          c.beginPath();
-          c.moveTo(x, y);
-          c.lineTo(x - 2, y - 5);
-          c.moveTo(x + 2, y);
-          c.lineTo(x + 3, y - 5);
+        if (rnd() < 0) {
           c.stroke();
         } else {
           c.fillStyle = ['#ffffff', '#ffe066', '#ff8fb1'][Math.floor(rnd() * 3)];
           c.beginPath();
-          c.arc(x, y, 2, 0, Math.PI * 2);
+          c.arc(x, y, 2 * fs, 0, Math.PI * 2);
           c.fill();
         }
       }
@@ -920,6 +916,30 @@ export class Renderer {
     const groundMat = new THREE.MeshToonMaterial({ map: tex, gradientMap: this.gradient });
     this.perRound.push(tex, groundMat);
     flat(add(this.g.plane, groundMat, W / 2, 0, W / 2, W, W, 1));
+    // feine, gekachelte Detail-Struktur: hält den Boden auch aus der Nähe scharf
+    const detail = canvasTexture(512, 512, (c) => {
+      let s2 = 7;
+      const rr = () => ((s2 = (s2 * 1664525 + 1013904223) >>> 0) / 4294967296);
+      for (let i = 0; i < 1400; i++) {
+        const x = rr() * 512, y = rr() * 512;
+        c.fillStyle = rr() < 0.5 ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)';
+        c.beginPath(); c.arc(x, y, 1 + rr() * 2.5, 0, Math.PI * 2); c.fill();
+      }
+      c.strokeStyle = 'rgba(20,60,20,0.16)';
+      c.lineWidth = 1.6;
+      c.lineCap = 'round';
+      for (let i = 0; i < 520; i++) {
+        const x = rr() * 512, y = rr() * 512, h = 5 + rr() * 6;
+        c.beginPath(); c.moveTo(x, y); c.lineTo(x - 2, y - h); c.moveTo(x + 2, y); c.lineTo(x + 3.5, y - h * 0.9); c.stroke();
+      }
+    });
+    detail.wrapS = detail.wrapT = THREE.RepeatWrapping;
+    detail.repeat.set(W / 7, W / 7);
+    const detailMat = new THREE.MeshBasicMaterial({ map: detail, transparent: true, depthWrite: false });
+    this.perRound.push(detail, detailMat);
+    const dp = flat(add(this.g.plane, detailMat, W / 2, 0.012, W / 2, W, W, 1));
+    dp.receiveShadow = false;
+    dp.renderOrder = 1;
 
     // Häuser
     const floorTex = canvasTexture(128, 128, (c) => {
@@ -1677,12 +1697,11 @@ export class Renderer {
     v.lean.rotation.z = lerp(v.lean.rotation.z, -f.vx * lk, 0.12);
 
     // niedergeschlagen: auf den Bauch fallen und langsam kriechen
-    rig.body.rotation.z = lerp(rig.body.rotation.z, f.downed ? -Math.PI / 2 * 0.92 : 0, 1 - Math.exp(-dt * 8));
+    rig.body.rotation.z = lerp(rig.body.rotation.z, 0, 1 - Math.exp(-dt * 8));
     if (f.downed) {
       const crawl = Math.min(1, speed / 40);
       v.walkT += dt * (2 + crawl * 5);
       poseCrawl(rig, v.walkT, crawl);
-      rig.body.position.y = 0.22 + Math.abs(Math.sin(v.walkT)) * 0.04 * crawl;
       v.lean.rotation.set(0, 0, 0);
       const pulse = 0.25 + Math.sin(this.time * 6) * 0.15;
       rig.shirtMat.emissive.setRGB(pulse, 0, 0);

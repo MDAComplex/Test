@@ -588,7 +588,8 @@ export class Game {
     const cur = Math.hypot(f.vx, f.vy), want = Math.hypot(dx, dy);
     if (active && cur > 30 && want > 0) {
       const dot = (f.vx * dx + f.vy * dy) / (cur * want);
-      speed *= 1 - 0.1 * (1 - dot) / 2;
+      // nur ein kleiner Tempoverlust bei Kehrtwenden (max. 5 %)
+      speed *= 1 - 0.05 * (1 - dot) / 2;
     }
     const tx = dx * speed, ty = dy * speed;
     const rate = f.phase === 'fall' ? 2.5 : active ? 8 : 11;
@@ -1317,9 +1318,16 @@ export class Game {
         break;
       }
       if (hi >= 0) {
-        // auch der Notfall-Platz bleibt im Haus
+        // auch der Notfall-Platz bleibt im Haus und nie in der Kiste
         const h = this.houses[hi], m = h.s / 2 - 48;
-        p = { x: clamp(p.x, h.x - m, h.x + m), y: clamp(p.y, h.y - m, h.y + m) };
+        const fit = (q: { x: number; y: number }) => ({ x: clamp(q.x, h.x - m, h.x + m), y: clamp(q.y, h.y - m, h.y + m) });
+        p = fit(p);
+        if (insideChest(p.x, p.y)) {
+          const ox = o.w / 2 + 50, oy = o.h / 2 + 50;
+          const cands = [{ x: o.x, y: o.y + oy }, { x: o.x, y: o.y - oy }, { x: o.x + ox, y: o.y }, { x: o.x - ox, y: o.y }, { x: o.x + ox, y: o.y + oy }, { x: o.x - ox, y: o.y + oy }]
+            .map(fit).filter((q) => !insideChest(q.x, q.y));
+          if (cands.length) p = cands[i % cands.length];
+        }
       }
       taken.push(p);
       this.spawnLoot(p.x, p.y, k, true, { x: o.x, y: o.y });

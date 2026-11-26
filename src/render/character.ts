@@ -103,7 +103,8 @@ export function buildCharacter(opts: {
 
   // Kopf: dreht sich vor dem Körper in die neue Richtung
   const head = new THREE.Group();
-  head.position.y = 0.92;
+  head.position.y = 0.95;
+  head.scale.setScalar(1.1);
   torso.add(head);
   mk(head, G.sphere, skin, 0, 0, 0, 0.34, 0.36, 0.33);
   mk(head, G.sphere, skin, 0, -0.02, 0.33, 0.06, 0.08, 0.04);
@@ -130,11 +131,11 @@ export function buildCharacter(opts: {
   const arms = [shoulderW, -shoulderW].map((z) => {
     const shoulder = new THREE.Group();
     shoulder.position.set(0, 0.52, z);
-    mk(shoulder, G.capsule, shirtMat, 0, -0.14, 0, 0.09, 0.1, 0.09);
+    mk(shoulder, G.capsule, shirtMat, 0, -0.17, 0, 0.09, 0.12, 0.09);
     const elbow = new THREE.Group();
-    elbow.position.y = -0.31;
-    mk(elbow, G.capsule, skin, 0, -0.13, 0, 0.075, 0.1, 0.075);
-    mk(elbow, G.sphere, skin, 0, -0.29, 0, 0.085, 0.09, 0.08);
+    elbow.position.y = -UPPER;
+    mk(elbow, G.capsule, skin, 0, -0.15, 0, 0.075, 0.11, 0.075);
+    mk(elbow, G.sphere, skin, 0, -LOWER, 0, 0.09, 0.095, 0.085);
     shoulder.add(elbow);
     torso.add(shoulder);
     return { shoulder, elbow };
@@ -150,12 +151,12 @@ export function buildCharacter(opts: {
 interface ArmPose { r: [number, number, number]; l: [number, number, number]; gun: [number, number, number]; gunRot: [number, number] }
 // Schulter rotation.z, rotation.x, Ellbogen rotation.z; Waffenposition; Waffenrotation [y, z]
 const POSES: Record<string, ArmPose> = {
-  aim2: { r: [1.2, 0.3, 0.35], l: [1.12, -0.85, 0.55], gun: [0.34, 1.36, 0.06], gunRot: [0, 0] },
-  carry2: { r: [0.35, 0.12, 1.05], l: [0.75, -0.55, 1.1], gun: [0.26, 1.2, 0.06], gunRot: [0.8, 0.35] },
-  aim1: { r: [1.5, 0.12, 0.05], l: [0, 0, 0.25], gun: [0.68, 1.5, 0.3], gunRot: [0, 0] },
-  carry1: { r: [0.12, 0, 0.45], l: [0, 0, 0.3], gun: [0.22, 1.0, 0.42], gunRot: [0, -1.1] },
+  aim2: { r: [1.2, 0.3, 0.35], l: [1.12, -0.85, 0.55], gun: [0.2, 1.43, 0.1], gunRot: [0, 0] },
+  carry2: { r: [0.35, 0.12, 1.05], l: [0.75, -0.55, 1.1], gun: [0.28, 1.12, 0.12], gunRot: [0.55, -0.45] },
+  aim1: { r: [1.5, 0.12, 0.05], l: [0, 0, 0.25], gun: [0.5, 1.44, 0.04], gunRot: [0, 0] },
+  carry1: { r: [0.12, 0, 0.45], l: [0, 0, 0.3], gun: [0.2, 0.95, 0.42], gunRot: [0, -1.2] },
   // Raketenwerfer auf der Schulter
-  aimRocket: { r: [1.0, 0.45, 1.6], l: [1.05, -0.8, 0.9], gun: [0.05, 1.68, 0.24], gunRot: [0, 0] },
+  aimRocket: { r: [1.0, 0.45, 1.6], l: [1.05, -0.8, 0.9], gun: [-0.05, 1.7, 0.2], gunRot: [0, 0] },
   carryRocket: { r: [0.9, 0.45, 1.8], l: [0.5, -0.3, 0.8], gun: [-0.05, 1.66, 0.26], gunRot: [0, 0.18] },
   // Minigun an der Hüfte, beide Hände unten
   aimMinigun: { r: [0.6, 0.25, 0.7], l: [0.75, -0.6, 0.95], gun: [0.28, 1.02, 0.08], gunRot: [0, 0] },
@@ -183,6 +184,54 @@ export interface AnimState {
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
+/** Armlängen: Schulter→Ellbogen und Ellbogen→Hand */
+const UPPER = 0.36, LOWER = 0.33;
+/** Griffpunkte in Waffen-Koordinaten (rechte Hand am Griff, linke vorne) */
+const GRIPS: Record<string, { r: [number, number, number]; l: [number, number, number] | null }> = {
+  pistol: { r: [0.02, -0.12, 0], l: [0.0, -0.14, -0.06] },
+  smg: { r: [0.02, -0.12, 0], l: [0.3, -0.12, 0] },
+  shotgun: { r: [0.02, -0.12, 0], l: [0.55, -0.06, 0] },
+  rifle: { r: [0.0, -0.12, 0], l: [0.42, -0.06, 0] },
+  sniper: { r: [-0.02, -0.12, 0], l: [0.42, -0.04, 0] },
+  minigun: { r: [-0.12, 0.17, 0.05], l: [0.12, 0.17, -0.05] },
+  rocket: { r: [0.06, -0.14, 0], l: [0.5, -0.06, 0] },
+};
+const _v = new THREE.Vector3(), _t = new THREE.Vector3(), _e = new THREE.Vector3(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4();
+const DOWN = new THREE.Vector3(0, -1, 0);
+
+/** Zwei-Knochen-IK: Hand an einen Punkt (in Torso-Koordinaten) setzen, Ellbogen zeigt nach außen-unten */
+function reach(arm: { shoulder: THREE.Group; elbow: THREE.Group }, target: THREE.Vector3, side: number) {
+  const sp = arm.shoulder.position;
+  _v.subVectors(target, sp);
+  let d = _v.length();
+  d = Math.min(Math.max(d, 0.12), UPPER + LOWER - 0.002);
+  const dir = _v.normalize();
+  const cosA = (UPPER * UPPER + d * d - LOWER * LOWER) / (2 * UPPER * d);
+  const a = Math.acos(Math.min(1, Math.max(-1, cosA)));
+  // Ellbogen-Richtung: nach unten und zur Körperseite
+  const pole = _e.set(-0.2, -1, side * 0.9).normalize();
+  const perp = pole.sub(dir.clone().multiplyScalar(pole.dot(dir))).normalize();
+  const elbowPos = sp.clone().add(dir.clone().multiplyScalar(UPPER * Math.cos(a))).add(perp.multiplyScalar(UPPER * Math.sin(a)));
+  // Oberarm ausrichten
+  _t.subVectors(elbowPos, sp).normalize();
+  arm.shoulder.quaternion.setFromUnitVectors(DOWN, _t);
+  // Unterarm (im Schulter-System) zur Hand ausrichten
+  const handPos = sp.clone().add(dir.multiplyScalar(d));
+  _t.subVectors(handPos, elbowPos).normalize().applyQuaternion(_q.copy(arm.shoulder.quaternion).invert());
+  arm.elbow.quaternion.setFromUnitVectors(DOWN, _t);
+}
+
+/** Griffpunkt der Waffe in Torso-Koordinaten */
+function gripInTorso(rig: Rig, local: [number, number, number], out: THREE.Vector3) {
+  out.set(local[0], local[1], local[2]);
+  rig.gunKick.updateMatrix();
+  rig.gunPivot.updateMatrix();
+  rig.torso.updateMatrix();
+  out.applyMatrix4(rig.gunKick.matrix).applyMatrix4(rig.gunPivot.matrix);
+  out.applyMatrix4(_m.copy(rig.torso.matrix).invert());
+  return out;
+}
+
 /** Gehen mit Knie- und Ellbogenbeugung, Hüftwippen und Gegendrehung des Oberkörpers */
 export function animateRig(rig: Rig, s: AnimState) {
   const { phase, amp } = s;
@@ -194,13 +243,14 @@ export function animateRig(rig: Rig, s: AnimState) {
     rig.legs.forEach((l) => (l.knee.rotation.z = -0.35));
     rig.arms[0].shoulder.rotation.set(0.35, 0, 2.6);
     rig.arms[1].shoulder.rotation.set(-0.35, 0, 2.6);
-    rig.arms.forEach((a) => (a.elbow.rotation.z = 0.3));
-    rig.torso.rotation.y = 0;
+    rig.arms.forEach((a) => a.elbow.rotation.set(0, 0, 0.3));
+    rig.torso.rotation.set(0, 0, 0);
     rig.body.position.y = 0;
     rig.gunPivot.visible = false;
     return;
   }
   rig.gunPivot.visible = true;
+  rig.arms.forEach((a) => { a.elbow.rotation.x = 0; a.elbow.rotation.y = 0; a.shoulder.rotation.y = 0; });
   for (let i = 0; i < 2; i++) {
     const p = phase + (i === 0 ? 0 : Math.PI);
     const leg = rig.legs[i];
@@ -209,8 +259,10 @@ export function animateRig(rig: Rig, s: AnimState) {
     leg.knee.rotation.z = -(Math.max(0, Math.cos(p)) * 0.95 + 0.08) * amp;
   }
   rig.body.position.y = Math.abs(Math.sin(phase)) * 0.06 * amp - 0.02 * amp;
-  rig.torso.rotation.y = Math.sin(phase) * 0.12 * amp;
-  rig.torso.rotation.z = -0.06 * amp; // leicht nach vorne geneigt
+  // beim Zielen mit zweihändigen Waffen: Oberkörper seitlich (linke Schulter nach vorne)
+  const blade = (s.twoHanded && s.weapon !== 'minigun' ? -0.45 : 0) * s.aim;
+  rig.torso.rotation.set(0, Math.sin(phase) * 0.12 * amp + blade, -0.06 * amp);
+  rig.head.rotation.y -= blade;
   // Atmen im Stand
   rig.torso.position.y = 1.0 + (1 - amp) * Math.sin(s.time * 2.2) * 0.012;
 
@@ -258,29 +310,37 @@ export function animateRig(rig: Rig, s: AnimState) {
   } else {
     rig.gunPivot.rotation.x = 0;
   }
+  // Hände an die Waffe setzen (rechts immer am Griff, links vorne bzw. beim Pistolenanschlag)
+  const g = s.weapon ? GRIPS[s.weapon] : undefined;
+  if (g) {
+    reach(rig.arms[0], gripInTorso(rig, g.r, new THREE.Vector3()), 1);
+    const leftOn = g.l && (two || k > 0.5) && s.reload < 0.5;
+    if (leftOn) reach(rig.arms[1], gripInTorso(rig, g.l!, new THREE.Vector3()), -1);
+    else if (s.reload >= 0.5) reach(rig.arms[1], gripInTorso(rig, [0.18, -0.32, 0], new THREE.Vector3()), -1);
+  }
 }
 
-/** niedergeschlagen: auf dem Bauch robben (Kopf in Bewegungsrichtung) */
+/** niedergeschlagen: auf Händen und Knien krabbeln (diagonaler Gang) */
 export function poseCrawl(rig: Rig, t: number, moving: number) {
   rig.gunPivot.visible = false;
-  const c = Math.sin(t);
-  const ease = (x: number) => x * x * (3 - 2 * x);
-  // ein Arm greift weit nach vorne, der andere zieht unter dem Körper nach hinten
-  const reachR = ease(Math.max(0, c)), reachL = ease(Math.max(0, -c));
-  const m = moving, idle = 1 - moving;
-  rig.arms[0].shoulder.rotation.set(0.35, 0, lerp(2.2, 3.0, reachR * m + idle * 0.5));
-  rig.arms[1].shoulder.rotation.set(-0.35, 0, lerp(2.2, 3.0, reachL * m + idle * 0.5));
-  rig.arms[0].elbow.rotation.z = lerp(1.5, 0.6, reachR * m + idle * 0.3);
-  rig.arms[1].elbow.rotation.z = lerp(1.5, 0.6, reachL * m + idle * 0.3);
-  // Beine: das Bein auf der Seite des greifenden Arms zieht seitlich an (Froschbein)
-  rig.legs[0].hip.rotation.set(-0.35 * reachL * m, 0, -0.1 + 0.35 * reachL * m);
-  rig.legs[1].hip.rotation.set(0.35 * reachR * m, 0, -0.1 + 0.35 * reachR * m);
-  rig.legs[0].knee.rotation.z = -0.2 - 1.1 * reachL * m;
-  rig.legs[1].knee.rotation.z = -0.2 - 1.1 * reachR * m;
-  // Oberkörper rollt leicht zur ziehenden Seite, Kopf schaut nach vorne
-  rig.torso.rotation.set(c * 0.18 * m, 0, 0);
-  rig.head.rotation.z = 0.95;
-  rig.head.rotation.x = -c * 0.1 * m;
+  const m = moving;
+  const c = Math.sin(t), c2 = Math.sin(t + Math.PI);
+  // Becken tief, Oberschenkel senkrecht, Unterschenkel liegen nach hinten auf dem Boden
+  rig.body.position.y = -0.42 + Math.abs(Math.sin(t)) * 0.03 * m;
+  rig.legs[0].hip.rotation.set(0, 0, 0.12 + c * 0.28 * m);
+  rig.legs[1].hip.rotation.set(0, 0, 0.12 + c2 * 0.28 * m);
+  rig.legs[0].knee.rotation.z = -1.5 - c * 0.15 * m;
+  rig.legs[1].knee.rotation.z = -1.5 - c2 * 0.15 * m;
+  // Oberkörper waagerecht nach vorne, leicht nach oben
+  rig.torso.rotation.set(Math.sin(t * 2) * 0.04 * m, 0, -1.25);
+  // Arme stützen sich senkrecht ab, diagonal zu den Beinen versetzt
+  rig.arms[0].shoulder.rotation.set(0, 0, 1.25 + c2 * 0.3 * m);
+  rig.arms[1].shoulder.rotation.set(0, 0, 1.25 + c * 0.3 * m);
+  rig.arms[0].elbow.rotation.set(0, 0, 0.15 + Math.max(0, c2) * 0.35 * m);
+  rig.arms[1].elbow.rotation.set(0, 0, 0.15 + Math.max(0, c) * 0.35 * m);
+  // Kopf hebt sich und schaut nach vorne
+  rig.head.rotation.z = 1.0;
+  rig.head.rotation.x = 0;
 }
 
 /** liegende Pose (tot) */
@@ -288,6 +348,8 @@ export function poseLying(rig: Rig, t: number, crawl: boolean) {
   rig.head.rotation.z = 0;
   rig.head.rotation.x = 0;
   rig.legs.forEach((l) => l.hip.rotation.set(0, 0, 0));
+  rig.arms.forEach((a) => a.elbow.rotation.set(0, 0, 0));
+  rig.body.position.y = 0;
   rig.gunPivot.visible = false;
   const c = crawl ? Math.sin(t) : 0;
   rig.legs[0].hip.rotation.z = 0.2 + c * 0.4;
