@@ -46,10 +46,11 @@ export type GameEvent =
   | { type: 'airdrop'; d: Airdrop }
   | { type: 'airdropLand'; d: Airdrop }
   | { type: 'explode'; x: number; y: number; r: number }
-  | { type: 'damage'; f: Fighter; amount: number; byPlayer: boolean; toPlayer: boolean }
+  | { type: 'damage'; f: Fighter; amount: number; byPlayer: boolean; toPlayer: boolean; shield: boolean }
   | { type: 'heal'; f: Fighter }
   | { type: 'weapon'; f: Fighter }
   | { type: 'toast'; text: string; color: string }
+  | { type: 'pickup'; f: Fighter }
   | { type: 'jump'; f: Fighter }
   | { type: 'land'; f: Fighter }
   | { type: 'gameover'; result: GameResult };
@@ -178,7 +179,7 @@ export class Game {
   private nextAirdrop = 0;
   over = false;
   result: GameResult | null = null;
-  input = { mx: 0, my: 0, aim: null as number | null, firing: false, assist: false, autoWeapon: false, jump: false, heal: false, reload: false, pickup: false };
+  input = { mx: 0, my: 0, aim: null as number | null, firing: false, autoWeapon: false, jump: false, heal: false, reload: false, pickup: false };
   nearbyWeapon: Loot | null = null;
   /** Was der Spieler gerade aufhebt (Ring-Fortschritt) */
   pick: { loot: Loot; t: number; total: number } | null = null;
@@ -469,8 +470,14 @@ export class Game {
 
   /** Weiches Beschleunigen/Abbremsen statt sofortiger Richtungswechsel */
   private drive(f: Fighter, dx: number, dy: number, speed: number, dt: number) {
-    const tx = dx * speed, ty = dy * speed;
     const active = dx !== 0 || dy !== 0;
+    // scharfer Richtungswechsel kostet bis zu 10 % Tempo
+    const cur = Math.hypot(f.vx, f.vy), want = Math.hypot(dx, dy);
+    if (active && cur > 30 && want > 0) {
+      const dot = (f.vx * dx + f.vy * dy) / (cur * want);
+      speed *= 1 - 0.1 * (1 - dot) / 2;
+    }
+    const tx = dx * speed, ty = dy * speed;
     const rate = f.phase === 'fall' ? 2.5 : active ? 8 : 11;
     const k = 1 - Math.exp(-dt * rate);
     f.vx += (tx - f.vx) * k;
@@ -490,18 +497,7 @@ export class Game {
   private playerAim(f: Fighter, now: number) {
     const a = this.input.aim;
     if (a !== null) {
-      let ang = a;
-      if (this.input.assist) {
-        let best: Fighter | null = null, bestDiff = 0.22;
-        for (const o of this.fighters) {
-          if (o === f || !o.alive || o.phase !== 'ground' || o.hidden) continue;
-          const d = Math.hypot(o.x - f.x, o.y - f.y);
-          if (d > f.weapon.range) continue;
-          const diff = Math.abs(wrap(Math.atan2(o.y - f.y, o.x - f.x) - a));
-          if (diff < bestDiff && this.hasLOS(f.x, f.y, o.x, o.y)) { best = o; bestDiff = diff; }
-        }
-        if (best) ang = a + wrap(Math.atan2(best.y - f.y, best.x - f.x) - a) * 0.75;
-      }
+      const ang = a;
       f.aim = rotateTo(f.aim, ang, 0.5);
     } else if (f.moveX || f.moveY) {
       f.aim = rotateTo(f.aim, Math.atan2(f.moveY, f.moveX), 0.18);
@@ -706,7 +702,8 @@ export class Game {
   damage(f: Fighter, amount: number, attacker: Fighter | null, ignoreArmor: boolean, weapon: string) {
     if (!f.alive) return;
     let dmg = amount;
-    if (!ignoreArmor && f.armor > 0) {
+    const shield = !ignoreArmor && f.armor > 0;
+    if (shield) {
       const a = Math.min(f.armor, dmg * 0.6);
       f.armor -= a;
       dmg -= a;
@@ -716,7 +713,7 @@ export class Game {
       f.lastAttacker = attacker;
       f.lastHitAt = this.time;
     }
-    this.events.push({ type: 'damage', f, amount: Math.round(f === this.player ? dmg : amount), byPlayer: attacker === this.player, toPlayer: f === this.player });
+    this.events.push({ type: 'damage', f, amount: Math.round(f === this.player ? dmg : amount), byPlayer: attacker === this.player, toPlayer: f === this.player, shield });
     if (f.hp <= 0) this.kill(f, attacker, weapon);
   }
 
@@ -995,7 +992,7 @@ export class Game {
     }
     l.taken = true;
     this.events.push({ type: 'take', loot: l });
-    if (f.isPlayer && k !== 'medkit' && k !== 'bigmed') this.events.push({ type: 'toast', text: `+ ${lootLabel(k)}`, color: '#ffffff' });
+    if (f.isPlayer) this.events.push({ type: 'pickup', f });
     return true;
   }
 

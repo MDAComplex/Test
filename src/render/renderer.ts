@@ -32,12 +32,12 @@ const C = {
 
 /** Aussehen der Geschosse je Waffe */
 const SHOT: Record<WeaponId, { color: number; len: number; thick: number; flash: number; shake: number }> = {
-  pistol: { color: 0xffe27a, len: 0.6, thick: 0.1, flash: 0.9, shake: 0.06 },
-  smg: { color: 0xffa040, len: 0.55, thick: 0.09, flash: 0.75, shake: 0.05 },
-  shotgun: { color: 0xff7a3a, len: 0.32, thick: 0.1, flash: 1.6, shake: 0.28 },
-  rifle: { color: 0x9ff4ff, len: 1.25, thick: 0.12, flash: 1.1, shake: 0.09 },
-  sniper: { color: 0xf3b0ff, len: 2.6, thick: 0.16, flash: 1.9, shake: 0.4 },
-  minigun: { color: 0xffd36a, len: 0.9, thick: 0.1, flash: 0.9, shake: 0.06 },
+  pistol: { color: 0xffe27a, len: 0.63, thick: 0.11, flash: 0.9, shake: 0.06 },
+  smg: { color: 0xffa040, len: 0.58, thick: 0.1, flash: 0.75, shake: 0.05 },
+  shotgun: { color: 0xff7a3a, len: 0.34, thick: 0.11, flash: 1.6, shake: 0.28 },
+  rifle: { color: 0x9ff4ff, len: 1.31, thick: 0.13, flash: 1.1, shake: 0.09 },
+  sniper: { color: 0xf3b0ff, len: 2.73, thick: 0.175, flash: 1.9, shake: 0.4 },
+  minigun: { color: 0xffd36a, len: 0.95, thick: 0.11, flash: 0.9, shake: 0.06 },
   rocket: { color: 0xffffff, len: 0.1, thick: 0.1, flash: 1.6, shake: 0.2 },
 };
 
@@ -69,6 +69,8 @@ interface FighterView {
   recoil: number;
   dustT: number;
   spin: THREE.Object3D | null;
+  head: THREE.Group;
+  yaw: number;
 }
 interface Particle { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; life: number; max: number }
 interface Puff { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number; max: number; size: number; grow: number }
@@ -590,10 +592,14 @@ export class Renderer {
       return leg;
     });
     const torso = mk(body, this.g.torso, bodyMat, 0, 1.18, 0);
-    mk(body, this.g.head, this.m.skin, 0, 1.92, 0);
-    mk(body, this.g.cap, capMat, -0.02, 1.99, 0);
-    mk(body, this.g.eye, this.m.black, 0.39, 1.96, 0.15);
-    mk(body, this.g.eye, this.m.black, 0.39, 1.96, -0.15);
+    // Kopf als eigene Gruppe: dreht sich vor dem Körper in die neue Richtung
+    const head = new THREE.Group();
+    head.position.y = 1.92;
+    mk(head, this.g.head, this.m.skin, 0, 0, 0);
+    mk(head, this.g.cap, capMat, -0.02, 0.07, 0);
+    mk(head, this.g.eye, this.m.black, 0.39, 0.04, 0.15);
+    mk(head, this.g.eye, this.m.black, 0.39, 0.04, -0.15);
+    body.add(head);
     const pack = mk(body, this.g.box, this.m.pack, -0.42, 1.22, 0);
     pack.scale.set(0.26, 0.5, 0.56);
     // Arme (Drehpunkt an der Schulter); [0] = rechts (+Z), [1] = links
@@ -618,7 +624,7 @@ export class Renderer {
     this.world!.add(root);
     const v: FighterView = {
       root, lean, body, torso, bodyMat, legs, arms, gunPivot, gunKick, chute,
-      flash: 0, weaponId: f.weapon.id, walkT: Math.random() * 6, deadT: 0, aimBlend: 0, recoil: 0, dustT: 0, spin: null,
+      flash: 0, weaponId: f.weapon.id, walkT: Math.random() * 6, deadT: 0, aimBlend: 0, recoil: 0, dustT: 0, spin: null, head, yaw: f.aim,
     };
     v.spin = gunKick.getObjectByName('spin') ?? null;
     this.fighterViews.set(f, v);
@@ -1157,6 +1163,7 @@ export class Renderer {
         case 'damage': {
           const v = this.fighterViews.get(e.f);
           if (v) v.flash = 1;
+          if (e.shield && e.byPlayer) this.burst(e.f.x, e.f.y, 1.2, 0x5fb4ff, 5, 4);
           if (e.toPlayer) this.shake = Math.max(this.shake, 0.15);
           break;
         }
@@ -1311,7 +1318,18 @@ export class Renderer {
     const inOtherHouse = !f.isPlayer && house !== -1 && house !== playerHouse;
     v.root.visible = f.phase !== 'plane' && !f.hidden && !inOtherHouse;
     v.root.position.set(f.x * S, f.z * S, f.y * S);
-    v.body.rotation.y = -f.aim;
+    // Körper dreht weich hinterher (begrenzte Drehgeschwindigkeit), Kopf schaut voraus
+    {
+      let d = f.aim - v.yaw;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      const maxTurn = (f.aiming ? 9 : 6.5) * dt;
+      const step = Math.sign(d) * Math.min(Math.abs(d), Math.max(maxTurn * 0.35, Math.abs(d) * (1 - Math.exp(-dt * 10))), maxTurn);
+      v.yaw += step;
+      d -= step;
+      v.body.rotation.y = -v.yaw;
+      v.head.rotation.y = -Math.max(-0.75, Math.min(0.75, d));
+    }
     v.chute.visible = f.phase === 'fall';
     if (!v.root.visible) return;
 

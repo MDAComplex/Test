@@ -1,13 +1,12 @@
 export interface Settings {
   /** false: links laufen, rechts zielen. true: umgekehrt */
   swap: boolean;
-  assist: boolean;
   quality: 'high' | 'low';
   sound: boolean;
 }
 
 const KEY = 'zonerush.settings.v1';
-const defaults = (): Settings => ({ swap: false, assist: true, quality: 'high', sound: true });
+const defaults = (): Settings => ({ swap: false, quality: 'high', sound: true });
 
 export function loadSettings(): Settings {
   try {

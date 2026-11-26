@@ -30,7 +30,7 @@ export class Hud {
   private e: Record<string, HTMLElement> = {};
   private mini: HTMLCanvasElement;
   private miniBase: HTMLCanvasElement | null = null;
-  private labels = new Map<Fighter, { el: HTMLElement; hp: HTMLElement; ar: HTMLElement }>();
+  private labels = new Map<Fighter, { el: HTMLElement }>();
   private ring: HTMLElement;
   private ringArc: SVGCircleElement;
   private move: Stick;
@@ -100,7 +100,6 @@ export class Hud {
           <h2>Einstellungen</h2>
           <div class="row"><span>Steuerung am Handy</span><div class="seg" data-key="swap">
             <button data-v="false">Links laufen · Rechts zielen</button><button data-v="true">Links zielen · Rechts laufen</button></div></div>
-          <div class="row"><span>Zielhilfe am Handy</span><div class="seg" data-key="assist"><button data-v="true">An</button><button data-v="false">Aus</button></div></div>
           <div class="row"><span>Grafik</span><div class="seg" data-key="quality"><button data-v="high">Hoch</button><button data-v="low">Niedrig (flüssiger)</button></div></div>
           <div class="row"><span>Ton</span><div class="seg" data-key="sound"><button data-v="true">An</button><button data-v="false">Aus</button></div></div>
           <div class="actions">
@@ -279,11 +278,10 @@ export class Hud {
     this.buildMiniBase(game);
     for (const f of game.fighters) {
       if (f.isPlayer) continue;
-      const el = $(`<div class="lbl"><div class="n"></div><div class="b a"><i></i></div><div class="b"><i></i></div></div>`);
+      const el = $(`<div class="lbl"><div class="n"></div></div>`);
       el.querySelector('.n')!.textContent = f.name;
-      const [ar, hp] = Array.from(el.querySelectorAll('.b i')) as HTMLElement[];
       this.labelsLayer.append(el);
-      this.labels.set(f, { el, hp, ar });
+      this.labels.set(f, { el });
     }
   }
 
@@ -311,14 +309,12 @@ export class Hud {
 
     game.input.aim = null;
     game.input.firing = false;
-    game.input.assist = false;
     const p = game.player;
     if (this.aim.active) {
       const len = Math.hypot(this.aim.x, this.aim.y);
       if (len > 0.15) {
         game.input.aim = Math.atan2(this.aim.y, this.aim.x);
         game.input.firing = len > 0.45;
-        game.input.assist = this.settings.assist;
       }
     } else if (this.mouse.on && p.alive) {
       const w = r.groundPoint(this.mouse.x, this.mouse.y);
@@ -348,7 +344,8 @@ export class Hud {
         case 'hit':
           if (ev.byPlayer && ev.big) this.sfx.hit();
           break;
-        case 'take':
+        case 'pickup':
+          this.sfx.pickup();
           break;
         case 'crate':
           if (dist(ev.o.x, ev.o.y) < 300) this.sfx.crate();
@@ -370,7 +367,6 @@ export class Hud {
         }
         case 'toast':
           this.toast(ev.text, ev.color);
-          if (ev.text.startsWith('+')) this.sfx.pickup();
           break;
         case 'damage':
           if (ev.toPlayer && ev.amount > 3) this.sfx.hurt();
@@ -380,14 +376,12 @@ export class Hud {
             const el = document.createElement('div');
             el.className = 'dmg';
             el.textContent = ev.toPlayer ? `-${ev.amount}` : String(ev.amount);
-            el.style.color = ev.toPlayer ? '#ff5a5a' : ev.amount >= 40 ? '#ffd23f' : '#ffffff';
+            // Treffer auf Schild = blau, auf Leben = weiß
+            el.style.color = ev.toPlayer ? '#ff5a5a' : ev.shield ? '#5fb4ff' : '#ffffff';
             el.style.transform = `translate(${s.x + (Math.random() - 0.5) * 20}px, ${s.y}px)`;
             this.labelsLayer.append(el);
             setTimeout(() => el.remove(), 750);
           }
-          break;
-        case 'heal':
-          if (ev.f === p) this.toast(`+${ev.f.healAmt} Leben`, '#5dff7a');
           break;
         case 'gameover':
           setTimeout(() => this.showOver(ev.result), ev.result.win ? 700 : 1400);
@@ -470,11 +464,7 @@ export class Hud {
         continue;
       }
       l.el.style.display = '';
-      l.el.style.transform = `translate(${s.x}px, ${s.y - 34}px)`;
-      l.hp.style.width = `${Math.max(0, f.hp)}%`;
-      l.hp.style.background = f.hp > 50 ? '' : f.hp > 25 ? '#ffcc00' : '#ff3b30';
-      l.ar.parentElement!.style.visibility = f.armor > 0 ? 'visible' : 'hidden';
-      l.ar.style.width = `${f.armor}%`;
+      l.el.style.transform = `translate(${s.x}px, ${s.y - 18}px)`;
     }
 
     const now = performance.now();
