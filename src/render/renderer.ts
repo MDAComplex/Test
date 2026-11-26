@@ -199,7 +199,24 @@ export class Renderer {
     particle: new THREE.BoxGeometry(0.16, 0.16, 0.16),
     bullet: new THREE.BoxGeometry(1, 1, 1),
     flash: new THREE.SphereGeometry(1, 10, 8),
-    blade: new THREE.ConeGeometry(0.09, 1, 4).translate(0, 0.5, 0),
+    // breites Grasblatt (Basis bei y = 0, Spitze oben), leicht nach vorne gewölbt
+    blade: (() => {
+      const sh = new THREE.Shape();
+      sh.moveTo(-0.05, 0);
+      sh.quadraticCurveTo(-0.34, 0.45, -0.02, 1.0);
+      sh.lineTo(0.02, 1.0);
+      sh.quadraticCurveTo(0.34, 0.45, 0.05, 0);
+      sh.closePath();
+      const g = new THREE.ShapeGeometry(sh, 6);
+      const pos = g.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i), x = pos.getX(i);
+        // Mittelrippe nach vorne, Ränder zurück: wirkt räumlicher
+        pos.setZ(i, 0.12 * y * y - Math.abs(x) * 0.25);
+      }
+      g.computeVertexNormals();
+      return g;
+    })(),
     shield: (() => {
       const sh = new THREE.Shape();
       sh.moveTo(-0.5, 0.5);
@@ -310,7 +327,7 @@ export class Renderer {
       sparkle: new THREE.MeshBasicMaterial({ color: 0xffe27a }),
       windowGlass: toon(0x8fc9f0),
       bridgeRail: toon(0x7a5230),
-      grassBlade: toon(0x6cbf4a),
+      grassBlade: toon(0xffffff, { side: THREE.DoubleSide }),
       caseBody: toon(0x24272e),
       caseEdge: toon(0x4a505c),
       caseLatch: toon(0xb8bec8),
@@ -1176,22 +1193,43 @@ export class Renderer {
       }
       world.add(grp);
     }
-    // hohe Grasfelder: viele Halme als InstancedMesh, wiegen sich im Wind
+    // dichte Wiesen: Büschel aus breiten, überlappenden Blättern (InstancedMesh, wiegen sich im Wind)
+    const greens = [0x62b84c, 0x55a842, 0x6fc458, 0x4b9a3c, 0x5daf47];
     for (const gf of game.map.grass) {
       const R = gf.r * S;
-      const n = Math.min(900, Math.floor((Math.PI * R * R) / 0.32));
+      // Büschel in einem lockeren Raster mit Zufallsversatz -> dicht, aber ohne Lücken
+      const clumps: { x: number; z: number; e: number }[] = [];
+      const step = 0.95;
+      for (let x = -R; x <= R; x += step) {
+        for (let z = -R; z <= R; z += step) {
+          const px = x + (Math.random() - 0.5) * step * 0.9, pz = z + (Math.random() - 0.5) * step * 0.9;
+          const d = Math.hypot(px, pz) / R;
+          if (d > 1 || (d > 0.85 && Math.random() < (d - 0.85) * 5)) continue;
+          clumps.push({ x: px, z: pz, e: d });
+        }
+      }
+      const perClump = 6;
+      const n = clumps.length * perClump;
       const inst = new THREE.InstancedMesh(this.g.blade, this.m.grassBlade, n);
       const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3();
       const col = new THREE.Color();
-      for (let i = 0; i < n; i++) {
-        const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * R;
-        ps.set(gf.x * S + Math.cos(a) * rr, 0, gf.y * S + Math.sin(a) * rr);
-        q.setFromEuler(new THREE.Euler((Math.random() - 0.5) * 0.3, Math.random() * 6, (Math.random() - 0.5) * 0.3));
-        const h = 1.2 + Math.random() * 0.7 * (1 - (rr / R) * 0.5);
-        sc.set(1, h, 1);
-        m4.compose(ps, q, sc);
-        inst.setMatrixAt(i, m4);
-        inst.setColorAt(i, col.setHex(Math.random() < 0.5 ? 0x6cbf4a : 0x58a83e));
+      let i = 0;
+      for (const c of clumps) {
+        const base = Math.random() * Math.PI * 2;
+        const tint = greens[Math.floor(Math.random() * greens.length)];
+        for (let k = 0; k < perClump; k++) {
+          const yaw = base + (k / perClump) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+          ps.set(gf.x * S + c.x + Math.cos(yaw) * 0.08, 0, gf.y * S + c.z + Math.sin(yaw) * 0.08);
+          // Blätter kippen vom Büschelzentrum nach außen
+          q.setFromEuler(new THREE.Euler(0, -yaw + Math.PI / 2, 0)).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0.55 + Math.random() * 0.35, 0, 0)));
+          const h = (1.15 + Math.random() * 0.45) * (1 - c.e * 0.3);
+          const w = 1.3 + Math.random() * 0.5;
+          sc.set(w, h, w);
+          m4.compose(ps, q, sc);
+          inst.setMatrixAt(i, m4);
+          inst.setColorAt(i, col.setHex(tint).offsetHSL(0, 0, (Math.random() - 0.5) * 0.06));
+          i++;
+        }
       }
       inst.castShadow = false;
       inst.receiveShadow = true;
