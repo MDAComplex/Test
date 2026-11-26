@@ -18,6 +18,10 @@ export interface MapData {
   ponds: Area[];
   fields: Field[];
   town: Area;
+  /** Fluss als Linienzug mit Breite, Brücken mit Mittelpunkt und Richtung des Flusses */
+  river: { pts: { x: number; y: number }[]; width: number; bridges: { x: number; y: number; angle: number }[] };
+  /** hohe Grasfelder: darin ist man unsichtbar */
+  grass: Area[];
 }
 
 export const ROCK_SIZES = [28, 38, 48];
@@ -80,6 +84,39 @@ export function generateMap(seed: number): MapData {
     }
     return null;
   };
+
+  // Fluss: schlängelt sich von einer Kante zur gegenüberliegenden, mit 2–3 Brücken
+  const RIVER_W = 170;
+  const horizontal = r() < 0.5;
+  const pts: { x: number; y: number }[] = [];
+  const base = WORLD * (0.3 + r() * 0.4);
+  const phase = r() * 6;
+  for (let i = 0; i <= 10; i++) {
+    const t = i / 10;
+    const along = -60 + t * (WORLD + 120);
+    const off = base + Math.sin(t * Math.PI * 2 + phase) * 260 + (r() - 0.5) * 120;
+    pts.push(horizontal ? { x: along, y: off } : { x: off, y: along });
+  }
+  // gleichmäßig abtasten
+  const samples: { x: number; y: number; a: number }[] = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y), n = Math.ceil(len / 50);
+    for (let k = 0; k < n; k++) {
+      const t = k / n;
+      samples.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, a: Math.atan2(b.y - a.y, b.x - a.x) });
+    }
+  }
+  const bridgeIdx = [0.28, 0.55, 0.8].filter(() => r() < 0.85).map((t) => Math.floor(t * samples.length));
+  if (bridgeIdx.length < 2) bridgeIdx.splice(0, bridgeIdx.length, Math.floor(samples.length * 0.33), Math.floor(samples.length * 0.7));
+  const bridges = bridgeIdx.map((i) => ({ x: samples[i].x, y: samples[i].y, angle: samples[i].a }));
+  for (const sp of samples) {
+    // Lücke an den Brücken: dort kann man den Fluss überqueren
+    if (bridges.some((b) => Math.hypot(b.x - sp.x, b.y - sp.y) < 75)) continue;
+    obstacles.push({ kind: 'water', x: sp.x, y: sp.y, r: RIVER_W / 2, w: RIVER_W, h: RIVER_W });
+  }
+  for (const sp of samples) blocks.push({ x: sp.x, y: sp.y, r: RIVER_W / 2 + 40 });
+  const river = { pts, width: RIVER_W, bridges };
 
   // Teiche
   for (let i = 0; i < 4; i++) {
@@ -209,6 +246,15 @@ export function generateMap(seed: number): MapData {
     addLoot(p.x + (r() - 0.5) * w * 0.6, p.y + (r() - 0.5) * h * 0.6, randomLootKind(r));
   }
 
+  // hohe Grasfelder (verstecken wie in Büschen)
+  const grass: Area[] = [];
+  for (let i = 0; i < 7; i++) {
+    const rad = 130 + r() * 90;
+    const p = place(rad, 20, 80);
+    if (!p) continue;
+    blocks.push({ x: p.x, y: p.y, r: rad * 0.6 });
+    grass.push({ x: p.x, y: p.y, r: rad });
+  }
   // Wälder
   for (let i = 0; i < 3; i++) {
     const p = place(300, 0, 80) ?? { x: r() * WORLD, y: r() * WORLD };
@@ -249,5 +295,5 @@ export function generateMap(seed: number): MapData {
     const p = place(14, 8);
     if (p) addLoot(p.x, p.y, randomLootKind(r));
   }
-  return { seed, obstacles, loot, houses, forests, ponds, fields, town };
+  return { seed, obstacles, loot, houses, forests, ponds, fields, town, river, grass };
 }

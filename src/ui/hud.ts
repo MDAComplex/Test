@@ -5,6 +5,7 @@ import { loadStats } from '../storage';
 import { Settings, loadSettings, saveSettings } from '../settings';
 import { Sfx } from '../sfx';
 import { WEAPONS, TIER_COLORS, WeaponId } from '../weapons';
+import { Preview } from './preview';
 import { Profile, loadProfile, saveProfile, levelInfo, SKINS, skinColor, taskText, awardRound, RoundReward } from '../profile';
 
 const $ = <T extends HTMLElement>(html: string) => {
@@ -51,6 +52,9 @@ export class Hud {
   private reward: RoundReward | null = null;
   private tut = { step: -1, t: 0 };
   private rotateEl: HTMLElement;
+  private lockerEl: HTMLElement;
+  private preview: Preview | null = null;
+  private previewChute = false;
   private dirsLayer: HTMLElement;
   private stickMax = 55;
   private teamRows: { f: Fighter; row: HTMLElement; bar: HTMLElement }[] = [];
@@ -98,10 +102,9 @@ export class Hud {
           <button data-mode="solo">Solo</button><button data-mode="duo">Duo</button><button data-mode="squad">Squad</button>
         </div>
         <button class="btn pulse play">SPIELEN</button>
-        <button class="btn secondary opensettings">EINSTELLUNGEN</button>
+        <div class="menurow"><button class="btn secondary openlocker">SPIND</button><button class="btn secondary opensettings">EINSTELLUNGEN</button></div>
         <div class="prof">
           <div class="lvl"><span class="lvlnum"></span><div class="xpbar"><i></i></div><small class="xptext"></small></div>
-          <div class="skins" aria-label="Farbe deiner Figur"></div>
           <div class="daily"><b>Tägliche Aufgaben</b><div class="tasks"></div></div>
         </div>
         <div class="stats"></div>
@@ -138,9 +141,24 @@ export class Hud {
         </div>
       </div>`);
     this.ring = $(`<div class="pring hidden"><svg viewBox="0 0 60 60" width="60" height="60"><circle cx="30" cy="30" r="26" class="bg"/><circle cx="30" cy="30" r="26" class="fg"/></svg></div>`);
+    this.lockerEl = $(`
+      <div class="screen hidden" id="locker">
+        <div class="panel lockpanel">
+          <h2>Spind</h2>
+          <div class="lockgrid">
+            <canvas class="pv" width="260" height="300" aria-label="Vorschau deiner Figur"></canvas>
+            <div class="lockopts">
+              <div class="row"><span>Figur</span><div class="seg" data-lock="char"><button data-v="man">Mann</button><button data-v="woman">Frau</button></div></div>
+              <div class="row"><span>Farbe</span><div class="skins" aria-label="Farbe deiner Figur"></div></div>
+              <div class="row"><span>Fallschirm</span><div class="seg" data-lock="chute"><button data-v="round">Rundkappe</button><button data-v="wing">Gleitschirm</button></div></div>
+            </div>
+          </div>
+          <div class="actions"><button class="btn closelocker">FERTIG</button></div>
+        </div>
+      </div>`);
     this.rotateEl = $(`<div class="screen hidden" id="rotate"><div class="rot-icon"></div><div class="subtitle">Bitte dreh dein Handy quer</div></div>`);
     this.dirsLayer = $(`<div class="dirs"></div>`);
-    document.body.append(this.labelsLayer, this.dirsLayer, this.hud, this.menu, this.over, this.settingsEl, this.rotateEl);
+    document.body.append(this.labelsLayer, this.dirsLayer, this.hud, this.menu, this.over, this.settingsEl, this.lockerEl, this.rotateEl);
     this.labelsLayer.append(this.ring);
     this.ringArc = this.ring.querySelector('.fg') as SVGCircleElement;
     this.ringArc.style.strokeDasharray = String(RING_C);
@@ -167,6 +185,19 @@ export class Hud {
     window.addEventListener('pointerdown', firstTouch);
     this.menu.querySelector('.play')!.addEventListener('click', () => { startAudio(); this.cb.play(); });
     this.menu.querySelector('.opensettings')!.addEventListener('click', () => this.openSettings(false));
+    this.menu.querySelector('.openlocker')!.addEventListener('click', () => this.openLocker());
+    this.lockerEl.querySelector('.closelocker')!.addEventListener('click', () => this.closeLocker());
+    this.lockerEl.querySelectorAll<HTMLElement>('[data-lock]').forEach((seg) =>
+      seg.querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
+        b.addEventListener('click', () => {
+          const key = seg.dataset.lock as 'char' | 'chute';
+          (this.profile as unknown as Record<string, string>)[key] = b.dataset.v!;
+          this.previewChute = key === 'chute';
+          saveProfile(this.profile);
+          this.renderProfile();
+        }),
+      ),
+    );
     this.over.querySelector('.again')!.addEventListener('click', () => { startAudio(); this.cb.play(); });
     this.over.querySelector('.tomenu')!.addEventListener('click', () => this.cb.menu());
     this.e.gear.addEventListener('click', () => this.openSettings(true));
@@ -334,6 +365,23 @@ export class Hud {
   }
 
   get playerColor() { return skinColor(this.profile); }
+  get playerLook() { return { char: this.profile.char, chute: this.profile.chute }; }
+
+  private openLocker() {
+    this.menu.classList.add('hidden');
+    this.lockerEl.classList.remove('hidden');
+    if (!this.preview) this.preview = new Preview(this.lockerEl.querySelector('.pv') as HTMLCanvasElement);
+    this.previewChute = false;
+    this.renderProfile();
+    this.preview.start();
+  }
+
+  private closeLocker() {
+    this.lockerEl.classList.add('hidden');
+    this.menu.classList.remove('hidden');
+    this.renderProfile();
+    this.preview?.stop();
+  }
 
   private renderMode() {
     const m = this.settings.mode;
@@ -350,7 +398,7 @@ export class Hud {
     this.menu.querySelector('.lvlnum')!.textContent = `Level ${li.level}`;
     (this.menu.querySelector('.xpbar i') as HTMLElement).style.width = `${(li.into / li.need) * 100}%`;
     this.menu.querySelector('.xptext')!.textContent = `${li.into} / ${li.need} XP`;
-    const sk = this.menu.querySelector('.skins')!;
+    const sk = this.lockerEl.querySelector('.skins')!;
     sk.innerHTML = '';
     for (const skin of SKINS) {
       const locked = li.level < skin.level;
@@ -360,9 +408,14 @@ export class Hud {
       b.title = locked ? `${skin.name}: ab Level ${skin.level}` : skin.name;
       b.setAttribute('aria-label', b.title);
       b.innerHTML = locked ? `<small>${skin.level}</small>` : '';
-      if (!locked) b.addEventListener('click', () => { pr.skin = skin.id; saveProfile(pr); this.renderProfile(); });
+      if (!locked) b.addEventListener('click', () => { pr.skin = skin.id; this.previewChute = false; saveProfile(pr); this.renderProfile(); });
       sk.append(b);
     }
+    this.lockerEl.querySelectorAll<HTMLElement>('[data-lock]').forEach((seg) => {
+      const cur = (pr as unknown as Record<string, string>)[seg.dataset.lock!];
+      seg.querySelectorAll<HTMLElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.v === cur));
+    });
+    this.preview?.set(pr.char, skinColor(pr), pr.chute, this.previewChute);
     const tl = this.menu.querySelector('.tasks')!;
     tl.innerHTML = '';
     for (const t of pr.daily.tasks) {
@@ -774,6 +827,24 @@ export class Hud {
     for (const f of game.map.forests) { g.beginPath(); g.arc(f.x * k, f.y * k, f.r * k, 0, 7); g.fill(); }
     g.fillStyle = '#e6c86e';
     for (const f of game.map.fields) g.fillRect((f.x - f.w / 2) * k, (f.y - f.h / 2) * k, f.w * k, f.h * k);
+    g.fillStyle = '#4f9a3a';
+    for (const gf of game.map.grass) { g.beginPath(); g.arc(gf.x * k, gf.y * k, gf.r * k, 0, 7); g.fill(); }
+    const rv = game.map.river;
+    g.strokeStyle = '#3aa6dc';
+    g.lineWidth = rv.width * k;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    g.beginPath();
+    rv.pts.forEach((pt, i) => (i ? g.lineTo(pt.x * k, pt.y * k) : g.moveTo(pt.x * k, pt.y * k)));
+    g.stroke();
+    g.fillStyle = '#b07c48';
+    for (const b of rv.bridges) {
+      g.save();
+      g.translate(b.x * k, b.y * k);
+      g.rotate(b.angle);
+      g.fillRect(-4, -(rv.width + 150) * k / 2, 8, (rv.width + 150) * k);
+      g.restore();
+    }
     g.fillStyle = '#3aa6dc';
     for (const p of game.map.ponds) { g.beginPath(); g.arc(p.x * k, p.y * k, p.r * k, 0, 7); g.fill(); }
     for (const o of game.map.obstacles) {

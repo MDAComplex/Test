@@ -276,3 +276,19 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
   .team { top: 58px; min-width: 120px; padding: 6px 8px; }
   .tm { font-size: 11px; }
 }
+
+/* Spind */
+.menurow { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.lockpanel { width: min(720px, 100%) !important; }
+.lockgrid { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; justify-content: center; }
+.pv { width: 240px; height: 280px; border-radius: 18px; background: radial-gradient(ellipse at 50% 70%, rgba(255,255,255,0.14), rgba(255,255,255,0.03)); flex: none; }
+.lockopts { display: flex; flex-direction: column; gap: 14px; flex: 1 1 260px; min-width: 0; }
+.lockopts .skins { max-width: none; justify-content: flex-start; }
+@media (max-height: 520px) { .pv { width: 180px; height: 210px; } #locker { justify-content: safe center; overflow-y: auto; } }
+
+#locker { background: radial-gradient(ellipse at center, rgba(10, 30, 50, 0.45), rgba(5, 15, 30, 0.85)); }
+.lockpanel { padding: 22px; border-radius: 22px; background: rgba(12, 22, 36, 0.85); backdrop-filter: blur(8px); display: flex; flex-direction: column; gap: 14px; text-align: left; }
+.lockpanel h2 { margin: 0 0 4px; font-size: 26px; }
+.lockpanel .row { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.lockpanel .actions { display: flex; justify-content: center; }
+.lockpanel .actions .btn { font-size: 20px; padding: 10px 30px; }

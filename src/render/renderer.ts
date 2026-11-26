@@ -4,6 +4,7 @@ import { S, WORLD, PLANE_Z, PLANE_TIME } from '../config';
 import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop, isContainer } from '../sim/game';
 import { WEAPONS, TIER_COLORS, WeaponId } from '../weapons';
 import { LootKind } from '../mapgen';
+import { buildCharacter, buildChute, animateRig, poseLying, makeToon, Rig } from './character';
 
 const W = WORLD * S;
 const WALL_H = 2.1;
@@ -42,35 +43,20 @@ const SHOT: Record<WeaponId, { color: number; len: number; thick: number; flash:
   rocket: { color: 0xffffff, len: 0.1, thick: 0.1, flash: 1.6, shake: 0.2 },
 };
 
-interface Pose { rArm: [number, number]; lArm: [number, number]; gun: [number, number, number]; gunRot: [number, number] }
-// Haltungen: [rotation.z, rotation.x] der Arme, Waffenposition, Waffenrotation [y, z]
-const POSE: Record<string, Pose> = {
-  aim2: { rArm: [1.45, 0.25], lArm: [1.35, -0.75], gun: [0.28, 1.3, 0.12], gunRot: [0, 0] },
-  carry2: { rArm: [0.55, 0.1], lArm: [0.95, -0.55], gun: [0.22, 1.12, 0.1], gunRot: [0.75, 0.45] },
-  aim1: { rArm: [1.55, 0.15], lArm: [0, 0], gun: [0.62, 1.42, 0.34], gunRot: [0, 0] },
-  carry1: { rArm: [0.15, 0], lArm: [0, 0], gun: [0.16, 0.92, 0.5], gunRot: [0, -1.2] },
-};
-
 interface FighterView {
   root: THREE.Group;
   lean: THREE.Group;
-  body: THREE.Group;
-  torso: THREE.Mesh;
-  bodyMat: THREE.MeshToonMaterial;
-  legs: THREE.Group[];
-  arms: THREE.Group[];
-  gunPivot: THREE.Group;
-  gunKick: THREE.Group;
+  rig: Rig;
   chute: THREE.Group;
   flash: number;
   weaponId: string;
   walkT: number;
+  amp: number;
   deadT: number;
   aimBlend: number;
   recoil: number;
   dustT: number;
   spin: THREE.Object3D | null;
-  head: THREE.Group;
   yaw: number;
   reloadBlend: number;
 }
@@ -166,6 +152,7 @@ export class Renderer {
   private time = 0;
   private gradient: THREE.DataTexture;
   private gunCache = new Map<WeaponId, THREE.Group>();
+  private charToon: (c: number) => THREE.MeshToonMaterial;
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.1);
 
@@ -174,7 +161,19 @@ export class Renderer {
     plane: new THREE.PlaneGeometry(1, 1),
     circle: new THREE.CircleGeometry(1, 40),
     gable: gableGeometry(),
-    rock: new THREE.DodecahedronGeometry(1, 0),
+    rock: (() => {
+      // rundere, unregelmäßige Felsen: Ikosaeder mit leichtem Rauschen
+      const g = new THREE.IcosahedronGeometry(1, 2);
+      const pos = g.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        const n = Math.sin(x * 3.1 + y * 1.7) * 0.5 + Math.sin(z * 2.3 - x * 1.3) * 0.5;
+        const k = 1 + n * 0.13;
+        pos.setXYZ(i, x * k, y * k * (y < 0 ? 0.7 : 1), z * k);
+      }
+      g.computeVertexNormals();
+      return g;
+    })(),
     blob: new THREE.IcosahedronGeometry(1, 1),
     puff: new THREE.IcosahedronGeometry(1, 0),
     trunk: new THREE.CylinderGeometry(0.28, 0.4, 1, 8),
@@ -196,6 +195,7 @@ export class Renderer {
     particle: new THREE.BoxGeometry(0.16, 0.16, 0.16),
     bullet: new THREE.BoxGeometry(1, 1, 1),
     flash: new THREE.SphereGeometry(1, 10, 8),
+    blade: new THREE.ConeGeometry(0.09, 1, 4).translate(0, 0.5, 0),
     shield: (() => {
       const sh = new THREE.Shape();
       sh.moveTo(-0.5, 0.5);
@@ -229,6 +229,7 @@ export class Renderer {
     this.gradient = new THREE.DataTexture(new Uint8Array([120, 190, 255]), 3, 1, THREE.RedFormat);
     this.gradient.minFilter = this.gradient.magFilter = THREE.NearestFilter;
     this.gradient.needsUpdate = true;
+    this.charToon = makeToon(this.gradient);
 
     this.hemi = new THREE.HemisphereLight(0xdff1ff, 0x6f8f55, 1.5);
     this.scene.add(this.hemi);
@@ -303,6 +304,9 @@ export class Renderer {
       fire: new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }),
       scorch: basicT(0x2a2620, 0.5),
       sparkle: new THREE.MeshBasicMaterial({ color: 0xffe27a }),
+      windowGlass: toon(0x8fc9f0),
+      bridgeRail: toon(0x7a5230),
+      grassBlade: toon(0x6cbf4a),
       caseBody: toon(0x24272e),
       caseEdge: toon(0x4a505c),
       caseLatch: toon(0xb8bec8),
@@ -325,6 +329,21 @@ export class Renderer {
     };
     for (const k of ['leaves0', 'leaves1', 'leaves2', 'leavesFade']) wind(this.m[k], 0.05);
     for (const k of ['bush', 'bushFade']) wind(this.m[k], 0.035);
+    this.m.grassBlade.onBeforeCompile = (sh) => {
+      sh.uniforms.uWind = this.windTime;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uWind;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+          vec4 wpos = modelMatrix * instanceMatrix * vec4(position, 1.0);
+          #else
+          vec4 wpos = modelMatrix * vec4(position, 1.0);
+          #endif
+          float sway = sin(uWind * 1.8 + wpos.x * 0.45 + wpos.z * 0.33) * 0.18 + sin(uWind * 3.1 + wpos.z * 0.9) * 0.06;
+          transformed.x += sway * position.y * position.y;
+          transformed.z += sway * 0.5 * position.y * position.y;`);
+    };
+    this.m.grassBlade.customProgramCacheKey = () => 'grasswind';
     for (const t of [1, 2, 3, 4, 5]) {
       this.disc[t] = new THREE.MeshBasicMaterial({ color: TIER_COLORS[t], transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide });
       this.beam[t] = new THREE.MeshBasicMaterial({ color: TIER_COLORS[t], transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
@@ -459,6 +478,17 @@ export class Renderer {
         c.roundRect((h.x - h.s / 2 - 40) * k, (h.y - h.s / 2 - 40) * k, (h.s + 80) * k, (h.s + 80) * k, 40 * k);
         c.fill();
       }
+      // Flussufer (Sand) und Flussbett
+      const rv = map.river;
+      c.lineCap = 'round';
+      c.lineJoin = 'round';
+      c.strokeStyle = C.sand;
+      c.lineWidth = (rv.width + 70) * k;
+      c.beginPath();
+      rv.pts.forEach((pt, i) => (i ? c.lineTo(pt.x * k, pt.y * k) : c.moveTo(pt.x * k, pt.y * k)));
+      c.stroke();
+      // Gras unter den Grasfeldern etwas dunkler
+      for (const gf of map.grass) soft(gf.x * k, gf.y * k, gf.r * 1.1 * k, '#5a9c3e', 'ff');
       // Ufer um die Teiche
       for (const p of map.ponds) {
         c.fillStyle = C.sand;
@@ -633,63 +663,19 @@ export class Renderer {
     shadow.position.y = 0.04;
     shadow.scale.setScalar(0.7);
     const lean = new THREE.Group();
-    const body = new THREE.Group();
-    const bodyMat = new THREE.MeshToonMaterial({ color: f.color, gradientMap: this.gradient });
-    const capMat = new THREE.MeshToonMaterial({ color: new THREE.Color(f.color).multiplyScalar(0.6), gradientMap: this.gradient });
-    this.perRound.push(bodyMat, capMat);
-    const mk = (parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
-      const m = new THREE.Mesh(geo, mat);
-      m.position.set(x, y, z);
-      m.castShadow = true;
-      parent.add(m);
-      return m;
-    };
-    // Beine (Drehpunkt an der Hüfte)
-    const legs = [0.19, -0.19].map((z) => {
-      const leg = new THREE.Group();
-      leg.position.set(0, 0.74, z);
-      mk(leg, this.g.leg, this.m.pants, 0, -0.33, 0);
-      const foot = mk(leg, this.g.box, this.m.black, 0.07, -0.68, 0);
-      foot.scale.set(0.32, 0.14, 0.2);
-      body.add(leg);
-      return leg;
-    });
-    const torso = mk(body, this.g.torso, bodyMat, 0, 1.18, 0);
-    // Kopf als eigene Gruppe: dreht sich vor dem Körper in die neue Richtung
-    const head = new THREE.Group();
-    head.position.y = 1.92;
-    mk(head, this.g.head, this.m.skin, 0, 0, 0);
-    mk(head, this.g.cap, capMat, -0.02, 0.07, 0);
-    mk(head, this.g.eye, this.m.black, 0.39, 0.04, 0.15);
-    mk(head, this.g.eye, this.m.black, 0.39, 0.04, -0.15);
-    body.add(head);
-    const pack = mk(body, this.g.box, this.m.pack, -0.42, 1.22, 0);
-    pack.scale.set(0.26, 0.5, 0.56);
-    // Arme (Drehpunkt an der Schulter); [0] = rechts (+Z), [1] = links
-    const arms = [0.45, -0.45].map((z) => {
-      const arm = new THREE.Group();
-      arm.position.set(0, 1.48, z);
-      mk(arm, this.g.arm, bodyMat, 0, -0.27, 0);
-      mk(arm, this.g.hand, this.m.skin, 0, -0.56, 0);
-      body.add(arm);
-      return arm;
-    });
-    const gunPivot = new THREE.Group();
-    const gunKick = new THREE.Group();
-    gunKick.add(this.makeGun(f.weapon.id));
-    gunPivot.add(gunKick);
-    body.add(gunPivot);
-    lean.add(body);
-
-    const chute = this.makeChute(f.color, 2.3, 2.1);
+    const rig = buildCharacter({ kind: f.look.char, shirt: f.color, seed: f.id * 7 + 3, gradient: this.gradient, toon: this.charToon });
+    rig.gunKick.add(this.makeGun(f.weapon.id));
+    lean.add(rig.body);
+    const { chute, disposables } = buildChute(f.look.chute, f.color, this.gradient, this.m.line);
+    this.perRound.push(...disposables, ...rig.mats);
     chute.visible = false;
     root.add(shadow, lean, chute);
     this.world!.add(root);
     const v: FighterView = {
-      root, lean, body, torso, bodyMat, legs, arms, gunPivot, gunKick, chute,
-      flash: 0, weaponId: f.weapon.id, walkT: Math.random() * 6, deadT: 0, aimBlend: 0, recoil: 0, dustT: 0, spin: null, head, yaw: f.aim, reloadBlend: 0,
+      root, lean, rig, chute, flash: 0, weaponId: f.weapon.id, walkT: Math.random() * 6, amp: 0, deadT: 0,
+      aimBlend: 0, recoil: 0, dustT: 0, spin: null, yaw: f.aim, reloadBlend: 0,
     };
-    v.spin = gunKick.getObjectByName('spin') ?? null;
+    v.spin = rig.gunKick.getObjectByName('spin') ?? null;
     this.fighterViews.set(f, v);
   }
 
@@ -1015,6 +1001,7 @@ export class Renderer {
 
     // statische Objekte werden pro Material zu einem einzigen Mesh zusammengefasst (weniger Draw-Calls)
     const staticParts = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    const waterParts: { x: number; z: number; r: number }[] = [];
     const tmp = new THREE.Object3D();
     const sadd = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1, rot?: THREE.Euler) => {
       tmp.position.set(x, y, z);
@@ -1032,6 +1019,20 @@ export class Renderer {
         case 'wall': {
           const hi = game.houseAt(o.x, o.y);
           add(this.g.box, hi >= 0 ? this.houses[hi].wallMat : this.m.white, x, WALL_H / 2, z, o.w * S, WALL_H, o.h * S);
+          // Fenster auf der Außenseite längerer Wandstücke
+          const horizW = o.w > o.h, len = (horizW ? o.w : o.h) * S;
+          if (hi >= 0 && len > 3.6) {
+            const h = game.houses[hi];
+            const outer = horizW ? Math.sign(o.y - h.y) : Math.sign(o.x - h.x);
+            const t = (horizW ? o.h : o.w) * S / 2 + 0.03;
+            const wx = x + (horizW ? 0 : outer * t), wz = z + (horizW ? outer * t : 0);
+            const isInner = Math.abs(horizW ? o.y - h.y : o.x - h.x) < h.s / 2 - 40;
+            if (!isInner) {
+              sadd(this.g.box, this.m.white, wx, 1.22, wz, horizW ? 1.35 : 0.08, 0.95, horizW ? 0.08 : 1.35);
+              sadd(this.g.box, this.m.windowGlass, wx + (horizW ? 0 : outer * 0.02), 1.22, wz + (horizW ? outer * 0.02 : 0), horizW ? 1.1 : 0.06, 0.72, horizW ? 0.06 : 1.1);
+              sadd(this.g.box, this.m.white, wx + (horizW ? 0 : outer * 0.04), 1.22, wz + (horizW ? outer * 0.04 : 0), horizW ? 0.07 : 0.05, 0.72, horizW ? 0.05 : 0.07);
+            }
+          }
           break;
         }
         case 'rock': {
@@ -1052,12 +1053,9 @@ export class Renderer {
         case 'chest':
           this.makeContainer(o, world);
           break;
-        case 'water': {
-          const m = flat(add(this.g.circle, this.waterMat, x, 0.04, z, o.r * S, o.r * S, 1));
-          m.receiveShadow = false;
-          this.ponds.push(m);
+        case 'water':
+          waterParts.push({ x, z, r: o.r * S });
           break;
-        }
         case 'fence': {
           const horiz = o.w > o.h;
           const L = (horiz ? o.w : o.h) * S;
@@ -1084,6 +1082,64 @@ export class Renderer {
           break;
         }
       }
+    }
+
+    // Fluss und Teiche: alle Wasserscheiben in ein Mesh
+    if (waterParts.length) {
+      const geos = waterParts.map((w) => {
+        const g = new THREE.CircleGeometry(1, 28).toNonIndexed();
+        g.rotateX(-Math.PI / 2);
+        g.scale(w.r, 1, w.r);
+        g.translate(w.x, 0.04, w.z);
+        return g;
+      });
+      const merged = mergeGeometries(geos, false);
+      geos.forEach((g) => g.dispose());
+      if (merged) { this.perRound.push(merged); world.add(new THREE.Mesh(merged, this.waterMat)); }
+    }
+    // Holzbrücken über den Fluss
+    const plankTex = canvasTexture(128, 128, (c) => {
+      c.fillStyle = '#b07c48'; c.fillRect(0, 0, 128, 128);
+      c.strokeStyle = '#7f5530'; c.lineWidth = 4;
+      for (let x = 0; x <= 128; x += 16) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, 128); c.stroke(); }
+    });
+    plankTex.wrapS = plankTex.wrapT = THREE.RepeatWrapping;
+    plankTex.repeat.set(6, 1);
+    const deckMat = new THREE.MeshToonMaterial({ map: plankTex, gradientMap: this.gradient });
+    this.perRound.push(plankTex, deckMat);
+    for (const b of game.map.river.bridges) {
+      const grp = new THREE.Group();
+      grp.position.set(b.x * S, 0, b.y * S);
+      grp.rotation.y = -(b.angle + Math.PI / 2);
+      const L = (game.map.river.width + 150) * S, Wd = 6.2;
+      add(this.g.box, deckMat, 0, -0.06, 0, L, 0.24, Wd, grp);
+      for (const side of [Wd / 2 - 0.15, -Wd / 2 + 0.15]) {
+        for (let i = 0; i <= 6; i++) add(this.g.box, this.m.bridgeRail, -L / 2 + (i / 6) * L, 0.45, side, 0.18, 0.9, 0.18, grp);
+        add(this.g.box, this.m.bridgeRail, 0, 0.88, side, L, 0.12, 0.16, grp);
+      }
+      world.add(grp);
+    }
+    // hohe Grasfelder: viele Halme als InstancedMesh, wiegen sich im Wind
+    for (const gf of game.map.grass) {
+      const R = gf.r * S;
+      const n = Math.min(900, Math.floor((Math.PI * R * R) / 0.32));
+      const inst = new THREE.InstancedMesh(this.g.blade, this.m.grassBlade, n);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3();
+      const col = new THREE.Color();
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * R;
+        ps.set(gf.x * S + Math.cos(a) * rr, 0, gf.y * S + Math.sin(a) * rr);
+        q.setFromEuler(new THREE.Euler((Math.random() - 0.5) * 0.3, Math.random() * 6, (Math.random() - 0.5) * 0.3));
+        const h = 1.2 + Math.random() * 0.7 * (1 - (rr / R) * 0.5);
+        sc.set(1, h, 1);
+        m4.compose(ps, q, sc);
+        inst.setMatrixAt(i, m4);
+        inst.setColorAt(i, col.setHex(Math.random() < 0.5 ? 0x6cbf4a : 0x58a83e));
+      }
+      inst.castShadow = false;
+      inst.receiveShadow = true;
+      world.add(inst);
+      this.perRound.push(inst);
     }
 
     for (const [mat, geos] of staticParts) {
@@ -1520,10 +1576,11 @@ export class Renderer {
   private updateFighter(f: Fighter, game: Game, dt: number, playerHouse: number) {
     const v = this.fighterViews.get(f);
     if (!v) return;
+    const rig = v.rig;
     if (v.weaponId !== f.weapon.id) {
-      v.gunKick.clear();
-      v.gunKick.add(this.makeGun(f.weapon.id));
-      v.spin = v.gunKick.getObjectByName('spin') ?? null;
+      rig.gunKick.clear();
+      rig.gunKick.add(this.makeGun(f.weapon.id));
+      v.spin = rig.gunKick.getObjectByName('spin') ?? null;
       v.weaponId = f.weapon.id;
     }
     if (!f.alive) {
@@ -1533,11 +1590,10 @@ export class Renderer {
         const fall = Math.min(1, v.deadT / 0.45);
         const ease = fall < 1 ? 1 - Math.pow(1 - fall, 3) : 1;
         const bounce = fall >= 1 ? Math.max(0, Math.sin((v.deadT - 0.45) * 18) * 0.06 * Math.max(0, 1 - (v.deadT - 0.45) * 4)) : 0;
-        v.body.rotation.z = ease * (Math.PI / 2) - bounce;
+        rig.body.rotation.z = ease * (Math.PI / 2) - bounce;
+        rig.body.position.y = 0;
         v.lean.rotation.set(0, 0, 0);
-        v.legs.forEach((l) => (l.rotation.z = lerp(l.rotation.z, 0.2, 0.2)));
-        v.arms[0].rotation.z = lerp(v.arms[0].rotation.z, 2.6, 0.15);
-        v.arms[1].rotation.z = lerp(v.arms[1].rotation.z, 2.4, 0.15);
+        poseLying(rig, 0, false);
         v.chute.visible = false;
         if (v.deadT > 2.2) {
           const sink = Math.min(1, (v.deadT - 2.2) / 0.6);
@@ -1552,26 +1608,35 @@ export class Renderer {
     const inOtherHouse = !f.isPlayer && house !== -1 && house !== playerHouse;
     v.root.visible = f.phase !== 'plane' && !f.hidden && !inOtherHouse;
     v.root.position.set(f.x * S, f.z * S, f.y * S);
-    // Körper dreht weich hinterher (begrenzte Drehgeschwindigkeit), Kopf schaut voraus
+    const speed = Math.hypot(f.vx, f.vy);
+    const falling = f.phase === 'fall';
+    // Blickrichtung: am Fallschirm in Flugrichtung, sonst zur Zielrichtung
+    const wantYaw = falling && speed > 40 ? Math.atan2(f.vy, f.vx) : f.aim;
     {
-      let d = f.aim - v.yaw;
+      let d = wantYaw - v.yaw;
       while (d > Math.PI) d -= Math.PI * 2;
       while (d < -Math.PI) d += Math.PI * 2;
-      const maxTurn = (f.aiming ? 9 : 6.5) * dt;
+      const maxTurn = (falling ? 3 : f.aiming ? 9 : 6.5) * dt;
       const step = Math.sign(d) * Math.min(Math.abs(d), Math.max(maxTurn * 0.35, Math.abs(d) * (1 - Math.exp(-dt * 10))), maxTurn);
       v.yaw += step;
       d -= step;
-      v.body.rotation.y = -v.yaw;
-      v.head.rotation.y = -Math.max(-0.75, Math.min(0.75, d));
+      rig.body.rotation.y = -v.yaw;
+      rig.head.rotation.y = falling ? 0 : -Math.max(-0.75, Math.min(0.75, d));
     }
-    v.chute.visible = f.phase === 'fall';
+    v.chute.visible = falling;
+    if (falling) {
+      // Schirm dreht mit der Figur und kippt in die Lenkrichtung
+      v.chute.rotation.y = -v.yaw;
+      v.chute.rotation.x = lerp(v.chute.rotation.x, f.vy * 0.0016, 0.1);
+      v.chute.rotation.z = lerp(v.chute.rotation.z, -f.vx * 0.0016 + Math.sin(this.time * 2 + f.id) * 0.04, 0.1);
+    }
     if (v.chute.visible && !f.isPlayer) {
       // Schirme anderer Spieler, die nah vor der Kamera schweben, durchsichtig machen
       const dx = f.x * S - this.camTarget.x, dz = f.y * S - this.camTarget.z;
       const near = Math.hypot(dx, dz) < 14 && f.z * S > this.camTarget.y + 4;
+      const target = near ? 0.3 : 1;
       const canopy = v.chute.children[0] as THREE.Mesh;
       const mat = canopy.material as THREE.MeshToonMaterial;
-      const target = near ? 0.3 : 1;
       if (Math.abs(mat.opacity - target) > 0.01) {
         mat.transparent = true;
         mat.opacity = lerp(mat.opacity, target, 0.15);
@@ -1580,66 +1645,36 @@ export class Renderer {
     }
     if (!v.root.visible) return;
 
-    const speed = Math.hypot(f.vx, f.vy);
-    const sNorm = Math.min(1.2, speed / 170);
+    // in Laufrichtung lehnen (am Fallschirm deutlich stärker)
+    const lk = falling ? 0.0028 : 0.0005;
+    v.lean.rotation.x = lerp(v.lean.rotation.x, f.vy * lk, 0.12);
+    v.lean.rotation.z = lerp(v.lean.rotation.z, -f.vx * lk, 0.12);
+
     // niedergeschlagen: auf der Seite liegen und kriechen
-    v.body.rotation.z = lerp(v.body.rotation.z, f.downed ? Math.PI / 2 * 0.9 : 0, 1 - Math.exp(-dt * 10));
+    rig.body.rotation.z = lerp(rig.body.rotation.z, f.downed ? Math.PI / 2 * 0.9 : 0, 1 - Math.exp(-dt * 10));
     if (f.downed) {
       v.walkT += dt * (f.moving ? 7 : 1.5);
-      v.legs[0].rotation.z = Math.sin(v.walkT) * 0.4;
-      v.legs[1].rotation.z = -Math.sin(v.walkT) * 0.4;
-      v.arms[0].rotation.z = 2.4 + Math.sin(v.walkT) * 0.4;
-      v.arms[1].rotation.z = 2.4 - Math.sin(v.walkT) * 0.4;
-      v.gunPivot.visible = false;
+      poseLying(rig, v.walkT, true);
+      rig.body.position.y = 0;
       const pulse = 0.25 + Math.sin(this.time * 6) * 0.15;
-      v.bodyMat.emissive.setRGB(pulse, 0, 0);
+      rig.shirtMat.emissive.setRGB(pulse, 0, 0);
       return;
     }
-    v.gunPivot.visible = true;
-    // in Laufrichtung lehnen
-    const lk = f.phase === 'fall' ? 0.0012 : 0.0008;
-    v.lean.rotation.x = lerp(v.lean.rotation.x, f.vy * lk, 0.2);
-    v.lean.rotation.z = lerp(v.lean.rotation.z, -f.vx * lk, 0.2);
-    if (f.phase === 'fall') v.chute.rotation.z = Math.sin(this.time * 2 + f.id) * 0.06;
 
-    // Gehen: Beine und Arme schwingen gegengleich
-    if (f.moving) v.walkT += dt * (5 + sNorm * 8);
-    const swing = f.moving ? Math.sin(v.walkT) * sNorm : 0;
-    const legAmp = f.phase === 'fall' ? 0.25 : 0.75;
-    const fallSway = f.phase === 'fall' ? Math.sin(this.time * 3 + f.id) : 0;
-    v.legs[0].rotation.z = lerp(v.legs[0].rotation.z, swing * legAmp + fallSway * 0.2, 0.35);
-    v.legs[1].rotation.z = lerp(v.legs[1].rotation.z, -swing * legAmp - fallSway * 0.2, 0.35);
-    v.torso.position.y = 1.18 + (f.moving ? Math.abs(Math.sin(v.walkT)) * 0.06 * sNorm : Math.sin(this.time * 2.5 + f.id) * 0.015);
-
-    // Haltung: Waffe tragen <-> zielen
+    // Schrittlänge passend zum Tempo: ein Doppelschritt ≈ 3 Einheiten
+    v.walkT += (speed * S * dt / 3.0) * Math.PI * 2;
+    v.amp = lerp(v.amp, f.moving ? Math.min(1, speed / 150) : 0, 1 - Math.exp(-dt * 8));
     v.aimBlend = lerp(v.aimBlend, f.aiming || game.time - f.lastShot < 600 ? 1 : 0, 1 - Math.exp(-dt * 12));
-    const two = f.weapon.twoHanded;
-    const a = two ? POSE.aim2 : POSE.aim1, c = two ? POSE.carry2 : POSE.carry1;
-    const k = v.aimBlend;
-    const armSwing = swing * 0.55 * (1 - k);
-    v.arms[0].rotation.z = lerp(c.rArm[0] - (two ? 0 : armSwing), a.rArm[0], k);
-    v.arms[0].rotation.x = lerp(c.rArm[1], a.rArm[1], k);
-    v.arms[1].rotation.z = lerp(two ? c.lArm[0] : armSwing, two ? a.lArm[0] : armSwing * 0.6, k);
-    v.arms[1].rotation.x = lerp(c.lArm[1], a.lArm[1], k);
-    v.gunPivot.position.set(lerp(c.gun[0], a.gun[0], k), lerp(c.gun[1], a.gun[1], k) + (1 - k) * Math.abs(swing) * 0.03, lerp(c.gun[2], a.gun[2], k));
-    v.gunPivot.rotation.set(0, lerp(c.gunRot[0], a.gunRot[0], k), lerp(c.gunRot[1], a.gunRot[1], k));
-    // beim Nachladen wird die Waffe gesenkt und leicht gekippt
     v.reloadBlend = lerp(v.reloadBlend, f.reloading ? 1 : 0, 1 - Math.exp(-dt * 12));
-    if (v.reloadBlend > 0.01) {
-      v.gunPivot.rotation.z -= 0.75 * v.reloadBlend;
-      v.gunPivot.rotation.x = Math.sin(this.time * 14) * 0.15 * v.reloadBlend;
-      v.gunPivot.position.y -= 0.18 * v.reloadBlend;
-      v.arms[1].rotation.z = lerp(v.arms[1].rotation.z, 0.9, v.reloadBlend);
-    } else {
-      v.gunPivot.rotation.x = 0;
-    }
+    animateRig(rig, { phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, reload: v.reloadBlend, time: this.time + f.id, falling });
+
     v.recoil = Math.max(0, v.recoil - dt * 9);
-    v.gunKick.position.x = -v.recoil * (f.weapon.id === 'shotgun' || f.weapon.id === 'sniper' || f.weapon.id === 'rocket' ? 0.22 : 0.1);
+    rig.gunKick.position.x = -v.recoil * (f.weapon.id === 'shotgun' || f.weapon.id === 'sniper' || f.weapon.id === 'rocket' ? 0.22 : 0.1);
     if (v.spin) v.spin.rotation.x += dt * (game.time - f.lastTrigger < 200 ? 40 : 2);
 
     // Staubspur beim Laufen
     if (f.moving && f.phase === 'ground' && this.near(f.x, f.y, 35)) {
-      v.dustT -= dt * sNorm;
+      v.dustT -= dt * Math.min(1.2, speed / 170);
       if (v.dustT <= 0) {
         v.dustT = 0.13;
         const back = -0.35;
@@ -1647,14 +1682,14 @@ export class Renderer {
       }
     }
 
+    const em = rig.shirtMat.emissive;
     if (v.flash > 0) {
       v.flash = Math.max(0, v.flash - dt * 9);
-      v.bodyMat.emissive.setRGB(v.flash, v.flash, v.flash);
+      em.setRGB(v.flash, v.flash, v.flash);
     } else if (f.healUntil) {
-      const g = 0.25 + Math.sin(this.time * 10) * 0.1;
-      v.bodyMat.emissive.setRGB(0, g, 0);
+      em.setRGB(0, 0.25 + Math.sin(this.time * 10) * 0.1, 0);
     } else {
-      v.bodyMat.emissive.setRGB(0, 0, 0);
+      em.setRGB(0, 0, 0);
     }
   }
 

@@ -104,6 +104,8 @@ export class Fighter {
   downedBy: Fighter | null = null;
   reviveT = 0;
   leader: Fighter | null = null;
+  /** Aussehen: Figur und Fallschirm */
+  look: { char: 'man' | 'woman'; chute: 'round' | 'wing' } = { char: 'man', chute: 'round' };
   vx = 0;
   vy = 0;
   aiming = false;
@@ -218,7 +220,7 @@ export class Game {
   private ids = 1;
 
   mode: Mode;
-  constructor(map: MapData, playerColor = PLAYER_COLOR, mode: Mode = 'solo') {
+  constructor(map: MapData, playerColor = PLAYER_COLOR, mode: Mode = 'solo', look?: Fighter['look']) {
     this.mode = mode;
     this.map = map;
     this.houses = map.houses;
@@ -234,11 +236,13 @@ export class Game {
       : { x1: a, y1: -m, x2: b, y2: WORLD + m };
 
     this.player = this.addFighter('Du', true, playerColor);
+    if (look) this.player.look = { ...look };
     const size = TEAM_SIZE[mode], count = mode === 'solo' ? FIGHTER_COUNT : MODE_COUNT[mode];
     const names = botNames(count - 1);
     for (let i = 0; i < count - 1; i++) {
       const f = this.addFighter(names[i], false, BODY_COLORS[i % BODY_COLORS.length]);
       f.team = Math.floor((i + 1) / size);
+      f.look = { char: Math.random() < 0.5 ? 'man' : 'woman', chute: Math.random() < 0.5 ? 'round' : 'wing' };
       f.strafe = Math.random() < 0.5 ? 1 : -1;
       const st = Math.random();
       f.style = st < 0.3 ? 'aggro' : st < 0.6 ? 'careful' : 'normal';
@@ -1339,7 +1343,10 @@ export class Game {
       if (!f.alive) continue;
       f.inBush = false;
       if (f.phase === 'ground') {
-        for (const b of this.bushes) {
+        for (const gf of this.map.grass) {
+          if ((f.x - gf.x) ** 2 + (f.y - gf.y) ** 2 < (gf.r * 0.9) ** 2) { f.inBush = true; break; }
+        }
+        if (!f.inBush) for (const b of this.bushes) {
           if ((f.x - b.x) ** 2 + (f.y - b.y) ** 2 < (b.r * 0.72) ** 2) {
             f.inBush = true;
             break;

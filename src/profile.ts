@@ -43,6 +43,9 @@ export function taskText(t: Task) {
 export interface Profile {
   xp: number;
   skin: string;
+  /** Figur und Fallschirm aus dem Spind */
+  char: 'man' | 'woman';
+  chute: 'round' | 'wing';
   tutorialDone: boolean;
   daily: { date: string; tasks: Task[] };
 }
@@ -64,7 +67,7 @@ function newDaily(date: string): Profile['daily'] {
 }
 
 export function loadProfile(): Profile {
-  let p: Profile = { xp: 0, skin: 'gelb', tutorialDone: false, daily: newDaily(today()) };
+  let p: Profile = { xp: 0, skin: 'gelb', char: 'man', chute: 'round', tutorialDone: false, daily: newDaily(today()) };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) p = { ...p, ...JSON.parse(raw) };

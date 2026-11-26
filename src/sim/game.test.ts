@@ -13,7 +13,13 @@ function groundGame(seed = 1234) {
     if (!f.isPlayer) { f.alive = false; f.x = 10; f.y = 10; }
   }
   const p = g.player;
-  const spot = g.findFreeNear(2000, 2000);
+  // Startpunkt mit freiem Weg nach rechts (nicht am Fluss oder an Wänden)
+  let spot = g.findFreeNear(2000, 2000);
+  for (let y = 300; y < 3700; y += 97) {
+    let ok = true;
+    for (let dx = 0; dx <= 400; dx += 40) if (!g.isFree(800 + dx, y, 40)) { ok = false; break; }
+    if (ok) { spot = { x: 800, y }; break; }
+  }
   p.x = spot.x;
   p.y = spot.y;
   return { g, p };
