@@ -4,6 +4,8 @@ import * as THREE from 'three';
 export interface Rig {
   body: THREE.Group;
   torso: THREE.Group;
+  /** Becken mit Beinen: dreht beim Gehen mit dem vorschwingenden Bein */
+  pelvis: THREE.Group;
   head: THREE.Group;
   /** [rechts, links]: Oberschenkel-Gruppe und Knie-Gruppe */
   legs: { hip: THREE.Object3D; knee: THREE.Object3D }[];
@@ -172,10 +174,12 @@ export function buildCharacter(opts: {
   // Beine: Hüfte -> Knie -> Fuß
   const binds: (() => void)[] = [];
   const legGeo = limbGeometry(0.44, 0.38, man ? 0.125 : 0.115, man ? 0.1 : 0.092, 0.085, 0);
+  const pelvis = new THREE.Group();
+  body.add(pelvis);
   const legs = [0.15, -0.15].map((z) => {
     // Knochen: Hüfte -> Knie; ein durchgehendes Hosenbein darüber
     const holder = new THREE.Group();
-    body.add(holder);
+    pelvis.add(holder);
     const hip = new THREE.Bone();
     hip.position.set(0, 0.9, z);
     const knee = new THREE.Bone();
@@ -190,7 +194,7 @@ export function buildCharacter(opts: {
     return { hip, knee };
   });
   // Becken
-  mk(body, G.box, pants, 0, 0.94, 0, 0.3, 0.2, man ? 0.4 : 0.38);
+  mk(pelvis, G.box, pants, 0, 0.94, 0, 0.3, 0.2, man ? 0.4 : 0.38);
 
   // Oberkörper (mit eigener Gruppe für die Gegendrehung beim Gehen)
   const torso = new THREE.Group();
@@ -255,14 +259,14 @@ export function buildCharacter(opts: {
   const gunKick = new THREE.Group();
   gunPivot.add(gunKick);
   body.add(gunPivot);
-  return { body, torso, head, legs, arms, gunPivot, gunKick, shirtMat, mats: [shirtMat, shirtDark] };
+  return { body, torso, pelvis, head, legs, arms, gunPivot, gunKick, shirtMat, mats: [shirtMat, shirtDark] };
 }
 
 interface ArmPose { r: [number, number, number]; l: [number, number, number]; gun: [number, number, number]; gunRot: [number, number] }
 // Schulter rotation.z, rotation.x, Ellbogen rotation.z; Waffenposition; Waffenrotation [y, z]
 const POSES: Record<string, ArmPose> = {
   aim2: { r: [1.2, 0.3, 0.35], l: [1.12, -0.85, 0.55], gun: [0.2, 1.43, 0.1], gunRot: [0, 0] },
-  carry2: { r: [0.35, 0.12, 1.05], l: [0.75, -0.55, 1.1], gun: [0.28, 1.14, 0.12], gunRot: [0.55, -0.28] },
+  carry2: { r: [0.35, 0.12, 1.05], l: [0.75, -0.55, 1.1], gun: [0.3, 1.14, 0.14], gunRot: [0.3, -0.25] },
   aim1: { r: [1.5, 0.12, 0.05], l: [0, 0, 0.25], gun: [0.5, 1.44, 0.04], gunRot: [0, 0] },
   carry1: { r: [0.12, 0, 0.45], l: [0, 0, 0.3], gun: [0.2, 0.95, 0.42], gunRot: [0, -1.2] },
   // Raketenwerfer auf der Schulter
@@ -366,7 +370,8 @@ export function animateRig(rig: Rig, s: AnimState) {
     rig.arms[1].shoulder.rotation.set(-0.35, 0, 2.6);
     rig.arms.forEach((a) => a.elbow.rotation.set(0, 0, 0.3));
     rig.torso.rotation.set(0, 0, 0);
-    rig.body.position.y = 0;
+    rig.pelvis.rotation.set(0, 0, 0);
+    rig.body.position.set(0, 0, 0);
     rig.gunPivot.visible = false;
     return;
   }
@@ -383,8 +388,11 @@ export function animateRig(rig: Rig, s: AnimState) {
   // beim Zielen mit zweihändigen Waffen: Oberkörper seitlich (linke Schulter nach vorne)
   const blade = (s.twoHanded && s.weapon !== 'minigun' ? -0.45 : 0) * s.aim;
   // Oberkörper dreht nur leicht gegen die Beine, wiegt sich minimal zur Seite; Kopf bleibt ruhig
-  const twist = Math.sin(phase) * 0.05 * amp;
-  rig.torso.rotation.set(Math.sin(phase * 2) * 0.012 * amp + Math.sin(phase) * 0.025 * amp, twist + blade, -0.05 * amp);
+  // Becken dreht mit dem vorschwingenden Bein, Schultern leicht dagegen; kleine Gewichtsverlagerung zur Seite
+  rig.pelvis.rotation.set(0, Math.sin(phase) * 0.12 * amp, 0);
+  rig.body.position.z = Math.sin(phase) * 0.025 * amp;
+  const twist = -Math.sin(phase) * 0.07 * amp;
+  rig.torso.rotation.set(-Math.sin(phase) * 0.03 * amp, twist + blade, -0.05 * amp);
   rig.head.rotation.y -= blade + twist;
   // Atmen im Stand
   rig.torso.position.y = 1.0 + (1 - amp) * Math.sin(s.time * 2.2) * 0.012;
@@ -466,6 +474,8 @@ export function animateRig(rig: Rig, s: AnimState) {
 export function poseCrawl(rig: Rig, t: number, moving: number) {
   rig.gunPivot.visible = false;
   shoulders(rig);
+  rig.pelvis.rotation.set(0, 0, 0);
+  rig.body.position.z = 0;
   const m = moving;
   const c = Math.sin(t), c2 = Math.sin(t + Math.PI);
   // Becken tief, Oberschenkel senkrecht, Unterschenkel liegen nach hinten auf dem Boden
@@ -489,6 +499,8 @@ export function poseCrawl(rig: Rig, t: number, moving: number) {
 /** liegende Pose (tot) */
 export function poseLying(rig: Rig, t: number, crawl: boolean) {
   shoulders(rig);
+  rig.pelvis.rotation.set(0, 0, 0);
+  rig.body.position.z = 0;
   rig.head.rotation.z = 0;
   rig.head.rotation.x = 0;
   rig.legs.forEach((l) => l.hip.rotation.set(0, 0, 0));
