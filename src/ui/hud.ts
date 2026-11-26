@@ -33,6 +33,10 @@ export class Hud {
   private e: Record<string, HTMLElement> = {};
   private mini: HTMLCanvasElement;
   private miniBase: HTMLCanvasElement | null = null;
+  private bigBase: HTMLCanvasElement | null = null;
+  private bigOpen = false;
+  private bigCanvas!: HTMLCanvasElement;
+  private tabHeld = false;
   private labels = new Map<Fighter, { el: HTMLElement; dn: HTMLElement }>();
   private ring: HTMLElement;
   private ringArc: SVGCircleElement;
@@ -67,7 +71,8 @@ export class Hud {
         <button class="gear" aria-label="Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.4 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.9c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
         <div class="zone"></div>
         <div class="warn hidden">Du bist außerhalb der Zone!</div>
-        <canvas class="mini" width="320" height="320"></canvas>
+        <canvas class="mini" width="320" height="320" aria-label="Karte (tippen für groß)"></canvas>
+        <div class="bigmap hidden"><canvas width="1024" height="1024" aria-label="Große Karte"></canvas><div class="bighint"></div></div>
         <div class="mstats">
           <span class="ms" title="Noch am Leben"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="7" r="4.2" fill="currentColor"/><path d="M3.5 21c0-4.8 3.8-8 8.5-8s8.5 3.2 8.5 8z" fill="currentColor"/></svg><b class="alive"></b></span>
           <span class="ms" title="Deine Abschüsse"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><b class="kills"></b></span>
@@ -169,7 +174,7 @@ export class Hud {
     this.ringArc = this.ring.querySelector('.fg') as SVGCircleElement;
     this.ringArc.style.strokeDasharray = String(RING_C);
 
-    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname', 'killnote', 'team', 'downnote']) {
+    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname', 'killnote', 'team', 'downnote', 'bigmap', 'bighint']) {
       this.e[k] = this.hud.querySelector('.' + k)!;
     }
     this.e.arBar = this.hud.querySelector('.bar.ar i')!;
@@ -179,6 +184,10 @@ export class Hud {
     this.e.pcName = this.hud.querySelector('.pc-name')!;
     this.e.pcStats = this.hud.querySelector('.pc-stats')!;
     this.mini = this.hud.querySelector('.mini')!;
+    this.bigCanvas = this.hud.querySelector('.bigmap canvas')!;
+    // Handy/Maus: auf die Minikarte tippen öffnet, auf die große Karte tippen schließt
+    this.mini.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); this.setBig(true); });
+    this.e.bigmap.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); if (!this.tabHeld) this.setBig(false); });
     this.move = { active: false, id: -1, bx: 0, by: 0, x: 0, y: 0, el: this.hud.querySelector('.joy.move')! };
     this.aim = { active: false, id: -1, bx: 0, by: 0, x: 0, y: 0, el: this.hud.querySelector('.joy.aim')! };
 
@@ -271,6 +280,7 @@ export class Hud {
     window.addEventListener('keydown', (ev) => {
       this.keys.add(ev.code);
       if (ev.repeat) return;
+      if (ev.code === 'Tab') { ev.preventDefault(); if (this.game) { this.tabHeld = true; this.setBig(true); } }
       if (ev.code === 'Space') { this.pending.jump = true; ev.preventDefault(); }
       if (ev.code === 'KeyR') this.pending.reload = true;
       if (ev.code === 'KeyE') this.pending.pickup = true;
@@ -278,12 +288,15 @@ export class Hud {
       if (ev.code === 'Escape' && this.game) this.paused ? this.closeSettings() : this.openSettings(true);
       if (ev.code === 'Enter' && !this.menu.classList.contains('hidden')) { startAudio(); this.cb.play(); }
     });
-    window.addEventListener('keyup', (ev) => this.keys.delete(ev.code));
+    window.addEventListener('keyup', (ev) => {
+      this.keys.delete(ev.code);
+      if (ev.code === 'Tab') { ev.preventDefault(); this.tabHeld = false; this.setBig(false); }
+    });
     window.addEventListener('blur', () => { this.keys.clear(); this.mouse.down = false; });
 
     window.addEventListener('pointerdown', (ev) => {
       if (!this.game || this.paused) return;
-      if ((ev.target as HTMLElement).closest('button, .screen')) return;
+      if ((ev.target as HTMLElement).closest('button, .screen, .mini, .bigmap')) return;
       this.touch = ev.pointerType !== 'mouse';
       if (ev.pointerType === 'mouse') {
         this.mouse.on = true;
@@ -477,10 +490,12 @@ export class Hud {
     this.feed = [];
     this.reward = null;
     this.sfx.menuMusic(false);
+    this.bigOpen = false;
     this.e.specbar.classList.add('hidden');
     this.tut = { step: this.profile.tutorialDone ? -1 : 0, t: 0 };
     this.lastStepPos = { x: game.player.x, y: game.player.y };
-    this.buildMiniBase(game);
+    this.miniBase = this.buildMiniBase(game, 320);
+    this.bigBase = this.buildMiniBase(game, 1024);
     this.e.team.innerHTML = '';
     this.teamRows = [];
     const mates = game.mode === 'solo' ? [] : game.teammates(game.player);
@@ -660,6 +675,13 @@ export class Hud {
     setTimeout(() => el.remove(), kill ? 600 : 260);
   }
 
+  setBig(on: boolean) {
+    this.bigOpen = on && !!this.game;
+    this.e.bigmap.classList.toggle('hidden', !this.bigOpen);
+    this.e.bighint.textContent = this.touch ? 'Tippen zum Schließen' : 'Tab loslassen zum Schließen';
+    if (this.bigOpen && this.game) this.drawMini(this.game, this.bigCanvas, this.bigBase, 1024);
+  }
+
   private feedLine(txt: string, color: string) {
     const el = document.createElement('div');
     el.textContent = txt;
@@ -821,6 +843,7 @@ export class Hud {
     if (now - this.lastMini > 100) {
       this.lastMini = now;
       this.drawMini(game);
+      if (this.bigOpen) this.drawMini(game, this.bigCanvas, this.bigBase, 1024);
     }
   }
 
@@ -850,16 +873,17 @@ export class Hud {
     if (cur.until()) { this.tut.step++; this.tut.t = now; }
   }
 
-  private buildMiniBase(game: Game) {
+  private buildMiniBase(game: Game, N = 320) {
+    const q = N / 320;
     const c = document.createElement('canvas');
-    c.width = c.height = 320;
+    c.width = c.height = N;
     const g = c.getContext('2d')!;
-    const k = 320 / WORLD;
+    const k = N / WORLD;
     g.fillStyle = '#ecd59a';
-    g.fillRect(0, 0, 320, 320);
+    g.fillRect(0, 0, N, N);
     g.fillStyle = '#86c95a';
     g.beginPath();
-    g.roundRect(6, 6, 308, 308, 16);
+    g.roundRect(6 * q, 6 * q, N - 12 * q, N - 12 * q, 16 * q);
     g.fill();
     g.fillStyle = 'rgba(70,140,50,0.55)';
     for (const f of game.map.forests) { g.beginPath(); g.arc(f.x * k, f.y * k, f.r * k, 0, 7); g.fill(); }
@@ -880,72 +904,82 @@ export class Hud {
       g.save();
       g.translate(b.x * k, b.y * k);
       g.rotate(b.angle);
-      g.fillRect(-4, -(rv.width + 150) * k / 2, 8, (rv.width + 150) * k);
+      g.fillRect(-4 * q, -(rv.width + 150) * k / 2, 8 * q, (rv.width + 150) * k);
       g.restore();
     }
     g.fillStyle = '#3aa6dc';
     for (const p of game.map.ponds) { g.beginPath(); g.arc(p.x * k, p.y * k, p.r * k, 0, 7); g.fill(); }
     for (const o of game.map.obstacles) {
-      if (o.kind === 'rock') { g.fillStyle = '#9aa0a8'; g.beginPath(); g.arc(o.x * k, o.y * k, Math.max(1.5, o.r * k), 0, 7); g.fill(); }
+      if (o.kind === 'rock') { g.fillStyle = '#9aa0a8'; g.beginPath(); g.arc(o.x * k, o.y * k, Math.max(1.5 * q, o.r * k), 0, 7); g.fill(); }
     }
     for (const h of game.houses) {
       g.fillStyle = '#c0573e';
       g.fillRect((h.x - h.s / 2) * k, (h.y - h.s / 2) * k, h.s * k, h.s * k);
     }
-    this.miniBase = c;
+    return c;
   }
 
-  private drawMini(game: Game) {
-    const g = this.mini.getContext('2d')!;
-    const k = 320 / WORLD;
-    if (this.miniBase) g.drawImage(this.miniBase, 0, 0);
+  private drawMini(game: Game, cv: HTMLCanvasElement = this.mini, base = this.miniBase, N = 320) {
+    const g = cv.getContext('2d')!;
+    const k = N / WORLD, q = N / 320;
+    if (base) g.drawImage(base, 0, 0);
     for (const o of game.obstacles) {
       if (!isContainer(o) || o.opened) continue;
       g.fillStyle = o.kind === 'crate' ? '#ffd54a' : o.kind === 'chest' ? '#ffc93c' : '#ff8a1e';
-      const s = o.kind === 'crate' ? 3 : 5;
+      const s = (o.kind === 'crate' ? 3 : 5) * q;
       g.fillRect(o.x * k - s / 2, o.y * k - s / 2, s, s);
     }
     for (const d of game.airdrops) {
       if (d.obstacle) continue;
       g.strokeStyle = '#ff8a1e';
-      g.lineWidth = 2;
-      g.beginPath(); g.arc(d.x * k, d.y * k, 7 + Math.sin(performance.now() / 150) * 2, 0, 7); g.stroke();
+      g.lineWidth = 2 * q;
+      g.beginPath(); g.arc(d.x * k, d.y * k, (7 + Math.sin(performance.now() / 150) * 2) * q, 0, 7); g.stroke();
     }
     if (game.time < PLANE_TIME * 1.1) {
       const pl = game.plane;
       g.strokeStyle = 'rgba(255,255,255,0.65)';
-      g.setLineDash([8, 6]);
-      g.lineWidth = 2;
+      g.setLineDash([8 * q, 6 * q]);
+      g.lineWidth = 2 * q;
       g.beginPath(); g.moveTo(pl.x1 * k, pl.y1 * k); g.lineTo(pl.x2 * k, pl.y2 * k); g.stroke();
       g.setLineDash([]);
     }
     const zc = game.zoneCur, zn = game.zoneNext;
     g.save();
     g.beginPath();
-    g.rect(0, 0, 320, 320);
+    g.rect(0, 0, N, N);
     g.arc(zc.x * k, zc.y * k, Math.max(0, zc.r * k), 0, Math.PI * 2, true);
     g.fillStyle = 'rgba(40,72,200,0.35)';
     g.fill('evenodd');
     g.restore();
-    g.strokeStyle = '#7fb2ff'; g.lineWidth = 3;
+    g.strokeStyle = '#7fb2ff'; g.lineWidth = 3 * q;
     g.beginPath(); g.arc(zc.x * k, zc.y * k, Math.max(0, zc.r * k), 0, 7); g.stroke();
     if (game.zoneState !== 'done' && zn.r > 0) {
-      g.strokeStyle = '#ffffff'; g.lineWidth = 2;
+      g.strokeStyle = '#ffffff'; g.lineWidth = 2 * q;
       g.beginPath(); g.arc(zn.x * k, zn.y * k, zn.r * k, 0, 7); g.stroke();
     }
     const p = game.player;
     if (game.mode !== 'solo') {
-      g.fillStyle = '#4aa8ff'; g.strokeStyle = '#000'; g.lineWidth = 2;
+      g.fillStyle = '#4aa8ff'; g.strokeStyle = '#000'; g.lineWidth = 2 * q;
       for (const m of game.teammates(p)) {
         if (!m.alive) continue;
         const pos = m.phase === 'plane' ? game.planePos() : m;
-        g.beginPath(); g.arc(pos.x * k, pos.y * k, 5, 0, 7); g.fill(); g.stroke();
+        g.beginPath(); g.arc(pos.x * k, pos.y * k, 5 * q, 0, 7); g.fill(); g.stroke();
       }
     }
     if (p.alive) {
       const pos = p.phase === 'plane' ? game.planePos() : p;
-      g.fillStyle = '#ffd23f'; g.strokeStyle = '#000'; g.lineWidth = 2;
-      g.beginPath(); g.arc(pos.x * k, pos.y * k, 6, 0, 7); g.fill(); g.stroke();
+      g.fillStyle = '#ffd23f'; g.strokeStyle = '#000'; g.lineWidth = 2 * q;
+      if (N > 400 && p.phase !== 'plane') {
+        // große Karte: Pfeil in Blickrichtung
+        const a = p.aim, r0 = 9 * q * 0.6;
+        g.beginPath();
+        g.moveTo(pos.x * k + Math.cos(a) * r0 * 1.8, pos.y * k + Math.sin(a) * r0 * 1.8);
+        g.lineTo(pos.x * k + Math.cos(a + 2.5) * r0, pos.y * k + Math.sin(a + 2.5) * r0);
+        g.lineTo(pos.x * k + Math.cos(a - 2.5) * r0, pos.y * k + Math.sin(a - 2.5) * r0);
+        g.closePath(); g.fill(); g.stroke();
+      } else {
+        g.beginPath(); g.arc(pos.x * k, pos.y * k, 6 * q, 0, 7); g.fill(); g.stroke();
+      }
     }
   }
 }

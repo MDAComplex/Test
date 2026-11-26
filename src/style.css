@@ -304,3 +304,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
 .chutetext { font: inherit; font-size: 15px; color: #fff; background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.25); border-radius: 12px; padding: 9px 12px; }
 .chutetext:focus { outline: none; border-color: var(--gold); }
 .lockopts { max-height: min(62vh, 520px); overflow-y: auto; padding-right: 4px; }
+
+/* große Karte */
+.mini { pointer-events: auto; cursor: pointer; }
+.bigmap { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(5, 12, 22, 0.55); pointer-events: auto; z-index: 15; }
+.bigmap canvas { width: min(88vh, 92vw); height: min(88vh, 92vw); border: 4px solid rgba(255,255,255,0.92); border-radius: 22px; box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+.bighint { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); font-size: 13px; padding: 5px 12px; border-radius: 999px; background: var(--panel); }
