@@ -64,10 +64,8 @@ export class Hud {
           <div class="wrow"><span class="wname"></span><span class="ammo"></span></div>
           <div class="bar ar"><i></i></div>
           <div class="bar hp"><i></i><span></span></div>
-          <div class="inv"><span class="inv-s"></span><span class="inv-b"></span></div>
         </div>
         <div class="buttons">
-          <button class="rb heal">Heilen<small>H</small></button>
           <button class="rb reload">Laden<small>R</small></button>
         </div>
         <button class="rb jump hidden">SPRINGEN<small>Leertaste</small></button>
@@ -82,7 +80,7 @@ export class Hud {
         <button class="btn secondary opensettings">EINSTELLUNGEN</button>
         <div class="stats"></div>
         <div class="help">
-          <b>PC:</b> WASD laufen  •  Maus zielen  •  Linksklick schießen  •  E aufheben  •  H heilen  •  R nachladen<br>
+          <b>PC:</b> WASD laufen  •  Maus zielen  •  Linksklick schießen  •  E Waffe aufheben  •  R nachladen<br>
           <b>Handy:</b> linker Stick laufen  •  rechter Stick zielen und schießen (in den Einstellungen tauschbar)<br>
           Spring aus dem Flugzeug, öffne Kisten, Truhen und Versorgungspakete und bleib in der Zone
         </div>
@@ -117,14 +115,12 @@ export class Hud {
     this.ringArc = this.ring.querySelector('.fg') as SVGCircleElement;
     this.ringArc.style.strokeDasharray = String(RING_C);
 
-    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'heal', 'reload', 'pickcard', 'buttons', 'gear']) {
+    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear']) {
       this.e[k] = this.hud.querySelector('.' + k)!;
     }
     this.e.arBar = this.hud.querySelector('.bar.ar i')!;
     this.e.hpBar = this.hud.querySelector('.bar.hp i')!;
     this.e.hpText = this.hud.querySelector('.bar.hp span')!;
-    this.e.invS = this.hud.querySelector('.inv-s')!;
-    this.e.invB = this.hud.querySelector('.inv-b')!;
     this.e.pcIcon = this.hud.querySelector('.pc-icon')!;
     this.e.pcName = this.hud.querySelector('.pc-name')!;
     this.e.pcStats = this.hud.querySelector('.pc-stats')!;
@@ -160,7 +156,6 @@ export class Hud {
         this.pending[key] = true;
       });
     press(this.e.jump, 'jump');
-    press(this.e.heal, 'heal');
     press(this.e.reload, 'reload');
     press(this.e.pickcard, 'pickup');
 
@@ -168,7 +163,6 @@ export class Hud {
       this.keys.add(ev.code);
       if (ev.repeat) return;
       if (ev.code === 'Space') { this.pending.jump = true; ev.preventDefault(); }
-      if (ev.code === 'KeyH') this.pending.heal = true;
       if (ev.code === 'KeyR') this.pending.reload = true;
       if (ev.code === 'KeyE') this.pending.pickup = true;
       if (ev.code === 'Escape' && this.game) this.paused ? this.closeSettings() : this.openSettings(true);
@@ -438,15 +432,11 @@ export class Hud {
     this.e.hpBar.style.background = p.hp > 50 ? '' : p.hp > 25 ? '#ffcc00' : '#ff3b30';
     this.e.hpText.textContent = String(Math.ceil(Math.max(0, p.hp)));
     this.e.arBar.style.width = `${p.armor}%`;
-    this.e.invS.textContent = `Kleine Medikits: ${p.medkits}`;
-    this.e.invB.textContent = `Große: ${p.bigmeds}`;
 
     const inPlane = p.phase === 'plane';
     const ground = p.phase === 'ground' && p.alive && !game.over;
     this.e.jump.classList.toggle('hidden', !inPlane);
     this.e.buttons.classList.toggle('hidden', !ground);
-    this.e.heal.innerHTML = `Heilen<small>H · ${p.medkits + p.bigmeds}</small>`;
-    this.e.heal.classList.toggle('dim', p.medkits + p.bigmeds === 0 || p.hp >= 100);
 
     // Aufheben-Karte für Waffen
     const nw = ground && !this.touch && game.nearbyWeapon ? game.nearbyWeapon : null;

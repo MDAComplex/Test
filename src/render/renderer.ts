@@ -952,9 +952,15 @@ export class Renderer {
       vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
       fragmentShader: `uniform vec3 uCol; uniform float uLen; varying vec2 vUv;
         void main(){
-          float dash = step(0.45, fract(vUv.x * uLen * 0.8));
-          float side = 1.0 - abs(vUv.y - 0.5) * 2.0;
-          float a = (1.0 - vUv.x) * 0.75 * dash * smoothstep(0.0, 0.5, side);
+          // runde Punkte im Abstand von 0.8 Einheiten
+          float gap = 0.8;
+          float along = vUv.x * uLen;
+          float fx = (fract(along / gap) - 0.5) * gap;
+          float fy = (vUv.y - 0.5) * 0.4;
+          float d = length(vec2(fx, fy));
+          float dot = 1.0 - smoothstep(0.09, 0.12, d);
+          float a = dot * (0.95 - vUv.x * 0.35);
+          if (a < 0.01) discard;
           gl_FragColor = vec4(uCol, a);
         }`,
     });
@@ -1219,9 +1225,9 @@ export class Renderer {
       const len = game.rayLength(p.x, p.y, p.aim, p.weapon.range) * S;
       this.aimLine.position.set(p.x * S + Math.cos(p.aim) * 0.9, 0.12, p.y * S + Math.sin(p.aim) * 0.9);
       this.aimLine.rotation.y = -p.aim;
-      this.aimLine.scale.set(Math.max(0.5, len - 0.9), 1, p.weapon.id === 'shotgun' ? 0.5 : 0.22);
-      this.aimMat.uniforms.uLen.value = len;
-      (this.aimMat.uniforms.uCol.value as THREE.Color).setHex(TIER_COLORS[p.weapon.tier]);
+      const l = Math.max(0.5, len - 0.9);
+      this.aimLine.scale.set(l, 1, 0.4);
+      this.aimMat.uniforms.uLen.value = l;
     }
 
     this.updateBullets(game, dt);

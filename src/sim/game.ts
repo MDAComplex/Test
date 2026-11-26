@@ -26,6 +26,8 @@ export interface Bullet {
   id: number;
   x: number; y: number; vx: number; vy: number;
   owner: Fighter; dmg: number; traveled: number; range: number; weapon: string; wid: WeaponId;
+  /** genaue Reichweite; danach streut die Kugel stärker */
+  eff: number; strayed: boolean;
   dead: boolean;
 }
 export interface Circle { x: number; y: number; r: number }
@@ -203,7 +205,6 @@ export class Game {
     for (let i = 0; i < FIGHTER_COUNT - 1; i++) {
       const f = this.addFighter(names[i], false, BODY_COLORS[i % BODY_COLORS.length]);
       f.strafe = Math.random() < 0.5 ? 1 : -1;
-      f.medkits = Math.random() < 0.3 ? 1 : 0;
       this.planBotDrop(f);
     }
     const pp = this.planePos();
@@ -450,7 +451,6 @@ export class Game {
     f.moveX = mx;
     f.moveY = my;
     if (f.phase !== 'ground') return;
-    if (this.input.heal) this.startHeal(f, now);
     if (this.input.reload) this.startReload(f, now);
     if (this.input.pickup && this.nearbyWeapon && !this.nearbyWeapon.taken && (!this.pick || this.pick.loot !== this.nearbyWeapon)) {
       this.pick = { loot: this.nearbyWeapon, t: 0, total: PICK_TIME.weapon };
@@ -581,7 +581,7 @@ export class Game {
       const a = f.aim + (Math.random() - 0.5) * 2 * (w.spread + extra);
       this.bullets.push({
         id: this.ids++, x: sx, y: sy, vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed,
-        owner: f, dmg: f.isPlayer ? w.damage : w.damage * 0.85, traveled: 0, range: w.range * 1.1, weapon: w.name, wid: w.id, dead: false,
+        owner: f, dmg: f.isPlayer ? w.damage : w.damage * 0.85, traveled: 0, range: w.range * (w.splash ? 1 : 1.6), weapon: w.name, wid: w.id, dead: false, eff: w.range, strayed: false,
       });
     }
     if (!f.isPlayer) f.aimError = (Math.random() - 0.5) * 0.4;
@@ -650,6 +650,16 @@ export class Game {
         b.y = ny;
         b.traveled += Math.sqrt(seg2);
         if (b.traveled >= b.range) b.dead = true;
+        else if (!b.strayed && b.traveled > b.eff) {
+          // jenseits der genauen Reichweite: Kugel weicht ab und verliert Wucht
+          b.strayed = true;
+          const w = WEAPONS[b.wid];
+          const a = Math.atan2(b.vy, b.vx) + (Math.random() - 0.5) * 2 * (w.spread * 2 + 0.12);
+          const sp = Math.hypot(b.vx, b.vy);
+          b.vx = Math.cos(a) * sp;
+          b.vy = Math.sin(a) * sp;
+          b.dmg *= 0.6;
+        }
       }
     }
     this.bullets = this.bullets.filter((b) => !b.dead);
@@ -719,8 +729,6 @@ export class Game {
     const drops: LootKind[] = [];
     if (f.weapon.id !== 'pistol') drops.push(`w:${f.weapon.id}` as LootKind);
     if (f.ammo >= 15) drops.push('ammo');
-    for (let i = 0; i < Math.min(2, f.medkits); i++) drops.push('medkit');
-    if (f.bigmeds > 0) drops.push('bigmed');
     if (f.armor >= 25) drops.push('armor');
     const off = Math.random() * Math.PI;
     drops.forEach((k, i) => {
@@ -771,7 +779,6 @@ export class Game {
     const t = f.target;
     let dx = 0, dy = 0;
 
-    if (!t && f.hp < 65 && (f.medkits > 0 || f.bigmeds > 0)) this.startHeal(f, now);
     if (f.lootTarget && (f.lootTarget.taken || now > f.lootUntil)) f.lootTarget = null;
 
     if (t) {
@@ -848,8 +855,9 @@ export class Game {
   private isUseful(f: Fighter, k: LootKind) {
     if (k === 'ammo') return f.ammo < 90;
     if (k === 'armor') return f.armor < 100;
-    if (k === 'medkit') return f.medkits < 3;
-    if (k === 'bigmed') return f.bigmeds < 2;
+    // Heilung wird sofort verbraucht: nur nützlich, wenn Leben fehlt
+    if (k === 'medkit') return f.hp < (f.isPlayer ? 100 : 85);
+    if (k === 'bigmed') return f.hp < (f.isPlayer ? 100 : 60);
     return WEAPONS[k.slice(2) as WeaponId].tier > f.weapon.tier;
   }
 
@@ -970,12 +978,11 @@ export class Game {
     } else if (k === 'armor') {
       if (f.armor >= 100) return false;
       f.armor = Math.min(100, f.armor + 50);
-    } else if (k === 'medkit') {
-      if (f.medkits >= 3) return false;
-      f.medkits++;
-    } else if (k === 'bigmed') {
-      if (f.bigmeds >= 2) return false;
-      f.bigmeds++;
+    } else if (k === 'medkit' || k === 'bigmed') {
+      if (f.hp >= 100) return false;
+      f.healAmt = k === 'bigmed' ? 70 : 30;
+      f.hp = Math.min(100, f.hp + f.healAmt);
+      this.events.push({ type: 'heal', f });
     } else {
       const w = WEAPONS[k.slice(2) as WeaponId];
       if (!manual && (f.isPlayer || w.tier <= f.weapon.tier)) return false;
@@ -988,7 +995,7 @@ export class Game {
     }
     l.taken = true;
     this.events.push({ type: 'take', loot: l });
-    if (f.isPlayer) this.events.push({ type: 'toast', text: `+ ${lootLabel(k)}`, color: '#ffffff' });
+    if (f.isPlayer && k !== 'medkit' && k !== 'bigmed') this.events.push({ type: 'toast', text: `+ ${lootLabel(k)}`, color: '#ffffff' });
     return true;
   }
 
