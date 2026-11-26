@@ -1115,7 +1115,7 @@ export class Renderer {
       const rv = game.map.river;
       const curve = new THREE.CatmullRomCurve3(rv.pts.map((p) => new THREE.Vector3(p.x * S, 0, p.y * S)));
       const n = 320, half = (rv.width / 2 + 8) * S;
-      const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+      const pos: number[] = [], uv: number[] = [], idx: number[] = [], edge: number[] = [];
       let along = 0;
       let prev = curve.getPointAt(0);
       let count = 0;
@@ -1123,11 +1123,14 @@ export class Renderer {
         const t = i / n, p = curve.getPointAt(t), tg = curve.getTangentAt(t);
         along += p.distanceTo(prev);
         prev = p;
-        // nur auf der Insel (endet an der Küste, ragt nicht übers Meer)
-        if (p.x < 0 || p.z < 0 || p.x > W || p.z > W) continue;
+        // Abstand zur Inselkante (negativ = über dem Meer); weit draußen nicht mehr zeichnen
+        const ed = Math.min(p.x, p.z, W - p.x, W - p.z);
+        if (ed < -9) continue;
         const nx = -tg.z, nz = tg.x;
-        const cx = (v: number) => Math.min(W, Math.max(0, v));
-        pos.push(cx(p.x + nx * half), 0.05, cx(p.z + nz * half), cx(p.x - nx * half), 0.05, cx(p.z - nz * half));
+        // hinter der Küste fällt das Wasser sanft auf Meereshöhe ab
+        const y = ed >= 0 ? 0.05 : 0.05 - Math.min(1, -ed / 3) * 0.43;
+        pos.push(p.x + nx * half, y, p.z + nz * half, p.x - nx * half, y, p.z - nz * half);
+        edge.push(ed, ed);
         uv.push(along, 0, along, 1);
         if (count > 0) { const a = (count - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
         count++;
@@ -1135,12 +1138,16 @@ export class Renderer {
       const rg = new THREE.BufferGeometry();
       rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       rg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      rg.setAttribute('aEdge', new THREE.Float32BufferAttribute(edge, 1));
       rg.setIndex(idx);
       this.riverMat = new THREE.ShaderMaterial({
         side: THREE.DoubleSide,
+        transparent: true,
+        depthWrite: false,
         uniforms: { uT: this.windTime },
-        vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+        vertexShader: `attribute float aEdge; varying vec2 vUv; varying float vEdge; void main(){ vUv = uv; vEdge = aEdge; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
         fragmentShader: `uniform float uT; varying vec2 vUv;
+          varying float vEdge;
           void main(){
             float u = vUv.x, v = vUv.y;
             float edge = abs(v - 0.5) * 2.0;
@@ -1152,8 +1159,14 @@ export class Renderer {
             col += vec3(smoothstep(0.88, 1.0, s1) * 0.15 + smoothstep(0.93, 1.0, s2) * 0.08) * (1.0 - edge * 0.6);
             // Schaum am Ufer
             float foam = smoothstep(0.8, 0.96, edge) * (0.65 + 0.35 * sin(u * 2.3 - uT * 2.6));
+            // Mündung: zur Küste hin heller und flacher, Ufer-Schaum verschwindet, dann weich ausblenden
+            float mouth = 1.0 - smoothstep(-2.0, 10.0, vEdge);
+            foam *= 1.0 - mouth;
             col = mix(col, vec3(0.95, 0.98, 1.0), foam);
-            gl_FragColor = vec4(col, 1.0);
+            col = mix(col, vec3(0.45, 0.85, 0.9), mouth * 0.85);
+            // über dem Meer weich ins Flachwasser ausblenden
+            float a = 1.0 - smoothstep(1.0, 8.0, -vEdge);
+            gl_FragColor = vec4(col, a);
           }`,
       });
       this.perRound.push(rg, this.riverMat);
