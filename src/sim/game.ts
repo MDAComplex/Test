@@ -4,6 +4,12 @@ import { MapData, LootKind, Obs, House } from '../mapgen';
 import { botNames, BODY_COLORS, PLAYER_COLOR } from '../names';
 import { recordResult } from '../storage';
 
+/** Bots tragen ab und zu ein Outfit, damit man die neuen Skins im Spiel sieht */
+const BOT_OUTFIT = () => {
+  const r = Math.random();
+  return r < 0.1 ? 'astronaut' : r < 0.2 ? 'skeleton' : r < 0.3 ? 'office' : 'none';
+};
+
 // ---------- Typen ----------
 
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -106,7 +112,7 @@ export class Fighter {
   reviveT = 0;
   leader: Fighter | null = null;
   /** Aussehen: Figur und Fallschirm */
-  look: { char: 'man' | 'woman'; chute: 'round' | 'wing' } = { char: 'man', chute: 'round' };
+  look: { char: 'man' | 'woman'; chute: 'round' | 'wing'; outfit?: 'none' | 'astronaut' | 'skeleton' | 'office' } = { char: 'man', chute: 'round', outfit: 'none' };
   vx = 0;
   vy = 0;
   aiming = false;
@@ -244,7 +250,7 @@ export class Game {
     for (let i = 0; i < count - 1; i++) {
       const f = this.addFighter(names[i], false, BODY_COLORS[i % BODY_COLORS.length]);
       f.team = Math.floor((i + 1) / size);
-      f.look = { char: Math.random() < 0.5 ? 'man' : 'woman', chute: Math.random() < 0.5 ? 'round' : 'wing' };
+      f.look = { char: Math.random() < 0.5 ? 'man' : 'woman', chute: Math.random() < 0.5 ? 'round' : 'wing', outfit: BOT_OUTFIT() };
       f.strafe = Math.random() < 0.5 ? 1 : -1;
       const st = Math.random();
       f.style = st < 0.3 ? 'aggro' : st < 0.6 ? 'careful' : 'normal';
