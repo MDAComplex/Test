@@ -916,30 +916,6 @@ export class Renderer {
     const groundMat = new THREE.MeshToonMaterial({ map: tex, gradientMap: this.gradient });
     this.perRound.push(tex, groundMat);
     flat(add(this.g.plane, groundMat, W / 2, 0, W / 2, W, W, 1));
-    // feine, gekachelte Detail-Struktur: hält den Boden auch aus der Nähe scharf
-    const detail = canvasTexture(512, 512, (c) => {
-      let s2 = 7;
-      const rr = () => ((s2 = (s2 * 1664525 + 1013904223) >>> 0) / 4294967296);
-      for (let i = 0; i < 1400; i++) {
-        const x = rr() * 512, y = rr() * 512;
-        c.fillStyle = rr() < 0.5 ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.07)';
-        c.beginPath(); c.arc(x, y, 1 + rr() * 2.5, 0, Math.PI * 2); c.fill();
-      }
-      c.strokeStyle = 'rgba(20,60,20,0.16)';
-      c.lineWidth = 1.6;
-      c.lineCap = 'round';
-      for (let i = 0; i < 520; i++) {
-        const x = rr() * 512, y = rr() * 512, h = 5 + rr() * 6;
-        c.beginPath(); c.moveTo(x, y); c.lineTo(x - 2, y - h); c.moveTo(x + 2, y); c.lineTo(x + 3.5, y - h * 0.9); c.stroke();
-      }
-    });
-    detail.wrapS = detail.wrapT = THREE.RepeatWrapping;
-    detail.repeat.set(W / 7, W / 7);
-    const detailMat = new THREE.MeshBasicMaterial({ map: detail, transparent: true, depthWrite: false });
-    this.perRound.push(detail, detailMat);
-    const dp = flat(add(this.g.plane, detailMat, W / 2, 0.012, W / 2, W, W, 1));
-    dp.receiveShadow = false;
-    dp.renderOrder = 1;
 
     // Häuser
     const floorTex = canvasTexture(128, 128, (c) => {
