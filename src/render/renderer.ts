@@ -659,7 +659,7 @@ export class Renderer {
       // Teamkameraden: blauer Ring am Boden
       const ring = new THREE.Mesh(this.g.ring, this.m.mateRing);
       ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.06;
+      ring.position.y = 0.13;
       ring.scale.setScalar(1.1);
       root.add(ring);
     }
@@ -690,7 +690,7 @@ export class Renderer {
     const tier = this.lootTier(l.kind);
     const ring = new THREE.Mesh(this.g.ring, this.disc[tier]);
     ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.06;
+    ring.position.y = 0.13;
     ring.scale.setScalar(1.15);
     root.add(ring);
     // Lichtstrahl nur bei sehr seltenen Waffen (lila/gold)
@@ -1515,7 +1515,7 @@ export class Renderer {
     for (const f of game.fighters) this.updateFighter(f, game, dt, playerHouse);
 
     this.playerRing.visible = p.alive && p.phase === 'ground';
-    this.playerRing.position.set(p.x * S, 0.06, p.y * S);
+    this.playerRing.position.set(p.x * S, 0.13, p.y * S);
     this.playerRing.rotation.z = this.time;
 
     // Ziellinie des Spielers
@@ -1525,7 +1525,7 @@ export class Renderer {
       // Ziellinie zeigt zur Maus / zum rechten Stick, auch wenn die Figur in Laufrichtung schaut
       const aimA = game.input.aim ?? p.aim;
       const len = game.rayLength(p.x, p.y, aimA, p.weapon.range) * S;
-      this.aimLine.position.set(p.x * S + Math.cos(aimA) * 0.9, 0.12, p.y * S + Math.sin(aimA) * 0.9);
+      this.aimLine.position.set(p.x * S + Math.cos(aimA) * 0.9, 0.16, p.y * S + Math.sin(aimA) * 0.9);
       this.aimLine.rotation.y = -aimA;
       const l = Math.max(0.5, len - 0.9);
       this.aimLine.scale.set(l, 1, 0.4);
@@ -1810,7 +1810,7 @@ export class Renderer {
     }
     if (this.progTrack.parent !== this.world) this.world!.add(this.progTrack);
     this.progTrack.visible = container;
-    this.progTrack.position.set(target.x * S, 0.085, target.y * S);
+    this.progTrack.position.set(target.x * S, 0.14, target.y * S);
     this.progTrack.scale.setScalar(target.r);
     const steps = Math.max(1, Math.round(Math.min(1, target.t) * 64));
     const key = `${steps}-${container}`;
@@ -1831,7 +1831,7 @@ export class Renderer {
     this.progMesh.visible = true;
     this.progMat.color.setHex(target.color);
     this.progMat.opacity = container ? 0.95 : 0.55;
-    this.progMesh.position.set(target.x * S, 0.09, target.y * S);
+    this.progMesh.position.set(target.x * S, 0.15, target.y * S);
     this.progMesh.scale.setScalar(target.r);
   }
 
@@ -1854,7 +1854,7 @@ export class Renderer {
     }
     if (this.reloadMesh.parent !== this.world) this.world!.add(this.reloadMesh);
     this.reloadMesh.visible = true;
-    this.reloadMesh.position.set(p.x * S, 0.08, p.y * S);
+    this.reloadMesh.position.set(p.x * S, 0.15, p.y * S);
   }
 
   private reviveMesh: THREE.Mesh | null = null;
@@ -1875,7 +1875,7 @@ export class Renderer {
     }
     if (this.reviveMesh.parent !== this.world) this.world!.add(this.reviveMesh);
     this.reviveMesh.visible = true;
-    this.reviveMesh.position.set(target.x * S, 0.09, target.y * S);
+    this.reviveMesh.position.set(target.x * S, 0.15, target.y * S);
   }
 
   private updateLootAndContainers(dt: number) {
