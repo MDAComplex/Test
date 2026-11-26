@@ -142,6 +142,9 @@ export class Renderer {
   private props: THREE.Object3D[] = [];
   private contrailT = 0;
   private playerRing!: THREE.Mesh;
+  private doorTex: THREE.CanvasTexture | null = null;
+  private doorGlowTex: THREE.CanvasTexture | null = null;
+  private doorLights: THREE.Mesh[] = [];
   private progMesh: THREE.Mesh | null = null;
   private progKey = '';
   private progTrack: THREE.Mesh | null = null;
@@ -891,6 +894,60 @@ export class Renderer {
       this.houses.push({ roof, roofMats: [trimMat, roofMat, chimMat], wallMat, fade: 1 });
     });
 
+    // Lichtschein aus den Hauseingängen
+    if (!this.doorTex) {
+      // Bodenlicht: hell an der Tür, nach außen breiter und durchsichtig
+      this.doorTex = canvasTexture(128, 128, (c) => {
+        const g = c.createLinearGradient(0, 0, 0, 128);
+        g.addColorStop(0, 'rgba(255,214,120,0.95)');
+        g.addColorStop(0.45, 'rgba(255,196,90,0.45)');
+        g.addColorStop(1, 'rgba(255,180,70,0)');
+        c.fillStyle = g;
+        c.beginPath();
+        c.moveTo(34, 0); c.lineTo(94, 0); c.lineTo(126, 128); c.lineTo(2, 128);
+        c.closePath();
+        c.fill();
+        // weiche Seitenränder
+        c.globalCompositeOperation = 'destination-out';
+        const side = c.createLinearGradient(0, 0, 128, 0);
+        side.addColorStop(0, 'rgba(0,0,0,0.9)'); side.addColorStop(0.22, 'rgba(0,0,0,0)');
+        side.addColorStop(0.78, 'rgba(0,0,0,0)'); side.addColorStop(1, 'rgba(0,0,0,0.9)');
+        c.fillStyle = side;
+        c.fillRect(0, 0, 128, 128);
+      });
+      // Leuchten im Türrahmen: unten hell, nach oben ausblendend
+      this.doorGlowTex = canvasTexture(64, 64, (c) => {
+        const g = c.createLinearGradient(0, 64, 0, 0);
+        g.addColorStop(0, 'rgba(255,220,140,0.85)');
+        g.addColorStop(1, 'rgba(255,200,110,0)');
+        c.fillStyle = g;
+        c.fillRect(0, 0, 64, 64);
+      });
+    }
+    const floorLight = new THREE.MeshBasicMaterial({ map: this.doorTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const frameLight = new THREE.MeshBasicMaterial({ map: this.doorGlowTex!, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    this.perRound.push(floorLight, frameLight);
+    this.doorLights = [];
+    for (const h of game.houses) {
+      for (const d of h.doors) {
+        const ang = Math.atan2(d.ny, d.nx);
+        const len = 4.2, wid = 5.6;
+        const fl = new THREE.Mesh(this.g.plane, floorLight);
+        // helles Ende der Textur zeigt zur Tür
+        fl.rotation.set(-Math.PI / 2, 0, Math.atan2(d.nx, d.ny));
+        fl.position.set(d.x * S + d.nx * len / 2, 0.05, d.y * S + d.ny * len / 2);
+        fl.scale.set(wid, len, 1);
+        fl.renderOrder = 1;
+        world.add(fl);
+        const gl = new THREE.Mesh(this.g.plane, frameLight);
+        gl.rotation.y = -ang + Math.PI / 2;
+        gl.position.set(d.x * S + d.nx * 0.05, 1.0, d.y * S + d.ny * 0.05);
+        gl.scale.set(4.2, 2.0, 1);
+        world.add(gl);
+        this.doorLights.push(fl, gl);
+      }
+    }
+
     // Dorfbrunnen
     const t = game.map.town;
     add(this.g.cyl, this.m.rock, t.x * S, 0.4, t.y * S, 2.2, 0.8, 2.2);
@@ -1341,6 +1398,11 @@ export class Renderer {
     this.zoneMat.uniforms.uNR.value = game.zoneState !== 'done' ? zn.r * S : 0;
     this.wallMat.uniforms.uT.value = this.time;
     this.waterMat.uniforms.uT.value = this.time;
+    if (this.doorLights.length) {
+      const k = 0.85 + Math.sin(this.time * 2.2) * 0.15;
+      (this.doorLights[0].material as THREE.MeshBasicMaterial).opacity = k;
+      if (this.doorLights[1]) (this.doorLights[1].material as THREE.MeshBasicMaterial).opacity = k;
+    }
     this.zoneWall.position.set(zc.x * S, 5, zc.y * S);
     this.zoneWall.scale.set(Math.max(0.01, zc.r * S), 1, Math.max(0.01, zc.r * S));
 

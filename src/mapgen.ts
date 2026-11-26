@@ -5,7 +5,8 @@ export type ObsKind = 'tree' | 'rock' | 'crate' | 'chest' | 'airdrop' | 'wall' |
 export interface Obs { kind: ObsKind; x: number; y: number; r: number; w: number; h: number }
 export type LootKind = 'ammo' | 'armor' | 'medkit' | 'bigmed' | 'w:pistol' | 'w:smg' | 'w:shotgun' | 'w:rifle' | 'w:sniper' | 'w:minigun' | 'w:rocket';
 export interface LootSpawn { x: number; y: number; kind: LootKind }
-export interface House { x: number; y: number; s: number }
+export interface Door { x: number; y: number; nx: number; ny: number }
+export interface House { x: number; y: number; s: number; doors: Door[] }
 export interface Area { x: number; y: number; r: number }
 export interface Field { x: number; y: number; w: number; h: number }
 export interface MapData {
@@ -94,7 +95,8 @@ export function generateMap(seed: number): MapData {
   const town: Area = { x: WORLD * (0.35 + r() * 0.3), y: WORLD * (0.35 + r() * 0.3), r: 700 };
 
   const addHouse = (p: { x: number; y: number }, s: number, fenced: boolean) => {
-    houses.push({ x: p.x, y: p.y, s });
+    const house: House = { x: p.x, y: p.y, s, doors: [] };
+    houses.push(house);
     const t = 22, h = s / 2, door = 86;
     const doorA = Math.floor(r() * 4);
     const doorB = r() < 0.5 ? (doorA + 2) % 4 : -1;
@@ -108,6 +110,14 @@ export function generateMap(seed: number): MapData {
       add(fixed, mid + door / 2, b);
     };
     const isDoor = (side: number) => side === doorA || side === doorB;
+    // Türpositionen mit Richtung nach draußen (für den Lichtschein)
+    const sideInfo = [
+      { x: p.x, y: p.y - h, nx: 0, ny: -1 },
+      { x: p.x, y: p.y + h, nx: 0, ny: 1 },
+      { x: p.x - h, y: p.y, nx: -1, ny: 0 },
+      { x: p.x + h, y: p.y, nx: 1, ny: 0 },
+    ];
+    for (let side = 0; side < 4; side++) if (isDoor(side)) house.doors.push(sideInfo[side]);
     seg(true, p.y - h + t / 2, p.x - h, p.x + h, isDoor(0));
     seg(true, p.y + h - t / 2, p.x - h, p.x + h, isDoor(1));
     seg(false, p.x - h + t / 2, p.y - h + t, p.y + h - t, isDoor(2));
