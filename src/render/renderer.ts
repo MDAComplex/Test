@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { S, WORLD, PLANE_Z, PLANE_TIME } from '../config';
 import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop, isContainer } from '../sim/game';
 import { WEAPONS, TIER_COLORS, WeaponId } from '../weapons';
@@ -953,6 +954,19 @@ export class Renderer {
     add(this.g.cyl, this.m.rock, t.x * S, 0.4, t.y * S, 2.2, 0.8, 2.2);
     flat(add(this.g.circle, this.waterMat, t.x * S, 0.82, t.y * S, 1.9, 1.9, 1));
 
+    // statische Objekte werden pro Material zu einem einzigen Mesh zusammengefasst (weniger Draw-Calls)
+    const staticParts = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    const tmp = new THREE.Object3D();
+    const sadd = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1, rot?: THREE.Euler) => {
+      tmp.position.set(x, y, z);
+      tmp.scale.set(sx, sy, sz);
+      tmp.rotation.copy(rot ?? new THREE.Euler());
+      tmp.updateMatrix();
+      const g = (geo.index ? geo.toNonIndexed() : geo.clone()).applyMatrix4(tmp.matrix);
+      const list = staticParts.get(mat) ?? [];
+      list.push(g);
+      staticParts.set(mat, list);
+    };
     for (const o of game.obstacles) {
       const x = o.x * S, z = o.y * S;
       switch (o.kind) {
@@ -963,12 +977,11 @@ export class Renderer {
         }
         case 'rock': {
           const r = o.r * S;
-          const m = add(this.g.rock, this.m.rock, x, r * 0.42, z, r, r * 0.78, r);
-          m.rotation.set(Math.random() * 0.6, Math.random() * 6, Math.random() * 0.6);
+          sadd(this.g.rock, this.m.rock, x, r * 0.42, z, r, r * 0.78, r, new THREE.Euler(Math.random() * 0.6, Math.random() * 6, Math.random() * 0.6));
           break;
         }
         case 'tree': {
-          add(this.g.trunk, this.m.trunk, x, 1.1, z, 1, 2.2, 1);
+          sadd(this.g.trunk, this.m.trunk, x, 1.1, z, 1, 2.2, 1);
           const mats = [this.m.leaves0, this.m.leaves1, this.m.leaves2];
           const mat = mats[Math.floor(Math.random() * 3)];
           const big = add(this.g.blob, mat, x, 3.2, z, 2.1, 1.7, 2.1);
@@ -992,26 +1005,37 @@ export class Renderer {
           const n = Math.max(2, Math.round(L / 1.1));
           for (let i = 0; i <= n; i++) {
             const off = -L / 2 + (i / n) * L;
-            add(this.g.box, this.m.fence, x + (horiz ? off : 0), 0.55, z + (horiz ? 0 : off), 0.16, 1.1, 0.16);
+            sadd(this.g.box, this.m.fence, x + (horiz ? off : 0), 0.55, z + (horiz ? 0 : off), 0.16, 1.1, 0.16);
           }
-          for (const y of [0.42, 0.84]) add(this.g.box, this.m.fence, x, y, z, horiz ? L : 0.07, 0.1, horiz ? 0.07 : L);
+          for (const y of [0.42, 0.84]) sadd(this.g.box, this.m.fence, x, y, z, horiz ? L : 0.07, 0.1, horiz ? 0.07 : L);
           break;
         }
         case 'barrel': {
           const mat = Math.random() < 0.6 ? this.m.barrelRed : this.m.barrelBlue;
           const r = o.r * S;
-          add(this.g.cyl, mat, x, 0.72, z, r, 1.44, r);
-          add(this.g.cyl, this.m.barrelBand, x, 0.38, z, r * 1.04, 0.09, r * 1.04);
-          add(this.g.cyl, this.m.barrelBand, x, 1.06, z, r * 1.04, 0.09, r * 1.04);
+          sadd(this.g.cyl, mat, x, 0.72, z, r, 1.44, r);
+          sadd(this.g.cyl, this.m.barrelBand, x, 0.38, z, r * 1.04, 0.09, r * 1.04);
+          sadd(this.g.cyl, this.m.barrelBand, x, 1.06, z, r * 1.04, 0.09, r * 1.04);
           break;
         }
         case 'hay': {
-          add(this.g.box, this.m.hay, x, 0.62, z, o.w * S, 1.24, o.h * S);
-          add(this.g.box, this.m.hayDark, x - o.w * S * 0.25, 0.62, z, 0.1, 1.27, o.h * S + 0.03);
-          add(this.g.box, this.m.hayDark, x + o.w * S * 0.25, 0.62, z, 0.1, 1.27, o.h * S + 0.03);
+          sadd(this.g.box, this.m.hay, x, 0.62, z, o.w * S, 1.24, o.h * S);
+          sadd(this.g.box, this.m.hayDark, x - o.w * S * 0.25, 0.62, z, 0.1, 1.27, o.h * S + 0.03);
+          sadd(this.g.box, this.m.hayDark, x + o.w * S * 0.25, 0.62, z, 0.1, 1.27, o.h * S + 0.03);
           break;
         }
       }
+    }
+
+    for (const [mat, geos] of staticParts) {
+      const merged = mergeGeometries(geos, false);
+      geos.forEach((g) => g.dispose());
+      if (!merged) continue;
+      this.perRound.push(merged);
+      const mesh = new THREE.Mesh(merged, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      world.add(mesh);
     }
 
     for (const b of game.bushes) {
@@ -1480,6 +1504,19 @@ export class Renderer {
       v.head.rotation.y = -Math.max(-0.75, Math.min(0.75, d));
     }
     v.chute.visible = f.phase === 'fall';
+    if (v.chute.visible && !f.isPlayer) {
+      // Schirme anderer Spieler, die nah vor der Kamera schweben, durchsichtig machen
+      const dx = f.x * S - this.camTarget.x, dz = f.y * S - this.camTarget.z;
+      const near = Math.hypot(dx, dz) < 14 && f.z * S > this.camTarget.y + 4;
+      const canopy = v.chute.children[0] as THREE.Mesh;
+      const mat = canopy.material as THREE.MeshToonMaterial;
+      const target = near ? 0.3 : 1;
+      if (Math.abs(mat.opacity - target) > 0.01) {
+        mat.transparent = true;
+        mat.opacity = lerp(mat.opacity, target, 0.15);
+        mat.depthWrite = mat.opacity > 0.95;
+      }
+    }
     if (!v.root.visible) return;
 
     const speed = Math.hypot(f.vx, f.vy);

@@ -113,5 +113,60 @@ export class Sfx {
       }
     }
   }
+  private music: { nodes: AudioScheduledSourceNode[]; gain: GainNode; timer: number } | null = null;
+  /** ruhige, sich wiederholende Hintergrundmusik fürs Menü */
+  menuMusic(on: boolean) {
+    if (!this.ctx || !this.master) return;
+    if (on && this.enabled && !this.music) {
+      const c = this.ctx;
+      const gain = c.createGain();
+      gain.gain.value = 0;
+      gain.gain.setTargetAtTime(0.07, c.currentTime, 1.5);
+      const lp = c.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1400;
+      gain.connect(lp).connect(this.master);
+      // Akkordfolge: C – Am – F – G, jeweils 3 s
+      const chords = [[261.6, 329.6, 392], [220, 261.6, 329.6], [174.6, 220, 261.6], [196, 246.9, 293.7]];
+      const nodes: AudioScheduledSourceNode[] = [];
+      let i = 0;
+      const play = () => {
+        const t = c.currentTime;
+        for (const f of chords[i % chords.length]) {
+          const o = c.createOscillator();
+          o.type = 'triangle';
+          o.frequency.value = f / 2;
+          const g = c.createGain();
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(0.5, t + 0.6);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + 3.2);
+          o.connect(g).connect(gain);
+          o.start(t);
+          o.stop(t + 3.3);
+        }
+        // kleine Melodienote obendrauf
+        const m = c.createOscillator();
+        m.type = 'sine';
+        m.frequency.value = chords[i % chords.length][2] * (i % 2 ? 2 : 1.5);
+        const mg = c.createGain();
+        mg.gain.setValueAtTime(0.0001, t + 1);
+        mg.gain.exponentialRampToValueAtTime(0.25, t + 1.1);
+        mg.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+        m.connect(mg).connect(gain);
+        m.start(t + 1);
+        m.stop(t + 2.5);
+        i++;
+      };
+      play();
+      const timer = window.setInterval(play, 3000);
+      this.music = { nodes, gain, timer };
+    } else if ((!on || !this.enabled) && this.music) {
+      const mu = this.music;
+      this.music = null;
+      window.clearInterval(mu.timer);
+      mu.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.4);
+      setTimeout(() => mu.gain.disconnect(), 1500);
+    }
+  }
   kill() { if (this.ok()) { this.tone(660, 660, 0.08, 0.2, 'square'); setTimeout(() => this.ctx && this.enabled && this.tone(990, 990, 0.12, 0.2, 'square'), 90); } }
 }

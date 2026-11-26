@@ -152,6 +152,12 @@ export class Hud {
     this.aim = { active: false, id: -1, bx: 0, by: 0, x: 0, y: 0, el: this.hud.querySelector('.joy.aim')! };
 
     const startAudio = () => this.sfx.unlock();
+    const firstTouch = () => {
+      startAudio();
+      if (!this.game) this.sfx.menuMusic(true);
+      window.removeEventListener('pointerdown', firstTouch);
+    };
+    window.addEventListener('pointerdown', firstTouch);
     this.menu.querySelector('.play')!.addEventListener('click', () => { startAudio(); this.cb.play(); });
     this.menu.querySelector('.opensettings')!.addEventListener('click', () => this.openSettings(false));
     this.over.querySelector('.again')!.addEventListener('click', () => { startAudio(); this.cb.play(); });
@@ -270,6 +276,8 @@ export class Hud {
     });
     this.e.buttons?.classList.toggle('left', s.swap);
     this.sfx.enabled = s.sound;
+    if (!s.sound) this.sfx.menuMusic(false);
+    else if (!this.game) this.sfx.menuMusic(true);
     this.stickMax = s.stick === 'small' ? 44 : s.stick === 'large' ? 70 : 55;
     for (const st of [this.move, this.aim]) {
       if (!st) continue;
@@ -307,6 +315,7 @@ export class Hud {
     this.menu.querySelector('.portrait')!.classList.toggle('hidden', window.innerWidth > window.innerHeight);
     this.e.specbar.classList.add('hidden');
     this.renderProfile();
+    this.sfx.menuMusic(true);
   }
 
   get playerColor() { return skinColor(this.profile); }
@@ -360,6 +369,7 @@ export class Hud {
     this.feed.forEach((f) => f.el.remove());
     this.feed = [];
     this.reward = null;
+    this.sfx.menuMusic(false);
     this.e.specbar.classList.add('hidden');
     this.tut = { step: this.profile.tutorialDone ? -1 : 0, t: 0 };
     this.lastStepPos = { x: game.player.x, y: game.player.y };
