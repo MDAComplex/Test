@@ -71,6 +71,7 @@ export class Hud {
         <div class="toast"></div>
         <div class="prompt"></div>
         <button class="pickcard hidden"><span class="pc-icon"></span><span class="pc-text"><b class="pc-name"></b><small class="pc-stats"></small></span><span class="pc-key">E</span></button>
+        <div class="killnote hidden"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span class="kn-name"></span></div>
         <div class="bottom">
           <div class="wrow"><span class="wname"></span><span class="ammo"></span></div>
           <button class="altslot hidden"><span class="altname"></span><small class="altkey">Q</small></button>
@@ -138,7 +139,7 @@ export class Hud {
     this.ringArc = this.ring.querySelector('.fg') as SVGCircleElement;
     this.ringArc.style.strokeDasharray = String(RING_C);
 
-    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname']) {
+    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname', 'killnote']) {
       this.e[k] = this.hud.querySelector('.' + k)!;
     }
     this.e.arBar = this.hud.querySelector('.bar.ar i')!;
@@ -467,7 +468,7 @@ export class Hud {
           this.e.feed.append(el);
           this.feed.push({ el, t: performance.now() });
           while (this.feed.length > 5) this.feed.shift()!.el.remove();
-          if (ev.mine) { this.sfx.kill(); this.hitMarker(r, ev.f.x, ev.f.y, true); }
+          if (ev.mine) { this.sfx.kill(); this.hitMarker(r, ev.f.x, ev.f.y, true); this.killNote(ev.victim); }
           break;
         }
         case 'toast':
@@ -523,6 +524,18 @@ export class Hud {
     el.style.transform = `translate(${s.x}px, ${s.y}px)`;
     this.labelsLayer.append(el);
     setTimeout(() => el.remove(), kill ? 600 : 260);
+  }
+
+  /** kleines Fadenkreuz mit Namen über der Lebensleiste, blendet wieder aus */
+  private killNoteTimer = 0;
+  private killNote(name: string) {
+    const el = this.e.killnote;
+    el.querySelector('.kn-name')!.textContent = name;
+    el.classList.remove('hidden', 'show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    window.clearTimeout(this.killNoteTimer);
+    this.killNoteTimer = window.setTimeout(() => el.classList.add('hidden'), 2300);
   }
 
   /** roter Bogen am Bildschirmrand: aus dieser Richtung kam der Schaden */

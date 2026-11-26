@@ -800,7 +800,6 @@ export class Game {
       mine: attacker === this.player,
       me: f === this.player,
     });
-    if (attacker === this.player && f !== this.player) this.events.push({ type: 'toast', text: `${f.name} eliminiert!`, color: '#ffd23f' });
     if (f === this.player) this.endGame(false, alive + 1);
     else if (alive === 1 && this.player.alive) this.endGame(true, 1);
   }
