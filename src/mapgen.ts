@@ -22,14 +22,15 @@ export interface MapData {
 export const ROCK_SIZES = [28, 38, 48];
 
 export function randomLootKind(r: () => number): LootKind {
+  // Verteilung: Munition 50 %, Waffen 22 %, Heilung 18 %, Schild 10 %
   const v = r();
-  if (v < 0.32) {
+  if (v < 0.22) {
     const w = r();
-    return w < 0.12 ? 'w:pistol' : w < 0.42 ? 'w:smg' : w < 0.66 ? 'w:shotgun' : w < 0.9 ? 'w:rifle' : 'w:sniper';
+    return w < 0.14 ? 'w:pistol' : w < 0.44 ? 'w:smg' : w < 0.68 ? 'w:shotgun' : w < 0.92 ? 'w:rifle' : 'w:sniper';
   }
-  if (v < 0.6) return 'ammo';
-  if (v < 0.76) return 'armor';
-  return v < 0.9 ? 'medkit' : 'bigmed';
+  if (v < 0.72) return 'ammo';
+  if (v < 0.82) return 'armor';
+  return v < 0.95 ? 'medkit' : 'bigmed';
 }
 
 export function generateMap(seed: number): MapData {
@@ -57,6 +58,17 @@ export function generateMap(seed: number): MapData {
       if (fits(x, y, rad, pad)) return { x, y };
     }
     return null;
+  };
+  /** Loot mit Mindestabstand: am Anfang liegt nichts übereinander */
+  const LOOT_GAP = 80;
+  const addLoot = (x: number, y: number, kind: LootKind) => {
+    for (const l of loot) if ((l.x - x) ** 2 + (l.y - y) ** 2 < LOOT_GAP * LOOT_GAP) return false;
+    for (const o of obstacles) {
+      if (o.kind !== 'chest' && o.kind !== 'crate') continue;
+      if (Math.abs(o.x - x) < o.w / 2 + 40 && Math.abs(o.y - y) < o.h / 2 + 40) return false;
+    }
+    loot.push({ x, y, kind });
+    return true;
   };
   const placeNear = (cx: number, cy: number, spread: number, rad: number, pad = 30, tries = 40) => {
     for (let i = 0; i < tries; i++) {
@@ -103,8 +115,12 @@ export function generateMap(seed: number): MapData {
     const chestAt = (cx: number, cy: number) => obstacles.push({ kind: 'chest', x: cx, y: cy, r: 24, w: 54, h: 40 });
     if (r() < 0.75) chestAt(p.x - h + t + 36, p.y - h + t + 30);
     if (s > 320 && r() < 0.6) chestAt(p.x + h - t - 36, p.y + h - t - 30);
-    const n = 2 + Math.floor(r() * 2) + (s > 330 ? 2 : 0);
-    for (let k = 0; k < n; k++) loot.push({ x: p.x + (r() - 0.5) * (s - 140), y: p.y + (r() - 0.5) * (s - 140), kind: randomLootKind(r) });
+    const n = 1 + Math.floor(r() * 2) + (s > 330 ? 1 : 0);
+    for (let k = 0; k < n; k++) {
+      for (let tries = 0; tries < 12; tries++) {
+        if (addLoot(p.x + (r() - 0.5) * (s - 150), p.y + (r() - 0.5) * (s - 150), randomLootKind(r))) break;
+      }
+    }
 
     // Zaun um den Hof (mit Lücken)
     if (fenced) {
@@ -166,7 +182,7 @@ export function generateMap(seed: number): MapData {
       if (obstacles.some((o) => o.kind === 'hay' && Math.hypot(o.x - hx, o.y - hy) < 110)) continue;
       obstacles.push({ kind: 'hay', x: hx, y: hy, r: 0, w: 72, h: 48 });
     }
-    for (let k = 0; k < 2; k++) loot.push({ x: p.x + (r() - 0.5) * w * 0.6, y: p.y + (r() - 0.5) * h * 0.6, kind: randomLootKind(r) });
+    addLoot(p.x + (r() - 0.5) * w * 0.6, p.y + (r() - 0.5) * h * 0.6, randomLootKind(r));
   }
 
   // Wälder
@@ -205,10 +221,9 @@ export function generateMap(seed: number): MapData {
     blocks.push({ x: p.x, y: p.y, r: 20 });
     obstacles.push({ kind: 'barrel', x: p.x, y: p.y, r: 17, w: 34, h: 34 });
   }
-  for (let i = 0; i < 210; i++) {
+  for (let i = 0; i < 120; i++) {
     const p = place(14, 8);
-    if (!p) continue;
-    loot.push({ x: p.x, y: p.y, kind: randomLootKind(r) });
+    if (p) addLoot(p.x, p.y, randomLootKind(r));
   }
   return { seed, obstacles, loot, houses, forests, ponds, fields, town };
 }

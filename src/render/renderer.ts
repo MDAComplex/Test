@@ -180,6 +180,18 @@ export class Renderer {
     particle: new THREE.BoxGeometry(0.16, 0.16, 0.16),
     bullet: new THREE.BoxGeometry(1, 1, 1),
     flash: new THREE.SphereGeometry(1, 10, 8),
+    shield: (() => {
+      const sh = new THREE.Shape();
+      sh.moveTo(-0.5, 0.5);
+      sh.quadraticCurveTo(0, 0.62, 0.5, 0.5);
+      sh.lineTo(0.5, 0.05);
+      sh.quadraticCurveTo(0.45, -0.4, 0, -0.62);
+      sh.quadraticCurveTo(-0.45, -0.4, -0.5, 0.05);
+      sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.12, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 2, curveSegments: 10 });
+      g.translate(0, 0, -0.06);
+      return g;
+    })(),
   };
 
   private m: Record<string, THREE.Material> = {};
@@ -678,8 +690,17 @@ export class Renderer {
         item.add(c, tip);
       }
     } else if (l.kind === 'armor') {
-      box(this.m.armor, 0.7, 0.8, 0.28);
-      box(this.m.armorLight, 0.3, 0.3, 0.3, 0, 0.12, 0);
+      // Schild-Symbol: oben gerade, unten spitz, mit hellem Rand und Emblem
+      const rim = new THREE.Mesh(this.g.shield, this.m.armorLight);
+      rim.scale.set(1.08, 1.08, 0.9);
+      rim.position.z = -0.03;
+      const face = new THREE.Mesh(this.g.shield, this.m.armor);
+      face.scale.set(0.9, 0.9, 1);
+      face.position.z = 0.02;
+      const emblem = new THREE.Mesh(this.g.shield, this.m.armorLight);
+      emblem.scale.set(0.38, 0.38, 1.4);
+      emblem.position.set(0, 0.04, 0.03);
+      for (const m of [rim, face, emblem]) { m.castShadow = true; item.add(m); }
     } else if (l.kind === 'bigmed') {
       box(this.m.red, 0.95, 0.6, 0.6);
       box(this.m.white, 0.18, 0.05, 0.5, 0, 0.31, 0);
