@@ -106,7 +106,7 @@ export const PHASES = [
 
 const CELL = 160;
 const GRID = Math.ceil(WORLD / CELL);
-const PICKUP_R = 34;
+const PICKUP_R = 40;
 const CRATE_REACH = 30;
 const CRATE_TIME = 1800;
 /** Aufhebe-Zeiten in ms */

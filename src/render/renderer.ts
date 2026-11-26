@@ -143,7 +143,7 @@ export class Renderer {
   private playerRing!: THREE.Mesh;
   private progMesh: THREE.Mesh | null = null;
   private progKey = '';
-  private progMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide });
+  private progMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
   private perRound: { dispose(): void }[] = [];
   private time = 0;
   private gradient: THREE.DataTexture;
@@ -637,16 +637,17 @@ export class Renderer {
     const ring = new THREE.Mesh(this.g.ring, this.disc[tier]);
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.06;
-    ring.scale.setScalar(0.8);
+    ring.scale.setScalar(1.15);
     root.add(ring);
     if (tier >= 3) {
       const beam = new THREE.Mesh(this.g.beam, this.beam[tier]);
-      beam.scale.set(1, tier >= 5 ? 6 : 3.2, 1);
+      beam.scale.set(1.4, tier >= 5 ? 6 : 3.2, 1.4);
       beam.position.y = tier >= 5 ? 3 : 1.6;
       root.add(beam);
     }
     const item = new THREE.Group();
-    item.position.y = 0.75;
+    item.position.y = 0.95;
+    item.scale.setScalar(1.45);
     const box = (mat: THREE.Material, sx: number, sy: number, sz: number, x = 0, y = 0, z = 0) => {
       const m = new THREE.Mesh(this.g.box, mat);
       m.scale.set(sx, sy, sz);
@@ -1447,7 +1448,7 @@ export class Renderer {
     if (p.alive && p.phase === 'ground') {
       if (game.pick) {
         const l = game.pick.loot;
-        target = { x: l.x, y: l.y, t: game.pick.t / game.pick.total, r: 0.8, color: 0xffffff };
+        target = { x: l.x, y: l.y, t: game.pick.t / game.pick.total, r: 1.15, color: 0xffffff };
       } else {
         for (const o of game.obstacles) {
           if (!isContainer(o) || o.opened || o.progress <= 0) continue;
@@ -1490,7 +1491,7 @@ export class Renderer {
       }
       if (this.near(v.x, v.y, 40)) {
         v.item.rotation.y = this.time * 1.6 + v.x;
-        v.item.position.y = 0.75 + Math.sin(this.time * 3 + v.y) * 0.12;
+        v.item.position.y = 0.95 + Math.sin(this.time * 3 + v.y) * 0.12;
       }
     }
     for (const v of this.crateViews.values()) {
