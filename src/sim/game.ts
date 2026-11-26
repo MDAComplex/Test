@@ -914,8 +914,8 @@ export class Game {
   private updateDowned(dt: number) {
     for (const f of this.fighters) {
       if (!f.alive || !f.downed) continue;
-      // nach ca. 50 Sekunden ausgeblutet
-      f.downHp -= dt * 100 / 50;
+      // nach ca. 30 Sekunden ausgeblutet
+      f.downHp -= dt * 100 / 30;
       if (f.downHp <= 0) { this.kill(f, f.downedBy, 'Verblutet'); continue; }
       const helper = this.fighters.find((x) => x !== f && x.alive && !x.downed && x.phase === 'ground' && this.ally(x, f) && Math.hypot(x.x - f.x, x.y - f.y) < 55);
       if (helper) {
