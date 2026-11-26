@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { S, WORLD, PLANE_Z, PLANE_TIME } from '../config';
-import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop } from '../sim/game';
+import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop, isContainer } from '../sim/game';
 import { WEAPONS, TIER_COLORS, WeaponId } from '../weapons';
 import { LootKind } from '../mapgen';
 
@@ -139,6 +139,9 @@ export class Renderer {
   private props: THREE.Object3D[] = [];
   private contrailT = 0;
   private playerRing!: THREE.Mesh;
+  private progMesh: THREE.Mesh | null = null;
+  private progKey = '';
+  private progMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide });
   private perRound: { dispose(): void }[] = [];
   private time = 0;
   private gradient: THREE.DataTexture;
@@ -750,6 +753,8 @@ export class Renderer {
     this.bushes = [];
     this.houses = [];
     this.ponds = [];
+    this.progMesh = null;
+    this.progKey = '';
 
     const world = new THREE.Group();
     this.world = world;
@@ -1220,6 +1225,7 @@ export class Renderer {
     }
 
     this.updateBullets(game, dt);
+    this.updateProgress(game);
     this.updateLootAndContainers(dt);
     this.updateEffects(dt);
     this.updateFades(game, dt, playerHouse);
@@ -1408,6 +1414,48 @@ export class Renderer {
         this.puff(m.position.x, m.position.y, m.position.z, this.m.smoke, 0.2, 1.8, 0.7, 0, 0.4, 0);
       }
     }
+  }
+
+  /** Aufhebe-/Öffnungs-Fortschritt: der Ring am Boden füllt sich */
+  private updateProgress(game: Game) {
+    const p = game.player;
+    let target: { x: number; y: number; t: number; r: number; color: number } | null = null;
+    if (p.alive && p.phase === 'ground') {
+      if (game.pick) {
+        const l = game.pick.loot;
+        target = { x: l.x, y: l.y, t: game.pick.t / game.pick.total, r: 0.8, color: 0xffffff };
+      } else {
+        for (const o of game.obstacles) {
+          if (!isContainer(o) || o.opened || o.progress <= 0) continue;
+          if ((o.x - p.x) ** 2 + (o.y - p.y) ** 2 < 130 * 130) {
+            target = { x: o.x, y: o.y, t: o.progress, r: Math.max(o.w, o.h) * S * 0.85, color: 0xffffff };
+          }
+        }
+      }
+    }
+    if (!target || target.t <= 0) {
+      if (this.progMesh) this.progMesh.visible = false;
+      return;
+    }
+    const steps = Math.max(1, Math.round(Math.min(1, target.t) * 64));
+    const key = `${steps}`;
+    if (!this.progMesh || key !== this.progKey) {
+      const geo = new THREE.RingGeometry(0.8, 1.04, 64, 1, Math.PI / 2, -(steps / 64) * Math.PI * 2);
+      if (this.progMesh) {
+        this.progMesh.geometry.dispose();
+        this.progMesh.geometry = geo;
+      } else {
+        this.progMesh = new THREE.Mesh(geo, this.progMat);
+        this.progMesh.rotation.x = -Math.PI / 2;
+        this.progMesh.renderOrder = 5;
+      }
+      this.progKey = key;
+    }
+    if (this.progMesh.parent !== this.world) this.world!.add(this.progMesh);
+    this.progMesh.visible = true;
+    this.progMat.color.setHex(target.color);
+    this.progMesh.position.set(target.x * S, 0.09, target.y * S);
+    this.progMesh.scale.setScalar(target.r);
   }
 
   private updateLootAndContainers(dt: number) {

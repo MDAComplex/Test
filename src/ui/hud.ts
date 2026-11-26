@@ -40,6 +40,8 @@ export class Hud {
   private feed: { el: HTMLElement; t: number }[] = [];
   private lastMini = 0;
   private mouse = { on: false, x: 0, y: 0, down: false };
+  /** zuletzt per Touch bedient (Handy/Tablet) */
+  private touch = window.matchMedia('(hover: none)').matches;
 
   constructor(private cb: { play: () => void; menu: () => void; settingsChanged: (s: Settings) => void }) {
     this.labelsLayer = $('<div id="labels"></div>');
@@ -178,6 +180,7 @@ export class Hud {
     window.addEventListener('pointerdown', (ev) => {
       if (!this.game || this.paused) return;
       if ((ev.target as HTMLElement).closest('button, .screen')) return;
+      this.touch = ev.pointerType !== 'mouse';
       if (ev.pointerType === 'mouse') {
         this.mouse.on = true;
         this.mouse.x = ev.clientX;
@@ -310,6 +313,7 @@ export class Hud {
     }
     game.input.mx = mx;
     game.input.my = my;
+    game.input.autoWeapon = this.touch;
 
     game.input.aim = null;
     game.input.firing = false;
@@ -445,7 +449,7 @@ export class Hud {
     this.e.heal.classList.toggle('dim', p.medkits + p.bigmeds === 0 || p.hp >= 100);
 
     // Aufheben-Karte für Waffen
-    const nw = ground && game.nearbyWeapon ? game.nearbyWeapon : null;
+    const nw = ground && !this.touch && game.nearbyWeapon ? game.nearbyWeapon : null;
     this.e.pickcard.classList.toggle('hidden', !nw);
     if (nw) {
       const w = WEAPONS[nw.kind.slice(2) as WeaponId];
@@ -481,30 +485,6 @@ export class Hud {
       l.hp.style.background = f.hp > 50 ? '' : f.hp > 25 ? '#ffcc00' : '#ff3b30';
       l.ar.parentElement!.style.visibility = f.armor > 0 ? 'visible' : 'hidden';
       l.ar.style.width = `${f.armor}%`;
-    }
-
-    // Fortschrittsring: Gegenstand oder Behälter
-    let ring: { x: number; y: number; t: number; color: string; label: string } | null = null;
-    if (ground && game.pick) {
-      const l = game.pick.loot;
-      ring = { x: l.x, y: l.y, t: game.pick.t / game.pick.total, color: '#ffffff', label: lootLabel(l.kind) };
-    } else if (ground) {
-      for (const o of game.obstacles) {
-        if (!isContainer(o) || o.opened || o.progress <= 0) continue;
-        if ((o.x - p.x) ** 2 + (o.y - p.y) ** 2 < 130 * 130) {
-          ring = { x: o.x, y: o.y, t: o.progress, color: o.kind === 'crate' ? '#ffd54a' : '#ffa726', label: o.kind === 'chest' ? 'Truhe' : o.kind === 'airdrop' ? 'Versorgungspaket' : 'Kiste' };
-        }
-      }
-    }
-    if (ring) {
-      const s = r.project(ring.x, ring.y, 1.2);
-      this.ring.classList.remove('hidden');
-      this.ring.style.transform = `translate(${s.x}px, ${s.y}px)`;
-      this.ringArc.style.strokeDashoffset = String(RING_C * (1 - Math.min(1, ring.t)));
-      this.ringArc.style.stroke = ring.color;
-      this.ring.dataset.label = ring.label;
-    } else {
-      this.ring.classList.add('hidden');
     }
 
     const now = performance.now();

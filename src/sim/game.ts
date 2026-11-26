@@ -176,7 +176,7 @@ export class Game {
   private nextAirdrop = 0;
   over = false;
   result: GameResult | null = null;
-  input = { mx: 0, my: 0, aim: null as number | null, firing: false, assist: false, jump: false, heal: false, reload: false, pickup: false };
+  input = { mx: 0, my: 0, aim: null as number | null, firing: false, assist: false, autoWeapon: false, jump: false, heal: false, reload: false, pickup: false };
   nearbyWeapon: Loot | null = null;
   /** Was der Spieler gerade aufhebt (Ring-Fortschritt) */
   pick: { loot: Loot; t: number; total: number } | null = null;
@@ -938,8 +938,13 @@ export class Game {
     if (!this.pick || this.pick.loot.taken) {
       this.pick = null;
       let best: Loot | null = null, bd = PICKUP_R * PICKUP_R;
+      // Touch: Waffen werden aufgenommen, wenn man kurz darauf stehen bleibt
+      const standing = Math.hypot(f.vx, f.vy) < 45;
       for (const l of this.loot) {
-        if (l.taken || l.kind.startsWith('w:') || !this.isUseful(f, l.kind)) continue;
+        if (l.taken) continue;
+        if (l.kind.startsWith('w:')) {
+          if (!this.input.autoWeapon || !standing || l.kind === `w:${f.weapon.id}`) continue;
+        } else if (!this.isUseful(f, l.kind)) continue;
         const d = (l.x - f.x) ** 2 + (l.y - f.y) ** 2;
         if (d < bd) { bd = d; best = l; }
       }
@@ -949,6 +954,7 @@ export class Game {
     if (!p) return;
     const d = Math.hypot(p.loot.x - f.x, p.loot.y - f.y);
     if (d > PICKUP_R + 14) { this.pick = null; return; }
+    if (this.input.autoWeapon && p.loot.kind.startsWith('w:') && Math.hypot(f.vx, f.vy) > 70) { this.pick = null; return; }
     p.t += dt * 1000;
     if (p.t >= p.total) {
       this.tryPickup(f, p.loot, p.loot.kind.startsWith('w:'));
