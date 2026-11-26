@@ -273,6 +273,10 @@ export class Renderer {
       fire: new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }),
       scorch: basicT(0x2a2620, 0.5),
       sparkle: new THREE.MeshBasicMaterial({ color: 0xffe27a }),
+      caseBody: toon(0x24272e),
+      caseEdge: toon(0x4a505c),
+      caseLatch: toon(0xb8bec8),
+      caseGlow: new THREE.MeshBasicMaterial({ color: 0xffb627 }),
     };
     for (const t of [1, 2, 3, 4, 5]) {
       this.disc[t] = new THREE.MeshBasicMaterial({ color: TIER_COLORS[t], transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide });
@@ -736,19 +740,25 @@ export class Renderer {
     glow.castShadow = false;
     const lid = new THREE.Group();
     if (o.kind === 'chest') {
-      const w = o.w * S, d = o.h * S, h = 0.95;
-      const wood = this.chestMat();
-      add(this.g.box, wood, 0, h / 2, 0, w, h, d);
-      // Metallbänder und Ecken
-      for (const bx of [-w * 0.3, w * 0.3]) add(this.g.box, this.m.gold, bx, h / 2, 0, 0.16, h + 0.02, d + 0.05);
-      add(this.g.box, this.m.goldDark, 0, 0.06, 0, w + 0.05, 0.12, d + 0.05);
-      // Deckel: Drehpunkt an der Hinterkante
+      // moderne schwarze Loot-Kiste (Waffenkiste) mit Leuchtstreifen
+      const w = o.w * S, d = o.h * S, h = 0.8;
+      add(this.g.box, this.m.caseBody, 0, h / 2, 0, w, h, d);
+      // Kantenschutz unten und an den Ecken
+      add(this.g.box, this.m.caseEdge, 0, 0.06, 0, w + 0.08, 0.12, d + 0.08);
+      for (const cx of [-w / 2, w / 2]) for (const cz of [-d / 2, d / 2]) add(this.g.box, this.m.caseEdge, cx, h / 2, cz, 0.16, h + 0.04, 0.16);
+      // Leuchtstreifen rundherum
+      add(this.g.box, this.m.caseGlow, 0, h * 0.55, d / 2 + 0.01, w * 0.86, 0.07, 0.02);
+      add(this.g.box, this.m.caseGlow, 0, h * 0.55, -d / 2 - 0.01, w * 0.86, 0.07, 0.02);
+      for (const cx of [-w / 2 - 0.01, w / 2 + 0.01]) add(this.g.box, this.m.caseGlow, cx, h * 0.55, 0, 0.02, 0.07, d * 0.8);
+      // Griffe an den Seiten
+      for (const cx of [-w / 2 - 0.08, w / 2 + 0.08]) add(this.g.box, this.m.caseEdge, cx, h * 0.75, 0, 0.08, 0.1, d * 0.4);
+      // Deckel: flach, Drehpunkt an der Hinterkante
       lid.position.set(0, h, -d / 2);
-      add(this.g.halfCylX, wood, 0, 0, d / 2, w, d * 0.5, d * 0.5, lid);
-      for (const bx of [-w * 0.3, w * 0.3]) add(this.g.halfCylX, this.m.gold, bx, 0, d / 2, 0.17, d * 0.52, d * 0.52, lid);
-      // Schloss vorne
-      add(this.g.box, this.m.gold, 0, -0.05, d + 0.03, 0.34, 0.4, 0.08, lid);
-      add(this.g.box, this.m.black, 0, -0.1, d + 0.08, 0.08, 0.14, 0.04, lid);
+      add(this.g.box, this.m.caseBody, 0, 0.12, d / 2, w + 0.04, 0.24, d + 0.04, lid);
+      add(this.g.box, this.m.caseEdge, 0, 0.25, d / 2, w * 0.7, 0.04, d * 0.55, lid);
+      add(this.g.box, this.m.caseGlow, 0, 0.27, d / 2, w * 0.25, 0.02, 0.06, lid);
+      // zwei Verschlüsse vorne
+      for (const cx of [-w * 0.28, w * 0.28]) add(this.g.box, this.m.caseLatch, cx, 0.02, d + 0.04, 0.22, 0.26, 0.08, lid);
     } else if (o.kind === 'airdrop') {
       add(this.g.box, this.m.dropBody, 0, 0.9, 0, s, 1.8, s);
       add(this.g.box, this.m.dropStripe, 0, 0.9, 0, s + 0.05, 0.3, s + 0.05);
@@ -1511,9 +1521,10 @@ export class Renderer {
     this.progTrack.position.set(target.x * S, 0.085, target.y * S);
     this.progTrack.scale.setScalar(target.r);
     const steps = Math.max(1, Math.round(Math.min(1, target.t) * 64));
-    const key = `${steps}`;
+    const key = `${steps}-${container}`;
     if (!this.progMesh || key !== this.progKey) {
-      const geo = new THREE.RingGeometry(0.9, 1.02, 64, 1, Math.PI / 2, -(steps / 64) * Math.PI * 2);
+      const inner = container ? 0.9 : 0.74;
+      const geo = new THREE.RingGeometry(inner, 1.04, 64, 1, Math.PI / 2, -(steps / 64) * Math.PI * 2);
       if (this.progMesh) {
         this.progMesh.geometry.dispose();
         this.progMesh.geometry = geo;
