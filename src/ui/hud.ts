@@ -340,10 +340,16 @@ export class Hud {
     c.width = c.height = 320;
     const g = c.getContext('2d')!;
     const k = 320 / WORLD;
-    g.fillStyle = '#5f9c46';
+    g.fillStyle = '#3aa6dc';
     g.fillRect(0, 0, 320, 320);
+    g.fillStyle = '#ecd59a';
+    g.fillRect(0, 0, 320, 320);
+    g.fillStyle = '#86c95a';
+    g.beginPath();
+    g.roundRect(7, 7, 306, 306, 16);
+    g.fill();
     for (const o of game.map.obstacles) {
-      if (o.kind === 'tree') { g.fillStyle = '#3c8a40'; g.beginPath(); g.arc(o.x * k, o.y * k, 3.5, 0, 7); g.fill(); }
+      if (o.kind === 'tree') { g.fillStyle = '#4ea845'; g.beginPath(); g.arc(o.x * k, o.y * k, 3.5, 0, 7); g.fill(); }
       else if (o.kind === 'rock') { g.fillStyle = '#8e939b'; g.beginPath(); g.arc(o.x * k, o.y * k, Math.max(2, o.r * k), 0, 7); g.fill(); }
     }
     for (const h of game.houses) {

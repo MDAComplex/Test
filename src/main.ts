@@ -23,6 +23,7 @@ function showMenu() {
 function startRound() {
   game = new Game(generateMap(Math.floor(Math.random() * 1e9)));
   renderer.build(game);
+  renderer.resetShadowArea();
   hud.startRound(game);
 }
 
