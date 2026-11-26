@@ -957,14 +957,15 @@ export class Renderer {
         g.addColorStop(1, 'rgba(255,180,70,0)');
         c.fillStyle = g;
         c.beginPath();
-        c.moveTo(34, 0); c.lineTo(94, 0); c.lineTo(126, 128); c.lineTo(2, 128);
+        // an der Tür genau so breit wie die Türöffnung, nach außen leicht breiter
+        c.moveTo(18, 0); c.lineTo(110, 0); c.lineTo(126, 128); c.lineTo(2, 128);
         c.closePath();
         c.fill();
         // weiche Seitenränder
         c.globalCompositeOperation = 'destination-out';
         const side = c.createLinearGradient(0, 0, 128, 0);
-        side.addColorStop(0, 'rgba(0,0,0,0.9)'); side.addColorStop(0.22, 'rgba(0,0,0,0)');
-        side.addColorStop(0.78, 'rgba(0,0,0,0)'); side.addColorStop(1, 'rgba(0,0,0,0.9)');
+        side.addColorStop(0, 'rgba(0,0,0,0.9)'); side.addColorStop(0.12, 'rgba(0,0,0,0)');
+        side.addColorStop(0.88, 'rgba(0,0,0,0)'); side.addColorStop(1, 'rgba(0,0,0,0.9)');
         c.fillStyle = side;
         c.fillRect(0, 0, 128, 128);
       });
@@ -984,7 +985,8 @@ export class Renderer {
     for (const h of game.houses) {
       for (const d of h.doors) {
         const ang = Math.atan2(d.ny, d.nx);
-        const len = 4.2, wid = 5.6;
+        // Breite passend zur Tür (86 Einheiten), Länge 2/3 von vorher
+        const len = 2.8, wid = 6.0;
         const fl = new THREE.Mesh(this.g.plane, floorLight);
         // helles Ende der Textur zeigt zur Tür
         fl.rotation.set(-Math.PI / 2, 0, Math.atan2(d.nx, d.ny));
