@@ -19,7 +19,7 @@ export interface MapData {
   fields: Field[];
   town: Area;
   /** Fluss als Linienzug mit Breite, Brücken mit Mittelpunkt und Richtung des Flusses */
-  river: { pts: { x: number; y: number }[]; width: number; bridges: { x: number; y: number; angle: number }[] };
+  river: { pts: { x: number; y: number }[]; width: number; bridges: { x: number; y: number; angle: number }[]; water: { x: number; y: number }[] };
   /** hohe Grasfelder: darin ist man unsichtbar */
   grass: Area[];
 }
@@ -112,12 +112,13 @@ export function generateMap(seed: number): MapData {
   if (bridgeIdx.length < 2) bridgeIdx.splice(0, bridgeIdx.length, Math.floor(samples.length * 0.33), Math.floor(samples.length * 0.7));
   const bridges = bridgeIdx.map((i) => ({ x: samples[i].x, y: samples[i].y, angle: samples[i].a }));
   for (const sp of samples) {
-    // Lücke an den Brücken: dort kann man den Fluss überqueren
-    if (bridges.some((b) => Math.hypot(b.x - sp.x, b.y - sp.y) < 75)) continue;
+    // Lücke an den Brücken: so breit wie die Brücke (Wasserradius + halbe Brückenbreite)
+    if (bridges.some((b) => Math.hypot(b.x - sp.x, b.y - sp.y) < RIVER_W / 2 + 64)) continue;
     obstacles.push({ kind: 'water', x: sp.x, y: sp.y, r: RIVER_W / 2, w: RIVER_W, h: RIVER_W });
   }
   for (const sp of samples) blocks.push({ x: sp.x, y: sp.y, r: RIVER_W / 2 + 40 });
-  const river = { pts, width: RIVER_W, bridges };
+  // alle Wasserstücke fürs Zeichnen (auch unter den Brücken)
+  const river = { pts, width: RIVER_W, bridges, water: samples.map((sp) => ({ x: sp.x, y: sp.y })) };
 
   // Teiche
   for (let i = 0; i < 4; i++) {

@@ -1060,7 +1060,8 @@ export class Renderer {
           this.makeContainer(o, world);
           break;
         case 'water':
-          waterParts.push({ x, z, r: o.r * S });
+          // Flusswasser wird unten aus den Fluss-Daten gezeichnet (inkl. unter den Brücken)
+          if (o.r !== game.map.river.width / 2) waterParts.push({ x, z, r: o.r * S });
           break;
         case 'fence': {
           const horiz = o.w > o.h;
@@ -1090,6 +1091,7 @@ export class Renderer {
       }
     }
 
+    for (const w of game.map.river.water) waterParts.push({ x: w.x * S, z: w.y * S, r: (game.map.river.width / 2) * S });
     // Fluss und Teiche: alle Wasserscheiben in ein Mesh
     if (waterParts.length) {
       const geos = waterParts.map((w) => {

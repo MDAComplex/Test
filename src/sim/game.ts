@@ -1100,8 +1100,17 @@ export class Game {
       }
     }
 
-    const len = Math.hypot(dx, dy);
-    if (len > 0) { dx /= len; dy /= len; }
+    let len = Math.hypot(dx, dy);
+    if (len > 0) {
+      dx /= len; dy /= len;
+      // liegt das Ziel auf der anderen Flussseite? Dann zuerst zur nächsten Brücke
+      const route = this.bridgeRoute(f, f.x + dx * 500, f.y + dy * 500);
+      if (route) {
+        const rl = Math.hypot(route.x - f.x, route.y - f.y) || 1;
+        dx = (route.x - f.x) / rl; dy = (route.y - f.y) / rl;
+        len = 1;
+      }
+    }
     const moved = Math.hypot(f.x - f.lastX, f.y - f.lastY);
     if (len > 0 && moved < 6 && now > f.avoidUntil) {
       f.avoidUntil = now + 600 + Math.random() * 500;
@@ -1118,6 +1127,43 @@ export class Game {
     }
     f.moveX = dx;
     f.moveY = dy;
+  }
+
+  /** Seite des Flusses (Vorzeichen des Abstands zur nächsten Flusslinie) */
+  private riverSide(x: number, y: number) {
+    const pts = this.map.river.pts;
+    let best = Infinity, side = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const vx = b.x - a.x, vy = b.y - a.y, l2 = vx * vx + vy * vy;
+      const t = clamp(((x - a.x) * vx + (y - a.y) * vy) / l2, 0, 1);
+      const px = a.x + vx * t, py = a.y + vy * t;
+      const d = Math.hypot(x - px, y - py);
+      if (d < best) { best = d; side = Math.sign(vx * (y - a.y) - vy * (x - a.x)); }
+    }
+    return { side, dist: best };
+  }
+
+  /** Wegpunkt über eine Brücke, wenn das Ziel auf der anderen Flussseite liegt */
+  private bridgeRoute(f: Fighter, tx: number, ty: number): { x: number; y: number } | null {
+    const me = this.riverSide(f.x, f.y), goal = this.riverSide(tx, ty);
+    if (me.side === goal.side || me.side === 0 || goal.side === 0) return null;
+    let best: { x: number; y: number } | null = null, bd = Infinity;
+    for (const b of this.map.river.bridges) {
+      const d = Math.hypot(b.x - f.x, b.y - f.y) + Math.hypot(b.x - tx, b.y - ty);
+      if (d < bd) { bd = d; best = b; }
+    }
+    if (!best) return null;
+    const b = this.map.river.bridges.find((x) => x === best)!;
+    // erst vor die Brücke, dann geradeaus darüber
+    const n = b.angle + Math.PI / 2, off = this.map.river.width / 2 + 110;
+    const ax = b.x + Math.cos(n) * off * me.side, ay = b.y + Math.sin(n) * off * me.side;
+    const near = Math.hypot(ax - f.x, ay - f.y);
+    const onBridge = Math.hypot(b.x - f.x, b.y - f.y) < off;
+    if (onBridge || near < 40) {
+      return { x: b.x - Math.cos(n) * off * me.side, y: b.y - Math.sin(n) * off * me.side };
+    }
+    return { x: ax, y: ay };
   }
 
   /** Anführer, dem ein Bot im Team folgt (Spieler oder erster Bot) */

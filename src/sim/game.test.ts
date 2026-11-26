@@ -225,3 +225,27 @@ describe('Loot-Kisten (Platzierung)', () => {
     }
   });
 });
+
+describe('Brücken', () => {
+  it('man kann über jede Brücke laufen', () => {
+    for (const seed of [21, 22, 23]) {
+      const g = new Game(generateMap(seed));
+      const p = g.player;
+      for (const f of g.fighters) { f.phase = 'ground'; f.z = 0; if (!f.isPlayer) { f.alive = false; f.x = 10; f.y = 10; } }
+      g.time = 30000;
+      for (const b of g.map.river.bridges) {
+        const n = b.angle + Math.PI / 2, off = g.map.river.width / 2 + 120;
+        // nur Brücken prüfen, die nicht am Kartenrand liegen
+        const sx = b.x + Math.cos(n) * off, sy = b.y + Math.sin(n) * off;
+        if (sx < 150 || sy < 150 || sx > 3850 || sy > 3850) continue;
+        p.x = sx; p.y = sy; p.vx = p.vy = 0;
+        g.input.mx = -Math.cos(n); g.input.my = -Math.sin(n);
+        for (let t = 0; t < 3500; t += 16) g.update(16);
+        // auf der anderen Seite angekommen?
+        const dx = p.x - b.x, dy = p.y - b.y;
+        expect(dx * Math.cos(n) + dy * Math.sin(n)).toBeLessThan(-g.map.river.width / 2);
+      }
+      g.input.mx = 0; g.input.my = 0;
+    }
+  });
+});
