@@ -1,6 +1,7 @@
 # Zone Rush
 
 Ein eigenes 3D-Battle-Royale-Browserspiel mit schräger Kamera von oben (Three.js + TypeScript + Vite).
+25 Kämpfer landen auf einer zufällig erzeugten Insel – nur einer überlebt.
 25 Kämpfer landen auf einer zufällig erzeugten Karte – nur einer überlebt.
 
 ## Spielen
@@ -16,25 +17,37 @@ npm run build    # fertige Version nach dist/ bauen
 | Aktion | PC | Handy |
 | --- | --- | --- |
 | Absprung | Leertaste | Knopf „Springen“ |
-| Laufen | WASD / Pfeiltasten | linke Bildschirmhälfte antippen und ziehen |
-| Schießen | automatisch, sobald ein Gegner in Reichweite und in Sicht ist | automatisch |
-| Heilen (Medikit) | H | Knopf „Heilen“ |
+| Laufen | WASD / Pfeiltasten | linker Stick (Seite in den Einstellungen tauschbar) |
+| Zielen und schießen | Maus zielen, Linksklick | rechter Stick, weit ziehen = schießen |
+| Waffe aufheben | E | kurz auf der Waffe stehen bleiben |
+| Waffe wechseln | Q / 1 / 2 | auf den zweiten Waffenplatz tippen |
 | Nachladen | R | Knopf „Laden“ |
-| Waffe tauschen | E | Knopf „Nehmen“ |
+| Pause / Einstellungen | Esc | Zahnrad |
 
-## Features (Version 1)
+## Features
 
-- Flugzeug fliegt über die Karte, Absprung mit lenkbarem Fallschirm
-- Zufällige 3D-Karte bei jeder Runde: Häuser (Dach verschwindet beim Betreten), Felsen,
-  Bäume (Kronen werden durchsichtig), Büsche zum Verstecken
-- Kisten öffnen sich, wenn man daneben steht – Deckel klappt auf, Loot springt heraus
-- 5 Waffen mit Seltenheitsstufen: Pistole, Maschinenpistole, Schrotflinte, Sturmgewehr,
-  Scharfschützengewehr
-- Loot: Munition, Rüstung, Medikits; besiegte Gegner lassen ihre Ausrüstung fallen
-- Schrumpfende Zone in 5 Phasen mit steigendem Schaden
-- 24 Bots mit eigener KI (looten, kämpfen, ausweichen, fliehen, heilen, Zone meiden)
-- HUD mit Minikarte, Kill-Feed, Lebens- und Rüstungsbalken, Ergebnis-Bildschirm
-- Statistik (Spiele, Siege, beste Platzierung) wird im Browser gespeichert
+- **Absprung:** Flugzeug fliegt über die Insel, Absprung mit lenkbarem Fallschirm
+- **Kampf:** selbst zielen und schießen (Maus oder rechter Stick), gepunktete Ziellinie mit
+  Waffenreichweite, Treffermarker, Anzeige der Schadensrichtung
+- **7 Waffen:** Pistole, Maschinenpistole, Schrotflinte, Sturmgewehr, Scharfschützengewehr sowie
+  Minigun (mit Anlaufzeit) und Raketenwerfer nur aus Versorgungspaketen; zwei Waffenplätze
+- **Loot:** Aufheben mit Fortschrittsring am Boden, Medikits heilen nach kurzer Nutzungszeit,
+  schwarze Loot-Kisten nur in Häusern, Versorgungspakete am Fallschirm
+- **Karte:** zufällige Insel mit Dorf, Häusern mit einem oder zwei Räumen (Dach blendet beim
+  Betreten aus), Teichen, Wäldern, Feldern, Büschen zum Verstecken
+- **Bots:** 24 Gegner mit drei Spielstilen, Deckungssuche, Verstecken in Büschen, fairem Zielen
+- **Fortschritt:** Erfahrungspunkte, Level, freischaltbare Farben, tägliche Aufgaben
+- **Komfort:** Einführung in der ersten Runde, Zuschauen nach dem Tod, automatische Grafikanpassung,
+  Einstellungen für Steuerungsseite, Stick-Größe, Grafik und Ton, Sound per Web Audio
+
+## Tests
+
+```bash
+npm test
+```
+
+Prüft unter anderem Loot-Abstände, Heil-Regeln, Minigun-Anlaufzeit, Waffenplätze und dass
+Kisten-Inhalte im Haus bleiben.
 
 ## Struktur
 

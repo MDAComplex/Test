@@ -82,5 +82,36 @@ export class Sfx {
   pickup() { if (this.ok()) { this.tone(620, 980, 0.12, 0.2, 'triangle'); } }
   crate() { if (this.ok()) { this.burst(500, 0.7, 0.25, 0.4, 'lowpass'); this.tone(520, 1040, 0.25, 0.18, 'triangle'); } }
   jump() { if (this.ok()) this.burst(500, 0.4, 0.8, 0.35, 'lowpass'); }
+  step() { if (this.ok()) this.burst(380 + Math.random() * 120, 1.2, 0.06, 0.07, 'lowpass'); }
+  zoneWarn() { if (this.ok()) this.tone(520, 380, 0.18, 0.12, 'square'); }
+  incoming() { if (this.ok()) { this.tone(700, 1050, 0.25, 0.15, 'triangle'); setTimeout(() => this.ctx && this.enabled && this.tone(1050, 1400, 0.25, 0.15, 'triangle'), 180); } }
+  reload() { if (this.ok()) { this.burst(2200, 3, 0.05, 0.12, 'bandpass'); setTimeout(() => this.ctx && this.enabled && this.burst(1600, 3, 0.06, 0.14, 'bandpass'), 220); } }
+  private hum: { o: OscillatorNode; g: GainNode } | null = null;
+  /** Brummen des Flugzeugs (0 = aus) */
+  planeHum(level: number) {
+    if (!this.ctx || !this.master) return;
+    const c = this.ctx;
+    if (!this.hum && level > 0 && this.enabled) {
+      const o = c.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = 62;
+      const f = c.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 260;
+      const g = c.createGain();
+      g.gain.value = 0;
+      o.connect(f).connect(g).connect(this.master);
+      o.start();
+      this.hum = { o, g };
+    }
+    if (this.hum) {
+      this.hum.g.gain.setTargetAtTime(this.enabled ? level * 0.12 : 0, c.currentTime, 0.2);
+      if (level <= 0) {
+        const h = this.hum;
+        this.hum = null;
+        setTimeout(() => { try { h.o.stop(); } catch { /* schon gestoppt */ } }, 800);
+      }
+    }
+  }
   kill() { if (this.ok()) { this.tone(660, 660, 0.08, 0.2, 'square'); setTimeout(() => this.ctx && this.enabled && this.tone(990, 990, 0.12, 0.2, 'square'), 90); } }
 }

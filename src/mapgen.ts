@@ -64,6 +64,7 @@ export function generateMap(seed: number): MapData {
   const addLoot = (x: number, y: number, kind: LootKind) => {
     for (const l of loot) if ((l.x - x) ** 2 + (l.y - y) ** 2 < LOOT_GAP * LOOT_GAP) return false;
     for (const o of obstacles) {
+      if (o.kind === 'wall' && Math.abs(o.x - x) < o.w / 2 + 30 && Math.abs(o.y - y) < o.h / 2 + 30) return false;
       if (o.kind !== 'chest' && o.kind !== 'crate') continue;
       if (Math.abs(o.x - x) < o.w / 2 + 40 && Math.abs(o.y - y) < o.h / 2 + 40) return false;
     }
@@ -111,6 +112,19 @@ export function generateMap(seed: number): MapData {
     seg(true, p.y + h - t / 2, p.x - h, p.x + h, isDoor(1));
     seg(false, p.x - h + t / 2, p.y - h + t, p.y + h - t, isDoor(2));
     seg(false, p.x + h - t / 2, p.y - h + t, p.y + h - t, isDoor(3));
+    // größere Häuser: Innenwand mit Durchgang (zwei Räume)
+    if (s > 290 && r() < 0.75) {
+      const gap = 92;
+      if (r() < 0.5) {
+        const y1 = p.y - h + t, y2 = p.y + h - t, mid = p.y + (r() - 0.5) * (s - 220);
+        addV(p.x, y1, mid - gap / 2);
+        addV(p.x, mid + gap / 2, y2);
+      } else {
+        const x1 = p.x - h + t, x2 = p.x + h - t, mid = p.x + (r() - 0.5) * (s - 220);
+        addH(p.y, x1, mid - gap / 2);
+        addH(p.y, mid + gap / 2, x2);
+      }
+    }
     // Truhen gibt es nur in Häusern: meist eine, in großen Häusern manchmal zwei
     const chestAt = (cx: number, cy: number) => obstacles.push({ kind: 'chest', x: cx, y: cy, r: 24, w: 54, h: 40 });
     if (r() < 0.75) chestAt(p.x - h + t + 36, p.y - h + t + 30);

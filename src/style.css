@@ -179,3 +179,66 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
   .gear { top: 10px; }
   .zone { left: 50%; top: 10px; }
 }
+
+/* Menü scrollbar machen, damit Profil & Aufgaben auch auf kleinen Bildschirmen passen */
+#menu { justify-content: safe center; overflow-y: auto; padding-block: 24px; }
+.prof { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; align-items: stretch; max-width: 760px; }
+.prof > div { padding: 12px 16px; border-radius: 16px; background: var(--panel); backdrop-filter: blur(6px); }
+.lvl { display: flex; flex-direction: column; gap: 6px; min-width: 190px; text-align: left; }
+.lvlnum { font-size: 20px; color: var(--gold); }
+.xpbar { height: 10px; border-radius: 6px; background: rgba(255,255,255,0.15); overflow: hidden; }
+.xpbar i { display: block; height: 100%; background: linear-gradient(90deg, #ffd23f, #ff9a2e); }
+.xptext { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.skins { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; max-width: 230px; justify-content: center; }
+.skin { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.35); background: var(--c); cursor: pointer; display: grid; place-items: center; color: #fff; font: inherit; font-size: 11px; padding: 0; }
+.skin.on { border-color: #fff; box-shadow: 0 0 0 3px var(--gold); }
+.skin.locked { filter: grayscale(0.85) brightness(0.55); cursor: not-allowed; }
+.daily { min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.task { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; font-weight: 700; }
+.task b { font-variant-numeric: tabular-nums; color: var(--gold); }
+.task.done { opacity: 0.6; }
+.task.done b { color: #6fe08b; }
+
+/* Ergebnis: Erfahrungspunkte */
+.reward { display: flex; flex-direction: column; gap: 3px; font-size: 13px; padding: 10px 18px; border-radius: 14px; background: var(--panel); min-width: 220px; }
+.reward:empty { display: none; }
+.rw-head { font-size: 18px; color: var(--gold); margin-bottom: 4px; }
+.rw-task { color: #6fe08b; }
+
+/* zweiter Waffenplatz */
+.altslot { pointer-events: auto; cursor: pointer; display: flex; justify-content: space-between; align-items: center; width: 100%; margin: 2px 0 6px; padding: 4px 10px; border-radius: 10px; border: 2px dashed rgba(255,255,255,0.35); background: rgba(255,255,255,0.06); color: #fff; font: inherit; font-size: 13px; }
+.altslot small { font-size: 11px; opacity: 0.8; }
+.altslot:active { transform: scale(0.97); }
+
+/* Hinweise für die erste Runde */
+.tip { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); max-width: min(560px, 90vw); padding: 10px 18px; border-radius: 14px; background: rgba(12, 22, 36, 0.8); border: 2px solid var(--gold); font-size: 15px; text-align: center; animation: popin 0.2s ease-out; }
+
+/* Zuschauen */
+.specbar { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 8px 10px 8px 18px; border-radius: 16px; background: rgba(12, 22, 36, 0.8); pointer-events: auto; font-size: 15px; white-space: nowrap; }
+.specbar .btn { font-size: 15px; padding: 8px 18px; }
+
+/* Treffermarker */
+.hitmark { position: absolute; left: 0; top: 0; width: 26px; height: 26px; margin: -13px 0 0 -13px; animation: hitpop 0.26s ease-out forwards; }
+.hitmark::before, .hitmark::after { content: ''; position: absolute; left: 50%; top: 50%; width: 26px; height: 4px; margin: -2px 0 0 -13px; border-radius: 2px; background: #fff; box-shadow: 0 0 3px #000; }
+.hitmark::before { transform: rotate(45deg); }
+.hitmark::after { transform: rotate(-45deg); }
+.hitmark.kill { width: 38px; height: 38px; margin: -19px 0 0 -19px; animation-duration: 0.6s; }
+.hitmark.kill::before, .hitmark.kill::after { width: 38px; margin-left: -19px; height: 5px; background: #ff4d4d; }
+@keyframes hitpop { from { scale: 1.4; opacity: 1; } to { scale: 0.9; opacity: 0; } }
+
+/* Schadensrichtung */
+.dirs { position: fixed; inset: 0; pointer-events: none; z-index: 9; }
+.dmgdir { position: absolute; left: 50%; top: 50%; width: 0; height: 0; animation: dirfade 1.1s ease-out forwards; }
+.dmgdir::before { content: ''; position: absolute; left: -70px; top: calc(-1 * min(34vh, 34vw)); width: 140px; height: 26px; border-radius: 50% 50% 0 0 / 100% 100% 0 0; border-top: 7px solid rgba(255, 60, 60, 0.9); filter: drop-shadow(0 0 6px rgba(255, 0, 0, 0.7)); }
+@keyframes dirfade { 0% { opacity: 1; } 70% { opacity: 0.8; } 100% { opacity: 0; } }
+
+/* Hochformat-Hinweis */
+#rotate { z-index: 40; background: rgba(8, 16, 28, 0.92); }
+.rot-icon { width: 46px; height: 76px; border: 5px solid #fff; border-radius: 10px; animation: rot 1.6s ease-in-out infinite; }
+@keyframes rot { 0%, 20% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+
+@media (max-height: 520px) {
+  .tip { top: 18%; font-size: 13px; }
+  #menu .title { font-size: 44px; }
+  #menu .help { display: none; }
+}

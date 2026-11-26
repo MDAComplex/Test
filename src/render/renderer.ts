@@ -71,6 +71,7 @@ interface FighterView {
   spin: THREE.Object3D | null;
   head: THREE.Group;
   yaw: number;
+  reloadBlend: number;
 }
 interface Particle { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; life: number; max: number }
 interface Puff { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number; max: number; size: number; grow: number }
@@ -323,7 +324,8 @@ export class Renderer {
     this.baseDist = 30 * Math.min(2.2, Math.max(1, 1.1 / this.camera.aspect));
   }
 
-  setQuality(q: 'high' | 'low') {
+  setQuality(q: 'auto' | 'high' | 'low') {
+    if (q === 'auto') q = 'high';
     this.sun.castShadow = q === 'high';
     this.renderer.setPixelRatio(q === 'high' ? Math.min(window.devicePixelRatio, 2) : 1);
     this.resize();
@@ -643,7 +645,7 @@ export class Renderer {
     this.world!.add(root);
     const v: FighterView = {
       root, lean, body, torso, bodyMat, legs, arms, gunPivot, gunKick, chute,
-      flash: 0, weaponId: f.weapon.id, walkT: Math.random() * 6, deadT: 0, aimBlend: 0, recoil: 0, dustT: 0, spin: null, head, yaw: f.aim,
+      flash: 0, weaponId: f.weapon.id, walkT: Math.random() * 6, deadT: 0, aimBlend: 0, recoil: 0, dustT: 0, spin: null, head, yaw: f.aim, reloadBlend: 0,
     };
     v.spin = gunKick.getObjectByName('spin') ?? null;
     this.fighterViews.set(f, v);
@@ -692,13 +694,13 @@ export class Renderer {
     } else if (l.kind === 'armor') {
       // Schild-Symbol: oben gerade, unten spitz, mit hellem Rand und Emblem
       const rim = new THREE.Mesh(this.g.shield, this.m.armorLight);
-      rim.scale.set(1.08, 1.08, 0.9);
+      rim.scale.set(0.86, 0.86, 0.9);
       rim.position.z = -0.03;
       const face = new THREE.Mesh(this.g.shield, this.m.armor);
-      face.scale.set(0.9, 0.9, 1);
+      face.scale.set(0.72, 0.72, 1);
       face.position.z = 0.02;
       const emblem = new THREE.Mesh(this.g.shield, this.m.armorLight);
-      emblem.scale.set(0.38, 0.38, 1.4);
+      emblem.scale.set(0.3, 0.3, 1.4);
       emblem.position.set(0, 0.04, 0.03);
       for (const m of [rim, face, emblem]) { m.castShadow = true; item.add(m); }
     } else if (l.kind === 'bigmed') {
@@ -818,6 +820,8 @@ export class Renderer {
     this.ponds = [];
     this.progMesh = null;
     this.progTrack = null;
+    this.reloadMesh = null;
+    this.reloadStep = -1;
     this.progKey = '';
 
     const world = new THREE.Group();
@@ -1308,6 +1312,7 @@ export class Renderer {
 
     this.updateBullets(game, dt);
     this.updateProgress(game);
+    this.updateReloadRing(game);
     this.updateLootAndContainers(dt);
     this.updateEffects(dt);
     this.updateFades(game, dt, playerHouse);
@@ -1375,11 +1380,24 @@ export class Renderer {
       v.weaponId = f.weapon.id;
     }
     if (!f.alive) {
-      if (v.deadT < 1) {
-        v.deadT = Math.min(1, v.deadT + dt * 2.5);
-        v.root.scale.setScalar(1 - v.deadT * 0.9);
-        v.lean.rotation.z = v.deadT * 1.4;
-        if (v.deadT >= 1) v.root.visible = false;
+      // umfallen (0,45 s), liegen bleiben, dann im Boden versinken (gesamt ~2,8 s)
+      if (v.root.visible) {
+        v.deadT += dt;
+        const fall = Math.min(1, v.deadT / 0.45);
+        const ease = fall < 1 ? 1 - Math.pow(1 - fall, 3) : 1;
+        const bounce = fall >= 1 ? Math.max(0, Math.sin((v.deadT - 0.45) * 18) * 0.06 * Math.max(0, 1 - (v.deadT - 0.45) * 4)) : 0;
+        v.body.rotation.z = ease * (Math.PI / 2) - bounce;
+        v.lean.rotation.set(0, 0, 0);
+        v.legs.forEach((l) => (l.rotation.z = lerp(l.rotation.z, 0.2, 0.2)));
+        v.arms[0].rotation.z = lerp(v.arms[0].rotation.z, 2.6, 0.15);
+        v.arms[1].rotation.z = lerp(v.arms[1].rotation.z, 2.4, 0.15);
+        v.chute.visible = false;
+        if (v.deadT > 2.2) {
+          const sink = Math.min(1, (v.deadT - 2.2) / 0.6);
+          v.root.position.y = -sink * 0.9;
+          v.root.scale.setScalar(1 - sink * 0.3);
+          if (sink >= 1) v.root.visible = false;
+        }
       }
       return;
     }
@@ -1431,9 +1449,19 @@ export class Renderer {
     v.arms[1].rotation.x = lerp(c.lArm[1], a.lArm[1], k);
     v.gunPivot.position.set(lerp(c.gun[0], a.gun[0], k), lerp(c.gun[1], a.gun[1], k) + (1 - k) * Math.abs(swing) * 0.03, lerp(c.gun[2], a.gun[2], k));
     v.gunPivot.rotation.set(0, lerp(c.gunRot[0], a.gunRot[0], k), lerp(c.gunRot[1], a.gunRot[1], k));
+    // beim Nachladen wird die Waffe gesenkt und leicht gekippt
+    v.reloadBlend = lerp(v.reloadBlend, f.reloading ? 1 : 0, 1 - Math.exp(-dt * 12));
+    if (v.reloadBlend > 0.01) {
+      v.gunPivot.rotation.z -= 0.75 * v.reloadBlend;
+      v.gunPivot.rotation.x = Math.sin(this.time * 14) * 0.15 * v.reloadBlend;
+      v.gunPivot.position.y -= 0.18 * v.reloadBlend;
+      v.arms[1].rotation.z = lerp(v.arms[1].rotation.z, 0.9, v.reloadBlend);
+    } else {
+      v.gunPivot.rotation.x = 0;
+    }
     v.recoil = Math.max(0, v.recoil - dt * 9);
     v.gunKick.position.x = -v.recoil * (f.weapon.id === 'shotgun' || f.weapon.id === 'sniper' || f.weapon.id === 'rocket' ? 0.22 : 0.1);
-    if (v.spin) v.spin.rotation.x += dt * (game.time - f.lastShot < 200 ? 40 : 2);
+    if (v.spin) v.spin.rotation.x += dt * (game.time - f.lastTrigger < 200 ? 40 : 2);
 
     // Staubspur beim Laufen
     if (f.moving && f.phase === 'ground' && this.near(f.x, f.y, 35)) {
@@ -1562,6 +1590,28 @@ export class Renderer {
     this.progMat.opacity = container ? 0.95 : 0.55;
     this.progMesh.position.set(target.x * S, 0.09, target.y * S);
     this.progMesh.scale.setScalar(target.r);
+  }
+
+  private reloadMesh: THREE.Mesh | null = null;
+  private reloadStep = -1;
+  private reloadMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide });
+  private updateReloadRing(game: Game) {
+    const p = game.player;
+    if (!p.alive || !p.reloading || p.phase !== 'ground') {
+      if (this.reloadMesh) this.reloadMesh.visible = false;
+      return;
+    }
+    const t = 1 - Math.max(0, p.reloadUntil - game.time) / p.weapon.reload;
+    const steps = Math.max(1, Math.round(t * 48));
+    if (!this.reloadMesh || steps !== this.reloadStep) {
+      const geo = new THREE.RingGeometry(1.42, 1.56, 48, 1, Math.PI / 2, -(steps / 48) * Math.PI * 2);
+      if (this.reloadMesh) { this.reloadMesh.geometry.dispose(); this.reloadMesh.geometry = geo; }
+      else { this.reloadMesh = new THREE.Mesh(geo, this.reloadMat); this.reloadMesh.rotation.x = -Math.PI / 2; this.reloadMesh.renderOrder = 5; }
+      this.reloadStep = steps;
+    }
+    if (this.reloadMesh.parent !== this.world) this.world!.add(this.reloadMesh);
+    this.reloadMesh.visible = true;
+    this.reloadMesh.position.set(p.x * S, 0.08, p.y * S);
   }
 
   private updateLootAndContainers(dt: number) {
@@ -1693,7 +1743,13 @@ export class Renderer {
   private updateCamera(game: Game, dt: number) {
     const p = game.player;
     let tx: number, ty: number, tz: number, zoom: number;
-    if (p.phase === 'plane') {
+    const spec = !p.alive && game.spectate ? game.spectate : null;
+    if (spec) {
+      tx = spec.x * S;
+      tz = spec.y * S;
+      ty = spec.z * S * 0.4;
+      zoom = 1 + Math.min(1, spec.z / PLANE_Z) * 0.8;
+    } else if (p.phase === 'plane') {
       tx = this.plane.position.x;
       tz = this.plane.position.z;
       ty = PLANE_Z * S * 0.4;

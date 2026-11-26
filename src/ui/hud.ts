@@ -5,6 +5,7 @@ import { loadStats } from '../storage';
 import { Settings, loadSettings, saveSettings } from '../settings';
 import { Sfx } from '../sfx';
 import { WEAPONS, TIER_COLORS, WeaponId } from '../weapons';
+import { Profile, loadProfile, saveProfile, levelInfo, SKINS, skinColor, taskText, awardRound, RoundReward } from '../profile';
 
 const $ = <T extends HTMLElement>(html: string) => {
   const d = document.createElement('div');
@@ -36,12 +37,22 @@ export class Hud {
   private move: Stick;
   private aim: Stick;
   private keys = new Set<string>();
-  private pending = { jump: false, heal: false, reload: false, pickup: false };
+  private pending = { jump: false, heal: false, reload: false, pickup: false, swap: false };
   private feed: { el: HTMLElement; t: number }[] = [];
   private lastMini = 0;
   private mouse = { on: false, x: 0, y: 0, down: false };
   /** zuletzt per Touch bedient (Handy/Tablet) */
   private touch = window.matchMedia('(hover: none)').matches;
+  profile: Profile = loadProfile();
+  private stepDist = 0;
+  private lastStepPos = { x: 0, y: 0 };
+  private zoneBeep = 0;
+  private wasReloading = false;
+  private reward: RoundReward | null = null;
+  private tut = { step: -1, t: 0 };
+  private rotateEl: HTMLElement;
+  private dirsLayer: HTMLElement;
+  private stickMax = 55;
 
   constructor(private cb: { play: () => void; menu: () => void; settingsChanged: (s: Settings) => void }) {
     this.labelsLayer = $('<div id="labels"></div>');
@@ -62,6 +73,7 @@ export class Hud {
         <button class="pickcard hidden"><span class="pc-icon"></span><span class="pc-text"><b class="pc-name"></b><small class="pc-stats"></small></span><span class="pc-key">E</span></button>
         <div class="bottom">
           <div class="wrow"><span class="wname"></span><span class="ammo"></span></div>
+          <button class="altslot hidden"><span class="altname"></span><small class="altkey">Q</small></button>
           <div class="bar ar"><i></i></div>
           <div class="bar hp"><i></i><span></span></div>
         </div>
@@ -69,6 +81,8 @@ export class Hud {
           <button class="rb reload">Laden<small>R</small></button>
         </div>
         <button class="rb jump hidden">SPRINGEN<small>Leertaste</small></button>
+        <div class="tip hidden"></div>
+        <div class="specbar hidden"><span>Du schaust zu: <b class="specname"></b></span><button class="btn secondary toresult">ERGEBNIS</button></div>
         <div class="joy move hidden"><i></i></div>
         <div class="joy aim hidden"><i></i></div>
       </div>`);
@@ -78,6 +92,11 @@ export class Hud {
         <div class="subtitle">3D Battle Royale  •  ${FIGHTER_COUNT} Kämpfer  •  Nur einer überlebt</div>
         <button class="btn pulse play">SPIELEN</button>
         <button class="btn secondary opensettings">EINSTELLUNGEN</button>
+        <div class="prof">
+          <div class="lvl"><span class="lvlnum"></span><div class="xpbar"><i></i></div><small class="xptext"></small></div>
+          <div class="skins" aria-label="Farbe deiner Figur"></div>
+          <div class="daily"><b>Tägliche Aufgaben</b><div class="tasks"></div></div>
+        </div>
         <div class="stats"></div>
         <div class="help">
           <b>PC:</b> WASD laufen  •  Maus zielen  •  Linksklick schießen  •  E Waffe aufheben  •  R nachladen<br>
@@ -91,7 +110,9 @@ export class Hud {
         <div class="big"></div>
         <div class="subtitle osub"></div>
         <div class="subtitle ostats"></div>
+        <div class="reward"></div>
         <button class="btn again">NOCHMAL</button>
+        <button class="btn secondary watch">ZUSCHAUEN</button>
         <button class="btn secondary tomenu">MENÜ</button>
       </div>`);
     this.settingsEl = $(`
@@ -100,7 +121,8 @@ export class Hud {
           <h2>Einstellungen</h2>
           <div class="row"><span>Steuerung am Handy</span><div class="seg" data-key="swap">
             <button data-v="false">Links laufen · Rechts zielen</button><button data-v="true">Links zielen · Rechts laufen</button></div></div>
-          <div class="row"><span>Grafik</span><div class="seg" data-key="quality"><button data-v="high">Hoch</button><button data-v="low">Niedrig (flüssiger)</button></div></div>
+          <div class="row"><span>Grafik</span><div class="seg" data-key="quality"><button data-v="auto">Automatisch</button><button data-v="high">Hoch</button><button data-v="low">Niedrig (flüssiger)</button></div></div>
+          <div class="row"><span>Stick-Größe am Handy</span><div class="seg" data-key="stick"><button data-v="small">Klein</button><button data-v="medium">Mittel</button><button data-v="large">Groß</button></div></div>
           <div class="row"><span>Ton</span><div class="seg" data-key="sound"><button data-v="true">An</button><button data-v="false">Aus</button></div></div>
           <div class="actions">
             <button class="btn resume">WEITER</button>
@@ -109,12 +131,14 @@ export class Hud {
         </div>
       </div>`);
     this.ring = $(`<div class="pring hidden"><svg viewBox="0 0 60 60" width="60" height="60"><circle cx="30" cy="30" r="26" class="bg"/><circle cx="30" cy="30" r="26" class="fg"/></svg></div>`);
-    document.body.append(this.labelsLayer, this.hud, this.menu, this.over, this.settingsEl);
+    this.rotateEl = $(`<div class="screen hidden" id="rotate"><div class="rot-icon"></div><div class="subtitle">Bitte dreh dein Handy quer</div></div>`);
+    this.dirsLayer = $(`<div class="dirs"></div>`);
+    document.body.append(this.labelsLayer, this.dirsLayer, this.hud, this.menu, this.over, this.settingsEl, this.rotateEl);
     this.labelsLayer.append(this.ring);
     this.ringArc = this.ring.querySelector('.fg') as SVGCircleElement;
     this.ringArc.style.strokeDasharray = String(RING_C);
 
-    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear']) {
+    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname']) {
       this.e[k] = this.hud.querySelector('.' + k)!;
     }
     this.e.arBar = this.hud.querySelector('.bar.ar i')!;
@@ -133,6 +157,17 @@ export class Hud {
     this.over.querySelector('.again')!.addEventListener('click', () => { startAudio(); this.cb.play(); });
     this.over.querySelector('.tomenu')!.addEventListener('click', () => this.cb.menu());
     this.e.gear.addEventListener('click', () => this.openSettings(true));
+    this.e.altslot.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); this.pending.swap = true; });
+    this.over.querySelector('.watch')!.addEventListener('click', () => {
+      if (!this.game) return;
+      this.game.spectate = this.game.nextSpectate(this.game.player);
+      this.over.classList.add('hidden');
+      this.e.specbar.classList.remove('hidden');
+    });
+    this.e.specbar.querySelector('.toresult')!.addEventListener('click', () => {
+      this.e.specbar.classList.add('hidden');
+      this.over.classList.remove('hidden');
+    });
     this.settingsEl.querySelector('.resume')!.addEventListener('click', () => this.closeSettings());
     this.settingsEl.querySelector('.leave')!.addEventListener('click', () => { this.closeSettings(); this.cb.menu(); });
     this.settingsEl.querySelectorAll<HTMLElement>('.seg').forEach((seg) => {
@@ -164,6 +199,7 @@ export class Hud {
       if (ev.code === 'Space') { this.pending.jump = true; ev.preventDefault(); }
       if (ev.code === 'KeyR') this.pending.reload = true;
       if (ev.code === 'KeyE') this.pending.pickup = true;
+      if (ev.code === 'KeyQ' || ev.code === 'Digit1' || ev.code === 'Digit2') this.pending.swap = true;
       if (ev.code === 'Escape' && this.game) this.paused ? this.closeSettings() : this.openSettings(true);
       if (ev.code === 'Enter' && !this.menu.classList.contains('hidden')) { startAudio(); this.cb.play(); }
     });
@@ -202,7 +238,7 @@ export class Hud {
       for (const s of [this.move, this.aim]) {
         if (!s.active || ev.pointerId !== s.id) continue;
         let dx = ev.clientX - s.bx, dy = ev.clientY - s.by;
-        const len = Math.hypot(dx, dy), max = 55;
+        const len = Math.hypot(dx, dy), max = this.stickMax;
         if (len > max) { dx = (dx / len) * max; dy = (dy / len) * max; }
         s.x = dx / max;
         s.y = dy / max;
@@ -223,7 +259,7 @@ export class Hud {
   }
 
   private knob(s: Stick) {
-    (s.el.firstElementChild as HTMLElement).style.transform = `translate(${s.x * 55}px, ${s.y * 55}px)`;
+    (s.el.firstElementChild as HTMLElement).style.transform = `translate(${s.x * this.stickMax}px, ${s.y * this.stickMax}px)`;
   }
 
   private applySettings() {
@@ -234,6 +270,12 @@ export class Hud {
     });
     this.e.buttons?.classList.toggle('left', s.swap);
     this.sfx.enabled = s.sound;
+    this.stickMax = s.stick === 'small' ? 44 : s.stick === 'large' ? 70 : 55;
+    for (const st of [this.move, this.aim]) {
+      if (!st) continue;
+      st.el.style.width = st.el.style.height = `${this.stickMax * 2 + 10}px`;
+      st.el.style.margin = `-${this.stickMax + 5}px 0 0 -${this.stickMax + 5}px`;
+    }
     this.cb.settingsChanged(s);
   }
 
@@ -263,6 +305,48 @@ export class Hud {
       ? `Spiele: ${st.games}  •  Siege: ${st.wins}  •  Beste Platzierung: #${st.best}  •  Abschüsse: ${st.kills}`
       : 'Noch keine Runde gespielt';
     this.menu.querySelector('.portrait')!.classList.toggle('hidden', window.innerWidth > window.innerHeight);
+    this.e.specbar.classList.add('hidden');
+    this.renderProfile();
+  }
+
+  get playerColor() { return skinColor(this.profile); }
+
+  private renderProfile() {
+    const pr = this.profile;
+    const li = levelInfo(pr.xp);
+    this.menu.querySelector('.lvlnum')!.textContent = `Level ${li.level}`;
+    (this.menu.querySelector('.xpbar i') as HTMLElement).style.width = `${(li.into / li.need) * 100}%`;
+    this.menu.querySelector('.xptext')!.textContent = `${li.into} / ${li.need} XP`;
+    const sk = this.menu.querySelector('.skins')!;
+    sk.innerHTML = '';
+    for (const skin of SKINS) {
+      const locked = li.level < skin.level;
+      const b = document.createElement('button');
+      b.className = 'skin' + (pr.skin === skin.id ? ' on' : '') + (locked ? ' locked' : '');
+      b.style.setProperty('--c', hex(skin.color));
+      b.title = locked ? `${skin.name}: ab Level ${skin.level}` : skin.name;
+      b.setAttribute('aria-label', b.title);
+      b.innerHTML = locked ? `<small>${skin.level}</small>` : '';
+      if (!locked) b.addEventListener('click', () => { pr.skin = skin.id; saveProfile(pr); this.renderProfile(); });
+      sk.append(b);
+    }
+    const tl = this.menu.querySelector('.tasks')!;
+    tl.innerHTML = '';
+    for (const t of pr.daily.tasks) {
+      const row = document.createElement('div');
+      row.className = 'task' + (t.done ? ' done' : '');
+      const shown = t.kind === 'survive' ? `${Math.floor(t.progress / 60)}/${Math.round(t.target / 60)} min` : `${t.progress}/${t.target}`;
+      row.innerHTML = `<span></span><b>${t.done ? 'Erledigt' : shown}</b>`;
+      row.querySelector('span')!.textContent = taskText(t);
+      tl.append(row);
+    }
+  }
+
+  /** Handy im Hochformat: Spiel pausieren und zum Drehen auffordern */
+  blocked() {
+    const b = !!this.game && this.touch && window.innerHeight > window.innerWidth;
+    this.rotateEl.classList.toggle('hidden', !b);
+    return b;
   }
 
   startRound(game: Game) {
@@ -275,6 +359,10 @@ export class Hud {
     this.clearLabels();
     this.feed.forEach((f) => f.el.remove());
     this.feed = [];
+    this.reward = null;
+    this.e.specbar.classList.add('hidden');
+    this.tut = { step: this.profile.tutorialDone ? -1 : 0, t: 0 };
+    this.lastStepPos = { x: game.player.x, y: game.player.y };
     this.buildMiniBase(game);
     for (const f of game.fighters) {
       if (f.isPlayer) continue;
@@ -327,7 +415,8 @@ export class Hud {
     if (this.pending.heal) game.input.heal = true;
     if (this.pending.reload) game.input.reload = true;
     if (this.pending.pickup) game.input.pickup = true;
-    this.pending = { jump: false, heal: false, reload: false, pickup: false };
+    if (this.pending.swap) game.input.swap = true;
+    this.pending = { jump: false, heal: false, reload: false, pickup: false, swap: false };
   }
 
   handle(events: GameEvent[], game: Game, r: Renderer) {
@@ -342,7 +431,13 @@ export class Hud {
           this.sfx.shot('rocket', dist(ev.x, ev.y) * 0.6);
           break;
         case 'hit':
-          if (ev.byPlayer && ev.big) this.sfx.hit();
+          if (ev.byPlayer && ev.big) {
+            this.sfx.hit();
+            this.hitMarker(r, ev.x, ev.y, false);
+          }
+          break;
+        case 'airdrop':
+          this.sfx.incoming();
           break;
         case 'pickup':
           this.sfx.pickup();
@@ -362,7 +457,7 @@ export class Hud {
           this.e.feed.append(el);
           this.feed.push({ el, t: performance.now() });
           while (this.feed.length > 5) this.feed.shift()!.el.remove();
-          if (ev.mine) this.sfx.kill();
+          if (ev.mine) { this.sfx.kill(); this.hitMarker(r, ev.f.x, ev.f.y, true); }
           break;
         }
         case 'toast':
@@ -370,6 +465,7 @@ export class Hud {
           break;
         case 'damage':
           if (ev.toPlayer && ev.amount > 3) this.sfx.hurt();
+          if (ev.toPlayer && ev.fromX !== null && ev.fromY !== null) this.damageDir(Math.atan2(ev.fromY - p.y, ev.fromX - p.x));
           if ((ev.byPlayer || ev.toPlayer) && ev.amount > 0) {
             const s = r.project(ev.f.x, ev.f.y, 2.6);
             if (!s.on) break;
@@ -383,12 +479,21 @@ export class Hud {
             setTimeout(() => el.remove(), 750);
           }
           break;
-        case 'gameover':
-          setTimeout(() => this.showOver(ev.result), ev.result.win ? 700 : 1400);
+        case 'gameover': {
+          const rs = ev.result;
+          this.reward = awardRound(this.profile, {
+            place: rs.place, kills: rs.kills, win: rs.win, seconds: Math.max(0, (rs.time - PLANE_TIME) / 1000),
+            chests: game.stats.chests, airdrops: game.stats.airdrops, shields: game.stats.shields,
+          });
+          if (!this.profile.tutorialDone) { this.profile.tutorialDone = true; saveProfile(this.profile); }
+          setTimeout(() => this.showOver(rs), rs.win ? 900 : 2600);
           break;
+        }
       }
     }
   }
+
+  notice(text: string) { this.toast(text, '#ffffff'); }
 
   private toast(text: string, color: string) {
     const t = this.e.toast;
@@ -399,8 +504,43 @@ export class Hud {
     t.classList.add('show');
   }
 
+  /** kleines Kreuz an der Trefferstelle; rot und größer beim Abschuss */
+  private hitMarker(r: Renderer, x: number, y: number, kill: boolean) {
+    const s = r.project(x, y, 1.2);
+    if (!s.on) return;
+    const el = document.createElement('div');
+    el.className = 'hitmark' + (kill ? ' kill' : '');
+    el.style.transform = `translate(${s.x}px, ${s.y}px)`;
+    this.labelsLayer.append(el);
+    setTimeout(() => el.remove(), kill ? 600 : 260);
+  }
+
+  /** roter Bogen am Bildschirmrand: aus dieser Richtung kam der Schaden */
+  private damageDir(angle: number) {
+    const el = document.createElement('div');
+    el.className = 'dmgdir';
+    el.style.transform = `rotate(${angle + Math.PI / 2}rad)`;
+    this.dirsLayer.append(el);
+    setTimeout(() => el.remove(), 1100);
+  }
+
   private showOver(r: GameResult) {
     if (!this.game) return;
+    this.e.toast.classList.remove('show');
+    this.e.tip.classList.add('hidden');
+    this.e.specbar.classList.add('hidden');
+    const rw = this.reward;
+    const box = this.over.querySelector('.reward') as HTMLElement;
+    box.innerHTML = '';
+    if (rw) {
+      const head = document.createElement('div');
+      head.className = 'rw-head';
+      head.textContent = `+${rw.xp} XP` + (rw.levelAfter > rw.levelBefore ? `  •  Level ${rw.levelAfter} erreicht!` : '');
+      box.append(head);
+      for (const l of rw.lines) { const d = document.createElement('div'); d.textContent = l; box.append(d); }
+      for (const t of rw.tasksDone) { const d = document.createElement('div'); d.className = 'rw-task'; d.textContent = `Aufgabe erledigt: ${t}`; box.append(d); }
+    }
+    this.over.querySelector('.watch')!.classList.toggle('hidden', r.win || this.game.aliveCount() < 2);
     const big = this.over.querySelector('.big') as HTMLElement;
     big.textContent = r.win ? 'SIEG!' : `Platz #${r.place}`;
     big.classList.toggle('win', r.win);
@@ -413,6 +553,26 @@ export class Hud {
   update(game: Game, r: Renderer) {
     this.sfx.frame();
     const p = game.player;
+    // Schritte, Zonenwarnung, Flugzeug, Nachladen
+    if (p.alive && p.phase === 'ground') {
+      this.stepDist += Math.hypot(p.x - this.lastStepPos.x, p.y - this.lastStepPos.y);
+      if (this.stepDist > 70) { this.stepDist = 0; this.sfx.step(); }
+    }
+    this.lastStepPos = { x: p.x, y: p.y };
+    if (game.playerOutside() && game.time > this.zoneBeep) { this.zoneBeep = game.time + 1000; this.sfx.zoneWarn(); }
+    this.sfx.planeHum(p.phase === 'plane' ? 1 : game.time < PLANE_TIME * 1.2 ? 0.3 : 0);
+    if (p.reloading && !this.wasReloading) this.sfx.reload();
+    this.wasReloading = p.reloading;
+    // zweiter Waffenplatz
+    this.e.altslot.classList.toggle('hidden', !p.backup || !p.alive);
+    if (p.backup) {
+      this.e.altname.textContent = p.backup.w.name;
+      this.e.altname.style.color = hex(TIER_COLORS[p.backup.w.tier]);
+      this.e.altslot.querySelector('.altkey')!.textContent = this.touch ? 'Tippen' : 'Q';
+    }
+    // Zuschauen
+    if (game.spectate && !this.e.specbar.classList.contains('hidden')) this.e.specname.textContent = game.spectate.name;
+    this.updateTutorial(game);
     this.e.alive.textContent = String(game.aliveCount());
     this.e.kills.textContent = String(p.kills);
     const zi = game.zoneInfo();
@@ -480,6 +640,32 @@ export class Hud {
       this.lastMini = now;
       this.drawMini(game);
     }
+  }
+
+  private updateTutorial(game: Game) {
+    const p = game.player;
+    const tip = this.e.tip;
+    if (this.tut.step < 0 || !p.alive) { tip.classList.add('hidden'); return; }
+    const now = game.time;
+    const t = this.touch;
+    const steps: { text: string; until: () => boolean }[] = [
+      { text: t ? 'Tippe SPRINGEN, wenn du über deinem Wunschort bist' : 'Drück die Leertaste, wenn du über deinem Wunschort bist', until: () => p.phase !== 'plane' },
+      { text: t ? 'Lenk den Fallschirm mit dem linken Stick' : 'Lenk den Fallschirm mit WASD', until: () => p.phase === 'ground' },
+      { text: t ? 'Linker Stick: laufen  •  Rechter Stick: zielen, weit ziehen = schießen' : 'WASD: laufen  •  Maus: zielen  •  Linksklick: schießen', until: () => now - this.tut.t > 6500 },
+      { text: 'Stell dich auf Gegenstände, um sie aufzuheben. Loot-Kisten stehen in Häusern', until: () => now - this.tut.t > 6500 },
+      { text: 'Bleib innerhalb der Zone. Viel Glück!', until: () => now - this.tut.t > 5000 },
+    ];
+    const cur = steps[this.tut.step];
+    if (!cur) {
+      this.tut.step = -1;
+      this.profile.tutorialDone = true;
+      saveProfile(this.profile);
+      tip.classList.add('hidden');
+      return;
+    }
+    tip.textContent = cur.text;
+    tip.classList.remove('hidden');
+    if (cur.until()) { this.tut.step++; this.tut.t = now; }
   }
 
   private buildMiniBase(game: Game) {
