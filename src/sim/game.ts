@@ -40,6 +40,7 @@ interface Target { x: number; y: number; taken: boolean }
 
 export type GameEvent =
   | { type: 'shot'; f: Fighter; x: number; y: number; angle: number; wid: WeaponId }
+  | { type: 'punch'; f: Fighter; hit: boolean }
   | { type: 'hit'; x: number; y: number; color: number; big: boolean; byPlayer: boolean }
   | { type: 'kill'; f: Fighter; killer: string; victim: string; weapon: string; mine: boolean; me: boolean }
   | { type: 'loot'; loot: Loot }
@@ -74,8 +75,8 @@ export class Fighter {
   phase: Phase = 'plane';
   hp = 100; armor = 0; medkits = 0; bigmeds = 0; ammo = 45;
   healAmt = 0; healTotal = 0;
-  weapon: WeaponDef = WEAPONS.pistol;
-  mag = WEAPONS.pistol.mag;
+  weapon: WeaponDef = WEAPONS.fists;
+  mag = 0;
   lastShot = -99999;
   reloading = false; reloadUntil = 0;
   healUntil = 0;
@@ -663,7 +664,7 @@ export class Game {
     // Bots greifen anfangs zurückhaltender an, später voll
     const ramp = clamp(0.55 + ((now - PLANE_TIME) / 90000) * 0.45, 0.55, 1);
     const styleK = f.style === 'aggro' ? 1.05 : f.style === 'careful' ? 0.8 : 0.92;
-    let bestD = f.weapon.range * (f.isPlayer ? 1 : ramp * styleK);
+    let bestD = f.weapon.id === 'fists' ? 220 : f.weapon.range * (f.isPlayer ? 1 : ramp * styleK);
     for (const o of this.fighters) {
       if (o === f || !o.alive || o.phase !== 'ground' || this.ally(o, f)) continue;
       // Niedergeschlagene werden erledigt, wenn kein stehender Gegner näher ist
@@ -679,6 +680,25 @@ export class Game {
 
   private tryFire(f: Fighter, now: number) {
     const w = f.weapon;
+    if (w.id === 'fists') {
+      if (now - f.lastShot < w.rate) return;
+      f.lastShot = now;
+      f.lastFiredAt = now;
+      // Gegner direkt vor einem treffen
+      let hit: Fighter | null = null, bd = w.range + FIGHTER_R;
+      for (const o of this.fighters) {
+        if (o === f || !o.alive || o.phase !== 'ground' || this.ally(o, f)) continue;
+        const d = Math.hypot(o.x - f.x, o.y - f.y);
+        const diff = Math.abs(wrap(Math.atan2(o.y - f.y, o.x - f.x) - f.aim));
+        if (d < bd && diff < 1.0) { bd = d; hit = o; }
+      }
+      this.events.push({ type: 'punch', f, hit: !!hit });
+      if (hit) {
+        this.events.push({ type: 'hit', x: hit.x, y: hit.y, color: hit.color, big: true, byPlayer: f === this.player });
+        this.damage(hit, f.isPlayer ? w.damage : w.damage * 0.85, f, false, w.name);
+      }
+      return;
+    }
     if (w.id === 'minigun') {
       // Läufe müssen erst hochdrehen
       if (now - f.lastTrigger > 250) f.spinStart = now;
@@ -716,6 +736,7 @@ export class Game {
   }
 
   startReload(f: Fighter, now: number) {
+    if (f.weapon.id === 'fists') return;
     if (f.reloading || f.ammo <= 0 || f.mag >= f.weapon.mag) return;
     f.reloading = true;
     f.reloadUntil = now + f.weapon.reload;
@@ -868,7 +889,7 @@ export class Game {
     f.killedBy = attacker;
     if (attacker) attacker.kills++;
     const drops: LootKind[] = [];
-    if (f.weapon.id !== 'pistol') drops.push(`w:${f.weapon.id}` as LootKind);
+    if (f.weapon.id !== 'fists') drops.push(`w:${f.weapon.id}` as LootKind);
     if (f.ammo >= 15) drops.push('ammo');
     if (f.armor >= 25) drops.push('armor');
     if (f.backup && f.backup.w.id !== 'pistol') drops.push(`w:${f.backup.w.id}` as LootKind);
@@ -1020,7 +1041,7 @@ export class Game {
         dx = -Math.cos(ang);
         dy = -Math.sin(ang);
       } else {
-        const pref = f.weapon.range * (f.style === 'aggro' ? 0.35 : f.style === 'careful' ? 0.7 : 0.55);
+        const pref = f.weapon.id === 'fists' ? 20 : f.weapon.range * (f.style === 'aggro' ? 0.35 : f.style === 'careful' ? 0.7 : 0.55);
         const radial = d > pref + 50 ? 1 : d < pref - 50 ? -0.8 : 0;
         if (Math.random() < 0.12) f.strafe *= -1;
         dx = Math.cos(ang) * radial + Math.cos(ang + Math.PI / 2) * f.strafe * 0.9;
@@ -1136,9 +1157,13 @@ export class Game {
     return WEAPONS[k.slice(2) as WeaponId].tier > f.weapon.tier;
   }
 
+  private hasNoWeapon(f: Fighter) {
+    return f.weapon.id === 'fists';
+  }
+
   private findUsefulTarget(f: Fighter, safe: Circle): Target | null {
     let best: Target | null = null;
-    let bestD = 700 * 700;
+    let bestD = (this.hasNoWeapon(f) ? 1100 : 700) ** 2;
     const inSafe = (x: number, y: number) => (x - safe.x) ** 2 + (y - safe.y) ** 2 < safe.r * safe.r;
     for (const l of this.loot) {
       if (l.taken || !this.isUseful(f, l.kind)) continue;
@@ -1238,6 +1263,11 @@ export class Game {
         p = q;
         break;
       }
+      if (hi >= 0) {
+        // auch der Notfall-Platz bleibt im Haus
+        const h = this.houses[hi], m = h.s / 2 - 48;
+        p = { x: clamp(p.x, h.x - m, h.x + m), y: clamp(p.y, h.y - m, h.y + m) };
+      }
       taken.push(p);
       this.spawnLoot(p.x, p.y, k, true, { x: o.x, y: o.y });
     });
@@ -1299,7 +1329,9 @@ export class Game {
       f.mag = w.mag;
       f.reloading = false;
       this.events.push({ type: 'weapon', f });
-      if (f.isPlayer && !f.backup) {
+      if (old.id === 'fists') {
+        // erste Waffe: Fäuste werden einfach ersetzt
+      } else if (f.isPlayer && !f.backup) {
         // zweiter Platz frei: alte Waffe wandert dorthin
         f.backup = { w: old, mag: oldMag };
       } else if (old.id !== 'pistol' || manual) {

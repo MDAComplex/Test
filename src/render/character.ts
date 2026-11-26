@@ -160,6 +160,9 @@ const POSES: Record<string, ArmPose> = {
   // Minigun an der Hüfte, beide Hände unten
   aimMinigun: { r: [0.6, 0.25, 0.7], l: [0.75, -0.6, 0.95], gun: [0.28, 1.02, 0.08], gunRot: [0, 0] },
   carryMinigun: { r: [0.45, 0.25, 0.8], l: [0.6, -0.55, 1.0], gun: [0.22, 0.98, 0.08], gunRot: [0.25, 0.12] },
+  // Fäuste: Deckung beim Kämpfen, sonst freie Arme
+  aimFists: { r: [0.95, 0.4, 1.95], l: [0.9, -0.4, 2.0], gun: [0, 1, 0], gunRot: [0, 0] },
+  carryFists: { r: [0, 0, 0.35], l: [0, 0, 0.35], gun: [0, 1, 0], gunRot: [0, 0] },
 };
 
 export interface AnimState {
@@ -170,6 +173,9 @@ export interface AnimState {
   twoHanded: boolean;
   /** Waffen-Id für eigene Haltungen (Raketenwerfer, Minigun) */
   weapon?: string;
+  /** Schlag mit den Fäusten: 1 = gerade ausgeholt, fällt auf 0 */
+  punch?: number;
+  punchArm?: 0 | 1;
   reload: number;
   time: number;
   falling: boolean;
@@ -209,8 +215,9 @@ export function animateRig(rig: Rig, s: AnimState) {
   rig.torso.position.y = 1.0 + (1 - amp) * Math.sin(s.time * 2.2) * 0.012;
 
   const two = s.twoHanded;
-  const a = s.weapon === 'rocket' ? POSES.aimRocket : s.weapon === 'minigun' ? POSES.aimMinigun : two ? POSES.aim2 : POSES.aim1;
-  const c = s.weapon === 'rocket' ? POSES.carryRocket : s.weapon === 'minigun' ? POSES.carryMinigun : two ? POSES.carry2 : POSES.carry1;
+  const fists = s.weapon === 'fists';
+  const a = fists ? POSES.aimFists : s.weapon === 'rocket' ? POSES.aimRocket : s.weapon === 'minigun' ? POSES.aimMinigun : two ? POSES.aim2 : POSES.aim1;
+  const c = fists ? POSES.carryFists : s.weapon === 'rocket' ? POSES.carryRocket : s.weapon === 'minigun' ? POSES.carryMinigun : two ? POSES.carry2 : POSES.carry1;
   const k = s.aim;
   const swingR = -Math.sin(phase + Math.PI) * 0.45 * amp; // rechter Arm gegen rechtes Bein
   const swingL = -Math.sin(phase) * 0.45 * amp;
@@ -224,7 +231,19 @@ export function animateRig(rig: Rig, s: AnimState) {
   };
   set(0, c.r, a.r, !two);
   set(1, c.l, a.l, !two);
-  if (!two) {
+  if (fists) {
+    // beide Arme schwingen frei; beim Schlag schnellt ein Arm gerade nach vorne
+    if (k < 0.05) { rig.arms[0].shoulder.rotation.z = swingR; rig.arms[1].shoulder.rotation.z = swingL; }
+    const pt = s.punch ?? 0;
+    if (pt > 0) {
+      const ext = Math.sin(Math.min(1, (1 - pt) * 1.6) * Math.PI); // raus und zurück
+      const arm = rig.arms[s.punchArm ?? 0];
+      arm.shoulder.rotation.z = lerp(arm.shoulder.rotation.z, 1.55, ext);
+      arm.shoulder.rotation.x = lerp(arm.shoulder.rotation.x, 0, ext);
+      arm.elbow.rotation.z = lerp(arm.elbow.rotation.z, 0.05, ext);
+      rig.torso.rotation.y += (s.punchArm ? -1 : 1) * 0.25 * ext;
+    }
+  } else if (!two) {
     // freie linke Hand schwingt auch beim Zielen mit der Pistole
     rig.arms[1].shoulder.rotation.z = swingL;
   }
@@ -241,27 +260,34 @@ export function animateRig(rig: Rig, s: AnimState) {
   }
 }
 
-/** niedergeschlagen: auf dem Bauch kriechen (Kopf in Bewegungsrichtung) */
+/** niedergeschlagen: auf dem Bauch robben (Kopf in Bewegungsrichtung) */
 export function poseCrawl(rig: Rig, t: number, moving: number) {
   rig.gunPivot.visible = false;
-  const c = Math.sin(t), c2 = Math.cos(t);
-  // Arme greifen abwechselnd nach vorne (im Bauchlage-Körper ist "oben" = vorne)
-  rig.arms[0].shoulder.rotation.set(0.25, 0, 2.75 + c * 0.35 * moving);
-  rig.arms[1].shoulder.rotation.set(-0.25, 0, 2.75 - c * 0.35 * moving);
-  rig.arms[0].elbow.rotation.z = 0.5 + Math.max(0, -c) * 0.8 * moving;
-  rig.arms[1].elbow.rotation.z = 0.5 + Math.max(0, c) * 0.8 * moving;
-  // Beine schieben abwechselnd nach
-  rig.legs[0].hip.rotation.z = -0.15 + c * 0.25 * moving;
-  rig.legs[1].hip.rotation.z = -0.15 - c * 0.25 * moving;
-  rig.legs[0].knee.rotation.z = -0.3 - Math.max(0, c2) * 0.9 * moving;
-  rig.legs[1].knee.rotation.z = -0.3 - Math.max(0, -c2) * 0.9 * moving;
-  rig.torso.rotation.set(Math.sin(t * 2) * 0.06 * moving, 0, 0);
-  rig.head.rotation.z = 0.9; // Kopf hebt sich und schaut nach vorne
+  const c = Math.sin(t);
+  const ease = (x: number) => x * x * (3 - 2 * x);
+  // ein Arm greift weit nach vorne, der andere zieht unter dem Körper nach hinten
+  const reachR = ease(Math.max(0, c)), reachL = ease(Math.max(0, -c));
+  const m = moving, idle = 1 - moving;
+  rig.arms[0].shoulder.rotation.set(0.35, 0, lerp(2.2, 3.0, reachR * m + idle * 0.5));
+  rig.arms[1].shoulder.rotation.set(-0.35, 0, lerp(2.2, 3.0, reachL * m + idle * 0.5));
+  rig.arms[0].elbow.rotation.z = lerp(1.5, 0.6, reachR * m + idle * 0.3);
+  rig.arms[1].elbow.rotation.z = lerp(1.5, 0.6, reachL * m + idle * 0.3);
+  // Beine: das Bein auf der Seite des greifenden Arms zieht seitlich an (Froschbein)
+  rig.legs[0].hip.rotation.set(-0.35 * reachL * m, 0, -0.1 + 0.35 * reachL * m);
+  rig.legs[1].hip.rotation.set(0.35 * reachR * m, 0, -0.1 + 0.35 * reachR * m);
+  rig.legs[0].knee.rotation.z = -0.2 - 1.1 * reachL * m;
+  rig.legs[1].knee.rotation.z = -0.2 - 1.1 * reachR * m;
+  // Oberkörper rollt leicht zur ziehenden Seite, Kopf schaut nach vorne
+  rig.torso.rotation.set(c * 0.18 * m, 0, 0);
+  rig.head.rotation.z = 0.95;
+  rig.head.rotation.x = -c * 0.1 * m;
 }
 
 /** liegende Pose (tot) */
 export function poseLying(rig: Rig, t: number, crawl: boolean) {
   rig.head.rotation.z = 0;
+  rig.head.rotation.x = 0;
+  rig.legs.forEach((l) => l.hip.rotation.set(0, 0, 0));
   rig.gunPivot.visible = false;
   const c = crawl ? Math.sin(t) : 0;
   rig.legs[0].hip.rotation.z = 0.2 + c * 0.4;

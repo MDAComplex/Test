@@ -526,6 +526,9 @@ export class Hud {
         case 'shot':
           this.sfx.shot(ev.wid, ev.f === p ? 0 : dist(ev.x, ev.y));
           break;
+        case 'punch':
+          if (dist(ev.f.x, ev.f.y) < 500) this.sfx.punch(ev.hit);
+          break;
         case 'explode':
           this.sfx.shot('rocket', dist(ev.x, ev.y) * 0.6);
           break;
@@ -727,7 +730,7 @@ export class Hud {
     this.e.warn.classList.toggle('hidden', !game.playerOutside());
     this.e.wname.textContent = p.weapon.name;
     this.e.wname.style.color = hex(TIER_COLORS[p.weapon.tier]);
-    this.e.ammo.textContent = p.reloading ? 'Lädt…' : `${p.mag} / ${p.ammo}`;
+    this.e.ammo.textContent = p.weapon.id === 'fists' ? 'Nahkampf' : p.reloading ? 'Lädt…' : `${p.mag} / ${p.ammo}`;
     this.e.hpBar.style.width = `${Math.max(0, p.hp)}%`;
     this.e.hpBar.style.background = p.hp > 50 ? '' : p.hp > 25 ? '#ffcc00' : '#ff3b30';
     this.e.hpText.textContent = String(Math.ceil(Math.max(0, p.hp)));
@@ -736,7 +739,7 @@ export class Hud {
     const inPlane = p.phase === 'plane';
     const ground = p.phase === 'ground' && p.alive && !game.over;
     this.e.jump.classList.toggle('hidden', !inPlane);
-    this.e.buttons.classList.toggle('hidden', !ground);
+    this.e.buttons.classList.toggle('hidden', !ground || p.downed || p.weapon.id === 'fists');
 
     // Aufheben-Karte für Waffen
     const nw = null as typeof game.nearbyWeapon;

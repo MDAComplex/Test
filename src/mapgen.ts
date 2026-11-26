@@ -29,9 +29,10 @@ export const ROCK_SIZES = [28, 38, 48];
 export function randomLootKind(r: () => number): LootKind {
   // Verteilung: Munition 50 %, Waffen 22 %, Heilung 18 %, Schild 10 %
   const v = r();
-  if (v < 0.22) {
+  if (v < 0.27) {
     const w = r();
-    return w < 0.14 ? 'w:pistol' : w < 0.44 ? 'w:smg' : w < 0.68 ? 'w:shotgun' : w < 0.92 ? 'w:rifle' : 'w:sniper';
+    // mehr Pistolen, weil alle ohne Waffe starten
+    return w < 0.32 ? 'w:pistol' : w < 0.56 ? 'w:smg' : w < 0.74 ? 'w:shotgun' : w < 0.94 ? 'w:rifle' : 'w:sniper';
   }
   if (v < 0.72) return 'ammo';
   if (v < 0.82) return 'armor';

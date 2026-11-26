@@ -34,6 +34,7 @@ const C = {
 
 /** Aussehen der Geschosse je Waffe */
 const SHOT: Record<WeaponId, { color: number; len: number; thick: number; flash: number; shake: number }> = {
+  fists: { color: 0xffffff, len: 0.1, thick: 0.1, flash: 0, shake: 0.05 },
   pistol: { color: 0xffe27a, len: 0.63, thick: 0.11, flash: 0.9, shake: 0.06 },
   smg: { color: 0xffa040, len: 0.58, thick: 0.1, flash: 0.75, shake: 0.05 },
   shotgun: { color: 0xff7a3a, len: 0.34, thick: 0.11, flash: 1.6, shake: 0.28 },
@@ -59,6 +60,8 @@ interface FighterView {
   spin: THREE.Object3D | null;
   yaw: number;
   reloadBlend: number;
+  punchT: number;
+  punchArm: 0 | 1;
 }
 interface Particle { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; life: number; max: number }
 interface Puff { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number; max: number; size: number; grow: number }
@@ -537,6 +540,8 @@ export class Renderer {
     };
     const B = this.g.box, CX = this.g.cylX;
     switch (id) {
+      case 'fists':
+        break;
       case 'pistol':
         p(B, this.m.metal, 0.44, 0.13, 0.1, 0.18, 0.06);
         p(B, this.m.metal2, 0.3, 0.08, 0.09, 0.12, -0.03);
@@ -673,7 +678,7 @@ export class Renderer {
     this.world!.add(root);
     const v: FighterView = {
       root, lean, rig, chute, flash: 0, weaponId: f.weapon.id, walkT: Math.random() * 6, amp: 0, deadT: 0,
-      aimBlend: 0, recoil: 0, dustT: 0, spin: null, yaw: f.aim, reloadBlend: 0,
+      aimBlend: 0, recoil: 0, dustT: 0, spin: null, yaw: f.aim, reloadBlend: 0, punchT: 0, punchArm: 0,
     };
     v.spin = rig.gunKick.getObjectByName('spin') ?? null;
     this.fighterViews.set(f, v);
@@ -1393,6 +1398,12 @@ export class Renderer {
         case 'hit':
           this.burst(e.x, e.y, 1.1, e.color, e.big ? 6 : 3, 4);
           break;
+        case 'punch': {
+          const v = this.fighterViews.get(e.f);
+          if (v) { v.punchT = 1; v.punchArm = v.punchArm ? 0 : 1; }
+          if (e.f === game.player && e.hit) this.shake = Math.max(this.shake, 0.12);
+          break;
+        }
         case 'kill':
           this.burst(e.f.x, e.f.y, 1.0, e.f.color, 18, 7);
           break;
@@ -1502,7 +1513,7 @@ export class Renderer {
     this.playerRing.rotation.z = this.time;
 
     // Ziellinie des Spielers
-    const aiming = p.alive && p.phase === 'ground' && game.input.aim !== null && !game.over;
+    const aiming = p.alive && p.phase === 'ground' && !p.downed && p.weapon.id !== 'fists' && game.input.aim !== null && !game.over;
     this.aimLine.visible = aiming;
     if (aiming) {
       const len = game.rayLength(p.x, p.y, p.aim, p.weapon.range) * S;
@@ -1678,7 +1689,10 @@ export class Renderer {
     v.aimBlend = lerp(v.aimBlend, shooting ? 1 : 0, 1 - Math.exp(-dt * (shooting ? 26 : 9)));
     v.reloadBlend = lerp(v.reloadBlend, f.reloading ? 1 : 0, 1 - Math.exp(-dt * 12));
     rig.head.rotation.z = 0;
-    animateRig(rig, { phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, weapon: f.weapon.id, reload: v.reloadBlend, time: this.time + f.id, falling });
+    rig.head.rotation.x = 0;
+    rig.legs.forEach((l) => { l.hip.rotation.x = 0; l.hip.rotation.y = 0; });
+    v.punchT = Math.max(0, v.punchT - dt * 6);
+    animateRig(rig, { punch: v.punchT, punchArm: v.punchArm, phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, weapon: f.weapon.id, reload: v.reloadBlend, time: this.time + f.id, falling });
 
     v.recoil = Math.max(0, v.recoil - dt * 9);
     rig.gunKick.position.x = -v.recoil * (f.weapon.id === 'shotgun' || f.weapon.id === 'sniper' || f.weapon.id === 'rocket' ? 0.22 : 0.1);

@@ -82,6 +82,7 @@ export class Sfx {
   pickup() { if (this.ok()) { this.tone(620, 980, 0.12, 0.2, 'triangle'); } }
   crate() { if (this.ok()) { this.burst(500, 0.7, 0.25, 0.4, 'lowpass'); this.tone(520, 1040, 0.25, 0.18, 'triangle'); } }
   jump() { if (this.ok()) this.burst(500, 0.4, 0.8, 0.35, 'lowpass'); }
+  punch(hit: boolean) { if (this.ok()) { this.burst(hit ? 700 : 1400, 1, hit ? 0.12 : 0.08, hit ? 0.5 : 0.18, hit ? 'lowpass' : 'bandpass'); if (hit) this.tone(140, 60, 0.1, 0.3); } }
   step() { if (this.ok()) this.burst(380 + Math.random() * 120, 1.2, 0.06, 0.07, 'lowpass'); }
   zoneWarn() { if (this.ok()) this.tone(520, 380, 0.18, 0.12, 'square'); }
   incoming() { if (this.ok()) { this.tone(700, 1050, 0.25, 0.15, 'triangle'); setTimeout(() => this.ctx && this.enabled && this.tone(1050, 1400, 0.25, 0.15, 'triangle'), 180); } }

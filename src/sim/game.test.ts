@@ -83,13 +83,18 @@ describe('Waffen', () => {
   });
   it('zweiter Waffenplatz: alte Waffe wird gemerkt und getauscht', () => {
     const { g, p } = groundGame();
-    const l = g.spawnLoot(p.x, p.y, 'w:rifle');
-    g.tryPickup(p, l, true);
+    expect(p.weapon.id).toBe('fists');
+    // erste Waffe ersetzt die Fäuste
+    g.tryPickup(p, g.spawnLoot(p.x, p.y, 'w:rifle'), true);
     expect(p.weapon.id).toBe('rifle');
-    expect(p.backup?.w.id).toBe('pistol');
-    g.swapWeapon(p);
-    expect(p.weapon.id).toBe('pistol');
+    expect(p.backup).toBeNull();
+    // zweite Waffe: alte wandert in den zweiten Platz
+    g.tryPickup(p, g.spawnLoot(p.x, p.y, 'w:smg'), true);
+    expect(p.weapon.id).toBe('smg');
     expect(p.backup?.w.id).toBe('rifle');
+    g.swapWeapon(p);
+    expect(p.weapon.id).toBe('rifle');
+    expect(p.backup?.w.id).toBe('smg');
   });
 });
 
@@ -105,6 +110,24 @@ describe('Loot-Kisten', () => {
         expect(Math.abs(l.y - h.y)).toBeLessThanOrEqual(h.s / 2);
       }
     }
+  });
+});
+
+describe('Fäuste', () => {
+  it('Schlag trifft nur Gegner direkt davor', () => {
+    const { g, p } = groundGame();
+    const e = g.fighters[1];
+    e.alive = true; e.phase = 'ground'; e.armor = 0; e.hp = 100;
+    e.x = p.x + 40; e.y = p.y;
+    p.aim = 0;
+    g.input.aim = 0;
+    g.input.firing = true;
+    g.update(16);
+    expect(e.hp).toBeLessThan(100);
+    const hp = e.hp;
+    e.x = p.x + 200;
+    for (let t = 0; t < 600; t += 16) g.update(16);
+    expect(e.hp).toBe(hp);
   });
 });
 
