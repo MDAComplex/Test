@@ -20,7 +20,8 @@ function getMats(gradient: THREE.Texture) {
     coreGlow: new THREE.MeshBasicMaterial({ color: 0x9ff8ff, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }),
     gold: toon(0xffc93c),
     greenMain: toon(0x3fcf6a), greenMain2: toon(0x2fbf5c), greenDark: toon(0x1f8a43),
-    healGlow: new THREE.MeshBasicMaterial({ color: 0xc8ffd8 }), shieldGlow: new THREE.MeshBasicMaterial({ color: 0xcfe8ff }),
+    healGlow: new THREE.MeshBasicMaterial({ color: 0xc8ffd8 }), healLiquid: new THREE.MeshBasicMaterial({ color: 0x5dff8a }),
+    syringeGlass: new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: gradient, transparent: true, opacity: 0.5 }), shieldGlow: new THREE.MeshBasicMaterial({ color: 0xcfe8ff }),
   };
   return mats;
 }
@@ -62,6 +63,23 @@ export function buildItem(kind: Kind, gradient: THREE.Texture): THREE.Group {
       put(e, mat, x, y, z);
     }
   };
+  if (kind === 'medkit') {
+    // kleine Heilung: Spritze mit grüner Heilflüssigkeit (liegt flach, etwas größer, damit man sie gut sieht)
+    const k = 1.5;
+    const glassM = M.syringeGlass;
+    put(new THREE.CylinderGeometry(0.08 * k, 0.08 * k, 0.5 * k, 18), glassM, 0, 0.13 * k, 0, 0, 0, Math.PI / 2);
+    put(new THREE.CylinderGeometry(0.065 * k, 0.065 * k, 0.36 * k, 16), M.healLiquid, 0.04 * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
+    for (const x of [-0.1, 0.05, 0.2]) put(new THREE.CylinderGeometry(0.083 * k, 0.083 * k, 0.012 * k, 18), M.white, x * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
+    put(new THREE.CylinderGeometry(0.11 * k, 0.11 * k, 0.03 * k, 18), M.white, -0.25 * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
+    put(new THREE.CylinderGeometry(0.025 * k, 0.025 * k, 0.18 * k, 8), M.dark, -0.34 * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
+    put(new THREE.CylinderGeometry(0.065 * k, 0.065 * k, 0.03 * k, 14), M.dark, -0.43 * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
+    put(new THREE.CylinderGeometry(0.04 * k, 0.07 * k, 0.05 * k, 14), M.greenDark, 0.27 * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
+    put(new THREE.CylinderGeometry(0.008 * k, 0.008 * k, 0.16 * k, 6), M.metal, 0.37 * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
+    for (const [mat, geos] of parts) { const mesh = new THREE.Mesh(mergeGeometries(geos)!, mat); mesh.castShadow = true; g.add(mesh); }
+    g.position.y = -0.1;
+    cache.set(kind, g);
+    return g.clone();
+  }
   // Design A: Hartschalen-Koffer – farbiges Unterteil, heller Deckel, dunkles Feld mit leuchtendem Symbol, Seitengriffe, Schnallen
   const big = kind === 'bigmed', sc = big ? 1.25 : 1;
   const col = kind === 'armor' ? { main: M.blue, dark: M.blueDark, glow: M.shieldGlow } : { main: big ? M.greenMain2 : M.greenMain, dark: M.greenDark, glow: M.healGlow };
