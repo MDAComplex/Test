@@ -3,8 +3,9 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { S, WORLD, PLANE_Z, PLANE_TIME } from '../config';
 import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop, isContainer } from '../sim/game';
 import { WEAPONS, TIER_COLORS, WeaponId, parseWeapon } from '../weapons';
+import { CHUTE_Z } from '../sim/game';
 import { buildGun } from './guns';
-import { LootKind } from '../mapgen';
+import { LootKind, RAIL_R } from '../mapgen';
 import { WHITE_CHUTE } from '../chute';
 import { buildCharacter, buildChute, animateRig, poseLying, poseCrawl, makeToon, Rig } from './character';
 
@@ -12,6 +13,7 @@ const W = WORLD * S;
 const WALL_H = 2.1;
 const PITCH = (58 * Math.PI) / 180;
 const PITCH_AIR = (74 * Math.PI) / 180;
+const FREE_PITCH = (50 * Math.PI) / 180;
 const WATER = 0x3aa6dc;
 
 const C = {
@@ -66,6 +68,8 @@ interface FighterView {
   /** 0 = steht, 1 = kniet/kriecht (kurze Übergangsanimation) */
   kneel: number;
   punchArm: 0 | 1;
+  /** Öffnen des Fallschirms 0..1 */
+  chuteT: number;
 }
 interface Particle { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; life: number; max: number }
 interface Puff { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number; max: number; size: number; grow: number }
@@ -117,6 +121,8 @@ export class Renderer {
   camTarget = new THREE.Vector3(W / 2, 0, W / 2);
   baseDist = 30;
   pitch = PITCH;
+  /** Kamera beim nächsten Bild ohne Nachziehen setzen (z. B. beim Absprung) */
+  snapCam = false;
   private sun: THREE.DirectionalLight;
   private hemi: THREE.HemisphereLight;
   /** Tageszeit der Runde: Licht, Farben, Sonnenrichtung */
@@ -613,7 +619,7 @@ export class Renderer {
     root.add(shadow, lean);
     this.world!.add(root);
     const v: FighterView = {
-      root, lean, rig, chute, flash: 0, weaponId: f.weapon.id + f.weapon.tier, walkT: Math.random() * 6, amp: 0, deadT: 0,
+      root, lean, rig, chute, flash: 0, weaponId: f.weapon.id + f.weapon.tier, chuteT: 0, walkT: Math.random() * 6, amp: 0, deadT: 0,
       aimBlend: 0, recoil: 0, dustT: 0, spin: null, yaw: f.aim, reloadBlend: 0, punchT: 0, punchArm: 0, kneel: 0,
     };
     v.spin = rig.gunKick.getObjectByName('spin') ?? null;
@@ -1005,7 +1011,7 @@ export class Renderer {
           break;
         case 'water':
           // Flusswasser wird unten aus den Fluss-Daten gezeichnet (inkl. unter den Brücken)
-          if (o.r !== game.map.river.width / 2) waterParts.push({ x, z, r: o.r * S });
+          if (o.r !== game.map.river.width / 2 && o.r !== RAIL_R) waterParts.push({ x, z, r: o.r * S });
           break;
         case 'fence': {
           const horiz = o.w > o.h;
@@ -1485,6 +1491,9 @@ export class Renderer {
           if (e.toPlayer) this.shake = Math.max(this.shake, 0.15);
           break;
         }
+        case 'jump':
+          if (e.f.isPlayer) this.snapCam = true;
+          break;
         case 'land':
           for (let i = 0; i < 8; i++) {
             const a = (i / 8) * Math.PI * 2;
@@ -1598,26 +1607,7 @@ export class Renderer {
     this.zoneWall.position.set(zc.x * S, 5, zc.y * S);
     this.zoneWall.scale.set(Math.max(0.01, zc.r * S), 1, Math.max(0.01, zc.r * S));
 
-    // Flugzeug
-    const t = game.time / PLANE_TIME;
-    const pp = game.plane;
-    this.plane.visible = t < 1.3;
-    if (this.plane.visible) {
-      const ang = Math.atan2(pp.y2 - pp.y1, pp.x2 - pp.x1);
-      this.plane.position.set(lerp(pp.x1, pp.x2, t) * S, PLANE_Z * S, lerp(pp.y1, pp.y2, t) * S);
-      this.plane.rotation.set(Math.sin(this.time * 1.5) * 0.05, -ang, 0);
-      for (const pr of this.props) pr.rotation.x += dt * 40;
-      this.contrailT -= dt;
-      if (this.contrailT <= 0) {
-        this.contrailT = 0.05;
-        const back = -2;
-        for (const side of [8.6, -8.6]) {
-          const c = Math.cos(ang), s = Math.sin(ang);
-          const wx = this.plane.position.x + c * back - s * side, wz = this.plane.position.z + s * back + c * side;
-          this.puff(wx, PLANE_Z * S - 0.3, wz, this.m.contrail, 0.22, 0.7, 1.1);
-        }
-      }
-    }
+    this.plane.visible = false;
 
     this.updateCamera(game, dt);
     this.updateSun();
@@ -1661,6 +1651,7 @@ export class Renderer {
     v.root.position.set(f.x * S, f.z * S, f.y * S);
     const speed = Math.hypot(f.vx, f.vy);
     const falling = f.phase === 'fall';
+    const freefall = falling && f.z > CHUTE_Z;
     // Blickrichtung: am Fallschirm in Flugrichtung, sonst zur Zielrichtung
     const wantYaw = falling && speed > 40 ? Math.atan2(f.vy, f.vx) : f.aim;
     {
@@ -1674,7 +1665,14 @@ export class Renderer {
       rig.body.rotation.y = -v.yaw;
       rig.head.rotation.y = falling ? 0 : -Math.max(-0.75, Math.min(0.75, d));
     }
-    v.chute.visible = falling;
+    v.chute.visible = falling && !freefall;
+    v.chuteT = v.chute.visible ? Math.min(1, v.chuteT + dt / 0.45) : 0;
+    if (v.chute.visible) {
+      // Aufgehen: schnell aufblähen mit kleinem Überschwingen
+      const o = v.chuteT, e = 1 - Math.pow(1 - o, 3);
+      const over = 1 + Math.sin(o * Math.PI) * 0.12;
+      v.chute.scale.set(lerp(0.15, 1, e) * over, lerp(0.05, 1, e), lerp(0.15, 1, e) * over);
+    }
     if (falling) {
       // Schirm dreht mit der Figur und kippt in die Lenkrichtung
       // leichtes Pendeln um die Hände
@@ -1735,7 +1733,7 @@ export class Renderer {
     rig.head.rotation.x = 0;
     rig.legs.forEach((l) => { l.hip.rotation.x = 0; l.hip.rotation.y = 0; });
     v.punchT = Math.max(0, v.punchT - dt * 6);
-    animateRig(rig, { punch: v.punchT, punchArm: v.punchArm, phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, weapon: f.weapon.id, reload: v.reloadBlend, time: this.time + f.id, falling });
+    animateRig(rig, { punch: v.punchT, punchArm: v.punchArm, phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, weapon: f.weapon.id, reload: v.reloadBlend, time: this.time + f.id, falling, freefall });
 
     v.recoil = Math.max(0, v.recoil - dt * 9);
     rig.gunKick.position.x = -v.recoil * (f.weapon.id === 'shotgun' || f.weapon.id === 'sniper' || f.weapon.id === 'rocket' ? 0.22 : 0.1);
@@ -2163,10 +2161,17 @@ export class Renderer {
       ty = spec.z * S * 0.4;
       zoom = 1 + Math.min(1, spec.z / PLANE_Z) * 0.8;
     } else if (p.phase === 'plane') {
-      tx = this.plane.position.x;
-      tz = this.plane.position.z;
-      ty = PLANE_Z * S * 0.4;
-      zoom = 1.8;
+      // Auswahlphase: Blick über die ganze Insel
+      tx = W / 2;
+      tz = W / 2;
+      ty = 0;
+      zoom = 3;
+    } else if (p.phase === 'fall' && p.z > CHUTE_Z) {
+      // Freifall: nah an der Figur, damit man den Sprung sieht
+      tx = p.x * S;
+      tz = p.y * S;
+      ty = p.z * S;
+      zoom = 0.38;
     } else {
       tx = p.x * S;
       tz = p.y * S;
@@ -2180,12 +2185,14 @@ export class Renderer {
         tz += Math.sin(la) * look;
       }
     }
-    const k = 1 - Math.exp(-dt * 6);
+    const free = !spec && p.phase === 'fall' && p.z > CHUTE_Z;
+    let k = 1 - Math.exp(-dt * (free ? 14 : p.phase === 'fall' ? 2.6 : 6));
+    if (this.snapCam) { k = 1; this.snapCam = false; }
     this.camTarget.x = lerp(this.camTarget.x, tx, k);
     this.camTarget.y = lerp(this.camTarget.y, ty, k);
     this.camTarget.z = lerp(this.camTarget.z, tz, k);
     const air = p.phase === 'plane' ? 1 : Math.min(1, p.z / PLANE_Z);
-    this.pitch = lerp(this.pitch, lerp(PITCH, PITCH_AIR, air), k);
+    this.pitch = lerp(this.pitch, free ? FREE_PITCH : lerp(PITCH, PITCH_AIR, air), k);
     const dist = this.baseDist * zoom;
     this.shake = Math.max(0, this.shake - dt * 3);
     const sx = (Math.random() - 0.5) * this.shake, sz = (Math.random() - 0.5) * this.shake;

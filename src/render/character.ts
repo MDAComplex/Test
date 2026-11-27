@@ -442,6 +442,8 @@ export interface AnimState {
   reload: number;
   time: number;
   falling: boolean;
+  /** Freifall vor dem Öffnen des Schirms: Bauchlage mit ausgebreiteten Armen und Beinen */
+  freefall?: boolean;
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -508,6 +510,25 @@ export function animateRig(rig: Rig, s: AnimState) {
   // Schultern gehen im Schritt mit: die Schulter des vorschwingenden Arms schiebt leicht nach vorne
   const sh = Math.sin(phase + Math.PI - 0.25) * amp;
   shoulders(rig, sh * 0.045, -sh * 0.045, Math.max(0, -sh) * 0.02, Math.max(0, sh) * 0.02);
+  rig.body.rotation.z = 0;
+  rig.legs.forEach((l) => (l.hip.rotation.x = 0));
+  if (s.freefall) {
+    // Bauchlage: Körper nach vorn gekippt, Arme und Beine gespreizt, flattert im Wind
+    const fl = Math.sin(s.time * 13) * 0.04, fl2 = Math.sin(s.time * 11 + 1) * 0.05;
+    rig.body.rotation.z = -1.3;
+    rig.body.position.set(0.85, 0.9, 0);
+    rig.torso.rotation.set(0, 0, 0.12);
+    rig.pelvis.rotation.set(0, 0, 0);
+    shoulders(rig);
+    rig.legs[0].hip.rotation.set(0.38 + fl2, 0, -0.15);
+    rig.legs[1].hip.rotation.set(-0.38 - fl2, 0, -0.15);
+    rig.legs.forEach((l) => (l.knee.rotation.z = -0.7));
+    const ty = rig.torso.position.y;
+    reach(rig.arms[0], new THREE.Vector3(0.12, 0.62 - ty + 0.9 + fl, 0.72), 1);
+    reach(rig.arms[1], new THREE.Vector3(0.12, 0.62 - ty + 0.9 - fl, -0.72), -1);
+    rig.gunPivot.visible = false;
+    return;
+  }
   if (s.falling) {
     // am Fallschirm: Arme halten die Leinen, Beine baumeln
     const sway = Math.sin(s.time * 2.4 + phase);

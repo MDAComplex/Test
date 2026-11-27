@@ -62,6 +62,7 @@ export type GameEvent =
   | { type: 'toast'; text: string; color: string }
   | { type: 'pickup'; f: Fighter }
   | { type: 'jump'; f: Fighter }
+  | { type: 'chute'; f: Fighter }
   | { type: 'land'; f: Fighter }
   | { type: 'gameover'; result: GameResult }
   | { type: 'down'; f: Fighter; by: Fighter | null }
@@ -69,6 +70,10 @@ export type GameEvent =
   | { type: 'playerOut' };
 
 export type Phase = 'plane' | 'fall' | 'ground';
+/** Höhe, auf der sich der Fallschirm öffnet (darüber: Freifall ohne Lenken) */
+export const CHUTE_Z = 230;
+const FREEFALL_SPEED = (PLANE_Z - CHUTE_Z) / 1.8;
+const CHUTE_SPEED = CHUTE_Z / 4.2;
 export type Mode = 'solo' | 'duo' | 'squad';
 export const TEAM_SIZE: Record<Mode, number> = { solo: 1, duo: 2, squad: 4 };
 export const MODE_COUNT: Record<Mode, number> = { solo: 25, duo: 24, squad: 24 };
@@ -236,6 +241,9 @@ export class Game {
   nextZoneTick = 0;
   private ids = 1;
 
+  /** gewählter Landepunkt des Spielers (in der Auswahlphase) */
+  dropPick: { x: number; y: number } | null = null;
+  private dropPickAt = 0;
   mode: Mode;
   constructor(map: MapData, playerColor = PLAYER_COLOR, mode: Mode = 'solo', look?: Fighter['look']) {
     this.mode = mode;
@@ -268,18 +276,14 @@ export class Game {
       // erster Bot eines Teams plant den Absprung, die anderen folgen ihm
       const lead = this.fighters.find((x) => x.team === f.team && x !== f) ?? null;
       f.leader = lead;
-      if (f.team === 0) {
-        f.jumpAt = Infinity; // springt mit dem Spieler
-      } else if (lead) {
-        f.jumpAt = lead.jumpAt + 150 + Math.random() * 300;
+      if (lead && !lead.isPlayer) {
         f.landX = lead.landX + (Math.random() - 0.5) * 220;
         f.landY = lead.landY + (Math.random() - 0.5) * 220;
       } else {
         this.planBotDrop(f);
       }
     }
-    const pp = this.planePos();
-    for (const f of this.fighters) { f.x = pp.x; f.y = pp.y; }
+    for (const f of this.fighters) { f.x = WORLD / 2; f.y = WORLD / 2; }
 
     this.zoneCur = { x: WORLD / 2, y: WORLD / 2, r: WORLD * 0.72 };
     this.zoneFrom = { ...this.zoneCur };
@@ -372,15 +376,33 @@ export class Game {
     return { x: p.x1 + (p.x2 - p.x1) * k, y: p.y1 + (p.y2 - p.y1) * k, angle: Math.atan2(p.y2 - p.y1, p.x2 - p.x1) };
   }
 
+  /** Bots wählen ihren Landepunkt: meist bei einem Haus (Loot), sonst irgendwo auf der Insel */
   private planBotDrop(f: Fighter) {
-    const t = 0.08 + Math.random() * 0.84;
-    const pp = this.planePos(t);
-    const perp = pp.angle + Math.PI / 2;
-    const off = (Math.random() - 0.5) * 1800;
-    const spot = this.findFreeNear(pp.x + Math.cos(perp) * off + (Math.random() - 0.5) * 300, pp.y + Math.sin(perp) * off + (Math.random() - 0.5) * 300);
+    let x: number, y: number;
+    if (Math.random() < 0.6 && this.houses.length) {
+      const h = this.houses[Math.floor(Math.random() * this.houses.length)];
+      const a = Math.random() * Math.PI * 2;
+      x = h.x + Math.cos(a) * (h.s / 2 + 80 + Math.random() * 120);
+      y = h.y + Math.sin(a) * (h.s / 2 + 80 + Math.random() * 120);
+    } else {
+      x = 400 + Math.random() * (WORLD - 800);
+      y = 400 + Math.random() * (WORLD - 800);
+    }
+    const spot = this.findFreeNear(clamp(x, 300, WORLD - 300), clamp(y, 300, WORLD - 300));
     f.landX = spot.x;
     f.landY = spot.y;
-    f.jumpAt = t * PLANE_TIME;
+  }
+
+  /** Spieler wählt seinen Landepunkt (nur in der Auswahlphase) */
+  chooseDrop(x: number, y: number) {
+    if (this.time >= PLANE_TIME || this.player.phase !== 'plane') return;
+    this.dropPick = { x: clamp(x, 300, WORLD - 300), y: clamp(y, 300, WORLD - 300) };
+    this.dropPickAt = this.time;
+  }
+
+  /** Sekunden bis zum Absprung */
+  dropLeft() {
+    return Math.max(0, (PLANE_TIME - this.time) / 1000);
   }
 
   spawnLoot(x: number, y: number, kind: LootKind, announce = true, from?: { x: number; y: number }) {
@@ -462,34 +484,49 @@ export class Game {
   }
 
   private updateDrop(now: number, dt: number) {
-    const pp = this.planePos();
     const end = now >= PLANE_TIME;
+    const p = this.player;
+    // Auswahlphase: Mitspieler-Bots schließen sich nach kurzer Zeit dem Punkt des Spielers an
+    if (!end && this.dropPick && this.mode !== 'solo') {
+      for (const m of this.teammates(p)) {
+        if (m.phase !== 'plane' || now < this.dropPickAt + 700 + (m.id % 3) * 600) continue;
+        const k = m.id % 3;
+        m.landX = this.dropPick.x + (k - 1) * 110;
+        m.landY = this.dropPick.y + (k === 1 ? 90 : -60);
+      }
+    }
+    if (end && p.phase === 'plane' && !this.dropPick) {
+      // nichts gewählt: im Team zu einem Mitspieler, sonst zufällig
+      const mate = this.mode !== 'solo' ? this.teammates(p)[0] : null;
+      if (mate) this.dropPick = { x: mate.landX + 90, y: mate.landY + 70 };
+      else { this.planBotDrop(p); this.dropPick = { x: p.landX, y: p.landY }; }
+    }
     for (const f of this.fighters) {
       if (!f.alive) continue;
       if (f.phase === 'plane') {
-        const go = f.isPlayer ? this.input.jump || end
-          : f.team === this.player.team && this.mode !== 'solo' ? this.player.phase !== 'plane' || end
-          : now >= f.jumpAt || end;
-        f.x = pp.x;
-        f.y = pp.y;
-        if (go) {
-          f.phase = 'fall';
-          f.z = PLANE_Z - 40;
-          f.x = clamp(f.x, 60, WORLD - 60);
-          f.y = clamp(f.y, 60, WORLD - 60);
-          this.events.push({ type: 'jump', f });
-        }
+        if (!end) continue;
+        const spot = f.isPlayer ? this.dropPick! : { x: f.landX, y: f.landY };
+        f.landX = spot.x; f.landY = spot.y;
+        f.phase = 'fall';
+        // Bots springen etwas tiefer ab, damit sie im Freifall nicht direkt vor der Kamera schweben
+        f.z = f.isPlayer ? PLANE_Z : PLANE_Z - 180 - Math.random() * 160;
+        f.x = clamp(spot.x, 60, WORLD - 60);
+        f.y = clamp(spot.y, 60, WORLD - 60);
+        f.vx = f.vy = 0;
+        this.events.push({ type: 'jump', f });
       } else if (f.phase === 'fall') {
-        f.z -= FALL_SPEED * dt * (f.z > 300 ? 1.6 : 1);
+        const free = f.z > CHUTE_Z;
+        f.z -= (free ? FREEFALL_SPEED : CHUTE_SPEED) * dt;
+        if (free && f.z <= CHUTE_Z) this.events.push({ type: 'chute', f });
         // tief über einem Haus: vom Dach seitlich abrutschen, damit niemand ins Haus fällt
-        if (f.z < 220) this.pushOutOfHouse(f);
+        if (f.z < 120) this.pushOutOfHouse(f);
         if (f.z <= 0) {
           f.z = 0;
           f.phase = 'ground';
           this.pushOutOfHouse(f);
-          const p = this.findFreeNear(f.x, f.y);
-          f.x = p.x;
-          f.y = p.y;
+          const q = this.findFreeNear(f.x, f.y);
+          f.x = q.x;
+          f.y = q.y;
           f.lastX = f.x;
           f.lastY = f.y;
           this.events.push({ type: 'land', f });
@@ -592,7 +629,7 @@ export class Game {
 
   /** Laufgeschwindigkeit: Waffe, Zielen und Heilen machen langsamer */
   speedOf(f: Fighter) {
-    if (f.phase === 'fall') return f.isPlayer ? 230 : 210;
+    if (f.phase === 'fall') return f.z > CHUTE_Z ? 0 : f.isPlayer ? 150 : 140;
     if (f.downed) return 48;
     const base = f.isPlayer ? PLAYER_SPEED : BOT_SPEED;
     return base * f.weapon.moveMul * (f.aiming ? 0.7 : 1) * (f.healUntil ? 0.5 : 1);
@@ -1529,7 +1566,7 @@ export class Game {
 
   zoneInfo() {
     const now = this.time;
-    if (now < PLANE_TIME && this.player.phase === 'plane') return { text: 'Springe ab! (Leertaste / Springen)', urgent: false };
+    if (now < PLANE_TIME && this.player.phase === 'plane') return { text: `Wähle deinen Landepunkt · ${Math.ceil(this.dropLeft())}`, urgent: false };
     if (this.zoneState === 'wait') {
       const ms = Math.max(0, PHASES[this.phase].wait - (now - this.phaseStart));
       const s = Math.ceil(ms / 1000);

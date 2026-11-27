@@ -289,3 +289,38 @@ describe('Fluss', () => {
     expect(minD).toBeGreaterThan(rv.width / 2);
   });
 });
+
+describe('Brücke', () => {
+  it('Geländer hält einen auf der Brücke', () => {
+    for (const seed of [31, 7, 99]) {
+      const g = new Game(generateMap(seed));
+      const p = g.player;
+      for (const f of g.fighters) { f.phase = 'ground'; f.z = 0; if (!f.isPlayer) { f.alive = false; f.x = 10; f.y = 10; } }
+      g.time = 30000;
+      const b = g.map.river.bridges[0];
+      p.x = b.x; p.y = b.y; p.vx = p.vy = 0;
+      // seitlich gegen das Geländer laufen (in Flussrichtung)
+      g.input.mx = Math.cos(b.angle); g.input.my = Math.sin(b.angle);
+      for (let t = 0; t < 2500; t += 16) g.update(16);
+      const along = (p.x - b.x) * Math.cos(b.angle) + (p.y - b.y) * Math.sin(b.angle);
+      expect(Math.abs(along)).toBeLessThan(60);
+    }
+  });
+});
+
+describe('Absprung', () => {
+  it('landet am gewählten Punkt, Freifall vor dem Schirm', () => {
+    const g = new Game(generateMap(5));
+    g.update(16);
+    g.chooseDrop(1200, 2600);
+    let sawChute = false, sawJump = false;
+    for (let t = 0; t < 40000 && g.player.phase !== 'ground'; t += 16) {
+      g.update(16);
+      for (const e of g.events) { if (e.type === 'chute' && e.f.isPlayer) sawChute = true; if (e.type === 'jump' && e.f.isPlayer) sawJump = true; }
+      g.events = [];
+    }
+    expect(sawJump && sawChute).toBe(true);
+    expect(g.player.phase).toBe('ground');
+    expect(Math.hypot(g.player.x - 1200, g.player.y - 2600)).toBeLessThan(250);
+  });
+});

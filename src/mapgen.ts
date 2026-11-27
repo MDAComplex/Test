@@ -26,6 +26,8 @@ export interface MapData {
 }
 
 export const ROCK_SIZES = [28, 38, 48];
+/** Radius der unsichtbaren Geländer-Kollision an Brücken */
+export const RAIL_R = 12;
 
 export function randomLootKind(r: () => number): LootKind {
   // Verteilung: Munition 50 %, Waffen 22 %, Heilung 18 %, Schild 10 %
@@ -117,6 +119,15 @@ export function generateMap(seed: number): MapData {
     // Lücke an den Brücken: so breit wie die Brücke (Wasserradius + halbe Brückenbreite)
     if (bridges.some((b) => Math.hypot(b.x - sp.x, b.y - sp.y) < RIVER_W / 2 + 64)) continue;
     obstacles.push({ kind: 'water', x: sp.x, y: sp.y, r: RIVER_W / 2, w: RIVER_W, h: RIVER_W });
+  }
+  // Brückengeländer: Kette kleiner unsichtbarer Kreise entlang beider Seiten, damit niemand seitlich ins Wasser läuft
+  for (const b of bridges) {
+    const L = RIVER_W + 150, ax = Math.cos(b.angle), ay = Math.sin(b.angle), px = -ay, py = ax;
+    for (const side of [-1, 1]) {
+      for (let t = -L / 2; t <= L / 2; t += 18) {
+        obstacles.push({ kind: 'water', x: b.x + px * t + ax * side * 58, y: b.y + py * t + ay * side * 58, r: RAIL_R, w: RAIL_R * 2, h: RAIL_R * 2 });
+      }
+    }
   }
   for (const sp of samples) blocks.push({ x: sp.x, y: sp.y, r: RIVER_W / 2 + 40 });
   // alle Wasserstücke fürs Zeichnen (auch unter den Brücken)

@@ -114,6 +114,58 @@ export class Sfx {
       }
     }
   }
+  private windN: { src: AudioBufferSourceNode; f: BiquadFilterNode; g: GainNode; lfo: OscillatorNode } | null = null;
+  /** Fahrtwind: level 0..1, bright 0..1 (Freifall hell und laut, am Schirm dumpf und leise) */
+  wind(level: number, bright: number) {
+    if (!this.ctx || !this.master) return;
+    const c = this.ctx;
+    if (!this.windN && level > 0 && this.enabled) {
+      const src = c.createBufferSource();
+      src.buffer = this.noise; src.loop = true;
+      const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 0.7; f.frequency.value = 500;
+      const g = c.createGain(); g.gain.value = 0;
+      // langsames Schwanken für Böen
+      const lfo = c.createOscillator(); lfo.frequency.value = 0.6;
+      const lg = c.createGain(); lg.gain.value = 180;
+      lfo.connect(lg).connect(f.frequency);
+      src.connect(f).connect(g).connect(this.master);
+      src.start(); lfo.start();
+      this.windN = { src, f, g, lfo };
+    }
+    if (this.windN) {
+      const t = c.currentTime;
+      this.windN.g.gain.setTargetAtTime(this.enabled ? level * 0.55 : 0, t, 0.15);
+      this.windN.f.frequency.setTargetAtTime(320 + bright * 900, t, 0.2);
+      if (level <= 0) {
+        const w = this.windN;
+        this.windN = null;
+        setTimeout(() => { try { w.src.stop(); w.lfo.stop(); } catch { /* schon gestoppt */ } }, 900);
+      }
+    }
+  }
+  /** Rauschen beim Absprung (weißer Blitz) */
+  dropWhoosh() {
+    if (!this.ctx || !this.master || !this.enabled) return;
+    const c = this.ctx, t = c.currentTime;
+    const src = c.createBufferSource(); src.buffer = this.noise;
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 0.9;
+    f.frequency.setValueAtTime(250, t); f.frequency.exponentialRampToValueAtTime(2400, t + 0.6);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.6, t + 0.25); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+    src.connect(f).connect(g).connect(this.master);
+    src.start(t, 0, 1);
+  }
+  /** Fallschirm geht auf: dumpfer Schlag plus flatternder Stoff */
+  chuteOpen() {
+    if (!this.ctx || !this.master || !this.enabled) return;
+    this.burst(260, 0.6, 0.45, 0.9, 'lowpass');
+    this.tone(110, 45, 0.35, 0.4);
+    for (let i = 0; i < 5; i++) setTimeout(() => this.ctx && this.enabled && this.burst(1300 - i * 120, 2.5, 0.05, 0.22 - i * 0.03, 'bandpass'), 60 + i * 55);
+  }
+  /** kurzes Ticken für den Countdown */
+  tick(urgent: boolean) { if (this.ok()) this.tone(urgent ? 1200 : 900, urgent ? 1100 : 850, 0.05, urgent ? 0.14 : 0.08, 'square'); }
+  /** Bestätigung beim Setzen des Landepunkts */
+  ping() { if (this.ok()) { this.tone(780, 1180, 0.12, 0.16, 'triangle'); } }
   private music: { nodes: AudioScheduledSourceNode[]; gain: GainNode; timer: number } | null = null;
   /** ruhige, sich wiederholende Hintergrundmusik fürs Menü */
   menuMusic(on: boolean) {

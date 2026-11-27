@@ -1,4 +1,5 @@
 import { WORLD, FIGHTER_COUNT, PLANE_TIME } from '../config';
+import { CHUTE_Z } from '../sim/game';
 import { Game, Fighter, GameEvent, GameResult, lootLabel, isContainer } from '../sim/game';
 import { Renderer } from '../render/renderer';
 import { loadStats } from '../storage';
@@ -66,6 +67,8 @@ export class Hud {
   private rotateEl: HTMLElement;
   private lockerEl: HTMLElement;
   private preview: Preview | null = null;
+  private dropCanvas!: HTMLCanvasElement;
+  private lastTick = -1;
   private previewChute = false;
   private dirsLayer: HTMLElement;
   private stickMax = 55;
@@ -100,6 +103,16 @@ export class Hud {
           <button class="rb reload">Laden<small>R</small></button>
         </div>
         <button class="rb jump hidden">SPRINGEN<small>Leertaste</small></button>
+        <div class="dropsel hidden">
+          <div class="ds-map"><canvas width="1536" height="1536" aria-label="Landepunkt wählen"></canvas></div>
+          <div class="ds-side">
+            <div class="ds-title">Wähle deinen<br>Landepunkt</div>
+            <div class="ds-timer"><svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="52" class="bg"/><circle cx="60" cy="60" r="52" class="fg"/></svg><b class="ds-num">20</b></div>
+            <div class="ds-hint"></div>
+            <div class="ds-team"></div>
+          </div>
+        </div>
+        <div class="whiteflash"></div>
         <div class="tip hidden"></div>
         <div class="team hidden"></div>
         <div class="downnote hidden"><b>Du bist niedergeschlagen</b><span>Dein Team kann dich wiederbeleben</span><div class="bar"><i></i></div></div>
@@ -126,7 +139,7 @@ export class Hud {
         <div class="help">
           <b>PC:</b> WASD laufen  •  Maus zielen  •  Linksklick schießen  •  auf Gegenstände stellen zum Aufheben  •  Q Waffe wechseln  •  R nachladen<br>
           <b>Handy:</b> linker Stick laufen  •  rechter Stick zielen und schießen (in den Einstellungen tauschbar)<br>
-          Spring aus dem Flugzeug, öffne Kisten, Truhen und Versorgungspakete und bleib in der Zone
+          Wähle deinen Landepunkt, öffne Kisten, Truhen und Versorgungspakete und bleib in der Zone
         </div>
         <div class="hint portrait hidden">Tipp: Halte dein Handy quer, dann siehst du mehr vom Spielfeld</div>
       </div>`);
@@ -184,7 +197,7 @@ export class Hud {
     this.ringArc = this.ring.querySelector('.fg') as SVGCircleElement;
     this.ringArc.style.strokeDasharray = String(RING_C);
 
-    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname', 'killnote', 'team', 'downnote', 'bigmap', 'bighint', 'xhair', 'fire']) {
+    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname', 'killnote', 'team', 'downnote', 'bigmap', 'bighint', 'xhair', 'fire', 'dropsel', 'whiteflash']) {
       this.e[k] = this.hud.querySelector('.' + k)!;
     }
     this.e.arBar = this.hud.querySelector('.bar.ar i')!;
@@ -197,6 +210,16 @@ export class Hud {
     this.bigCanvas = this.hud.querySelector('.bigmap canvas')!;
     // Handy/Maus: auf die Minikarte tippen öffnet, auf die große Karte tippen schließt
     this.mini.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); this.setBig(true); });
+    this.dropCanvas = this.hud.querySelector('.dropsel canvas')!;
+    this.dropCanvas.addEventListener('pointerdown', (ev) => {
+      ev.stopPropagation();
+      const g = this.game;
+      if (!g || g.player.phase !== 'plane') return;
+      const rc = this.dropCanvas.getBoundingClientRect();
+      g.chooseDrop(((ev.clientX - rc.left) / rc.width) * WORLD, ((ev.clientY - rc.top) / rc.height) * WORLD);
+      this.sfx.ping();
+    });
+    this.e.dropsel.addEventListener('pointerdown', (ev) => ev.stopPropagation());
     this.e.bigmap.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); if (!this.tabHeld) this.setBig(false); });
     this.move = { active: false, id: -1, bx: 0, by: 0, x: 0, y: 0, el: this.hud.querySelector('.joy.move')! };
     this.aim = { active: false, id: -1, bx: 0, by: 0, x: 0, y: 0, el: this.hud.querySelector('.joy.aim')! };
@@ -659,7 +682,19 @@ export class Hud {
           if (dist(ev.o.x, ev.o.y) < 300) this.sfx.crate();
           break;
         case 'jump':
-          if (ev.f === p) this.sfx.jump();
+          if (ev.f === p) {
+            this.sfx.dropWhoosh();
+            // weißer Blitz, dann blendet er weich aus
+            const wf = this.e.whiteflash;
+            wf.classList.remove('fade');
+            wf.classList.add('on');
+            void wf.offsetWidth;
+            wf.classList.add('fade');
+            wf.classList.remove('on');
+          }
+          break;
+        case 'chute':
+          if (ev.f === p) this.sfx.chuteOpen();
           break;
         case 'kill': {
           const color = ev.me ? '#ff6b6b' : ev.mine ? '#ffd23f' : '#ffffff';
@@ -816,7 +851,7 @@ export class Hud {
     }
     this.lastStepPos = { x: p.x, y: p.y };
     if (game.playerOutside() && game.time > this.zoneBeep) { this.zoneBeep = game.time + 1000; this.sfx.zoneWarn(); }
-    this.sfx.planeHum(p.phase === 'plane' ? 1 : game.time < PLANE_TIME * 1.2 ? 0.3 : 0);
+    this.sfx.wind(p.alive && p.phase === 'fall' ? (p.z > CHUTE_Z ? 1 : 0.28) : 0, p.phase === 'fall' && p.z > CHUTE_Z ? 1 : 0.1);
     if (p.reloading && !this.wasReloading) this.sfx.reload();
     this.wasReloading = p.reloading;
     // zweiter Waffenplatz
@@ -855,7 +890,9 @@ export class Hud {
 
     const inPlane = p.phase === 'plane';
     const ground = p.phase === 'ground' && p.alive && !game.over;
-    this.e.jump.classList.toggle('hidden', !inPlane);
+    this.e.jump.classList.add('hidden');
+    this.e.dropsel.classList.toggle('hidden', !inPlane || !p.alive);
+    if (inPlane) this.updateDropSel(game);
     this.e.buttons.classList.toggle('hidden', !ground || p.downed || p.weapon.id === 'fists');
 
     // Aufheben-Karte für Waffen
@@ -869,14 +906,8 @@ export class Hud {
       this.e.pcName.textContent = `${w.name} · ${RARITY_NAMES[w.tier]}`;
       this.e.pcStats.textContent = `Schaden ${w.damage * w.pellets}  •  Reichweite ${Math.round(w.range / 10)} m  •  Magazin ${w.mag}`;
     }
-    this.e.prompt.textContent = p.phase === 'fall' ? 'Lenk deinen Fallschirm zum Landeplatz' : '';
-
-    if (inPlane) {
-      const left = Math.ceil((PLANE_TIME - game.time) / 1000);
-      this.e.center.textContent = left <= 5 ? `Automatischer Absprung in ${left}` : '';
-    } else {
-      this.e.center.textContent = '';
-    }
+    this.e.prompt.textContent = p.phase === 'fall' ? (p.z > CHUTE_Z ? '' : 'Lenk deinen Fallschirm zum Landeplatz') : '';
+    this.e.center.textContent = '';
 
     // Namensschilder
     for (const [f, l] of this.labels) {
@@ -919,7 +950,7 @@ export class Hud {
     const now = game.time;
     const t = this.touch;
     const steps: { text: string; until: () => boolean }[] = [
-      { text: t ? 'Tippe SPRINGEN, wenn du über deinem Wunschort bist' : 'Drück die Leertaste, wenn du über deinem Wunschort bist', until: () => p.phase !== 'plane' },
+      { text: t ? 'Tippe auf die Karte, um zu wählen, wo du landest' : 'Klick auf die Karte, um zu wählen, wo du landest', until: () => p.phase !== 'plane' },
       { text: t ? 'Lenk den Fallschirm mit dem linken Stick' : 'Lenk den Fallschirm mit WASD', until: () => p.phase === 'ground' },
       { text: t ? 'Linker Stick: laufen  •  Rechter Stick: zielen, weit ziehen = schießen' : 'WASD: laufen  •  Maus: zielen  •  Linksklick: schießen', until: () => now - this.tut.t > 6500 },
       { text: 'Stell dich auf Gegenstände, um sie aufzuheben. Loot-Kisten stehen in Häusern', until: () => now - this.tut.t > 6500 },
@@ -936,6 +967,58 @@ export class Hud {
     tip.textContent = cur.text;
     tip.classList.remove('hidden');
     if (cur.until()) { this.tut.step++; this.tut.t = now; }
+  }
+
+  /** Landepunkt-Auswahl: Karte mit Zone, eigenem Pfeil und den Punkten der Mitspieler, daneben der Countdown */
+  private updateDropSel(game: Game) {
+    const left = game.dropLeft();
+    const sec = Math.ceil(left);
+    this.e.dropsel.querySelector('.ds-num')!.textContent = String(sec);
+    const fg = this.e.dropsel.querySelector('.ds-timer .fg') as SVGCircleElement;
+    const C = 2 * Math.PI * 52;
+    fg.style.strokeDasharray = `${C}`;
+    fg.style.strokeDashoffset = `${C * (1 - left / (PLANE_TIME / 1000))}`;
+    this.e.dropsel.classList.toggle('urgent', sec <= 5);
+    if (sec !== this.lastTick) { this.lastTick = sec; if (sec <= 5 && sec > 0) this.sfx.tick(sec <= 3); }
+    this.e.dropsel.querySelector('.ds-hint')!.textContent = game.dropPick
+      ? 'Landepunkt gesetzt. Du kannst ihn noch ändern'
+      : this.touch ? 'Tippe auf die Karte' : 'Klick auf die Karte';
+    const N = 1536, q = N / 320, k = N / WORLD;
+    const cv = this.dropCanvas, g = cv.getContext('2d')!;
+    if (this.bigBase) g.drawImage(this.bigBase, 0, 0);
+    // erste Zone
+    const zc = game.zoneCur;
+    g.strokeStyle = '#b9a8ff'; g.lineWidth = 2.5 * q;
+    g.beginPath(); g.arc(zc.x * k, zc.y * k, zc.r * k, 0, 7); g.stroke();
+    const now = performance.now();
+    const team = game.mode === 'solo' ? [] : game.teammates(game.player);
+    const pins: { x: number; y: number; color: string; name: string; me: boolean }[] = [];
+    for (const m of team) if (m.alive) pins.push({ x: m.landX, y: m.landY, color: hex(m.color), name: m.name, me: false });
+    if (game.dropPick) pins.push({ x: game.dropPick.x, y: game.dropPick.y, color: hex(game.player.color), name: 'Du', me: true });
+    for (const pn of pins) {
+      const x = pn.x * k, y = pn.y * k, s = (pn.me ? 9 : 7) * q;
+      if (pn.me) {
+        const t = (now % 1400) / 1400;
+        g.strokeStyle = `rgba(255,255,255,${0.9 * (1 - t)})`; g.lineWidth = 2 * q;
+        g.beginPath(); g.ellipse(x, y, (4 + t * 16) * q, (2 + t * 8) * q, 0, 0, 7); g.stroke();
+      }
+      // Schatten am Boden
+      g.fillStyle = 'rgba(0,0,0,0.35)';
+      g.beginPath(); g.ellipse(x, y, s * 0.55, s * 0.25, 0, 0, 7); g.fill();
+      // Pfeil nach unten, leicht hüpfend
+      const bob = Math.sin(now / 260 + pn.x) * 2 * q;
+      this.arrow(g, x, y - s * 1.5 + bob, Math.PI / 2, s, pn.color);
+      g.font = `900 ${(pn.me ? 10 : 8) * q}px Nunito, system-ui, sans-serif`;
+      g.textAlign = 'center'; g.textBaseline = 'bottom';
+      g.lineWidth = 3 * q; g.strokeStyle = 'rgba(0,0,0,0.7)'; g.fillStyle = '#fff';
+      g.strokeText(pn.name, x, y - s * 2.8 + bob); g.fillText(pn.name, x, y - s * 2.8 + bob);
+    }
+    // Teamliste neben dem Countdown
+    const tl = this.e.dropsel.querySelector('.ds-team')!;
+    const html = team.length
+      ? team.map((m) => `<div><i style="background:${hex(m.color)}"></i>${m.name}</div>`).join('')
+      : '';
+    if (tl.innerHTML !== html) tl.innerHTML = html;
   }
 
   private buildMiniBase(game: Game, N = 320) {
@@ -1116,7 +1199,7 @@ export class Hud {
       g.lineWidth = 2 * q;
       g.beginPath(); g.arc(d.x * k, d.y * k, (7 + Math.sin(now / 150) * 2) * q, 0, 7); g.stroke();
     }
-    if (game.time < PLANE_TIME * 1.1) {
+    if (false as boolean) {
       const pl = game.plane;
       g.strokeStyle = 'rgba(255,255,255,0.75)';
       g.setLineDash([8 * q, 6 * q]);
@@ -1161,8 +1244,9 @@ export class Hud {
     if (game.mode !== 'solo') {
       for (const m of game.teammates(p)) {
         if (!m.alive) continue;
-        const pos = m.phase === 'plane' ? game.planePos() : m;
-        if (big && m.phase !== 'plane') {
+        if (m.phase === 'plane') continue;
+        const pos = m;
+        if (big) {
           this.arrow(g, pos.x * k, pos.y * k, m.aim, 5.5 * q, '#5ab4ff');
         } else {
           g.fillStyle = '#4aa8ff'; g.strokeStyle = '#000'; g.lineWidth = 2 * q;
@@ -1170,11 +1254,11 @@ export class Hud {
         }
       }
     }
-    if (p.alive) {
-      const pos = p.phase === 'plane' ? game.planePos() : p;
+    if (p.alive && p.phase !== 'plane') {
+      const pos = p;
       if (big) {
         const x = pos.x * k, y = pos.y * k;
-        if (p.phase !== 'plane') {
+        {
           // Sichtkegel
           const cone = g.createRadialGradient(x, y, 0, x, y, 34 * q);
           cone.addColorStop(0, 'rgba(255,230,120,0.55)'); cone.addColorStop(1, 'rgba(255,230,120,0)');
@@ -1185,7 +1269,7 @@ export class Hud {
         const t = (now % 1600) / 1600;
         g.strokeStyle = `rgba(255,210,63,${0.8 * (1 - t)})`; g.lineWidth = 2 * q;
         g.beginPath(); g.arc(x, y, (6 + t * 14) * q, 0, 7); g.stroke();
-        this.arrow(g, x, y, p.phase === 'plane' ? Math.atan2(game.plane.y2 - game.plane.y1, game.plane.x2 - game.plane.x1) : p.aim, 7 * q, '#ffd23f');
+        this.arrow(g, x, y, p.aim, 7 * q, '#ffd23f');
       } else {
         g.fillStyle = '#ffd23f'; g.strokeStyle = '#000'; g.lineWidth = 2 * q;
         g.beginPath(); g.arc(pos.x * k, pos.y * k, 6 * q, 0, 7); g.fill(); g.stroke();
