@@ -36,6 +36,8 @@ export interface Bullet {
   id: number;
   x: number; y: number; vx: number; vy: number;
   owner: Fighter; dmg: number; traveled: number; range: number; weapon: string; wid: WeaponId;
+  /** von einer goldenen (legendären) Waffe: eigener Schuss-Look */
+  gold?: boolean;
   /** genaue Reichweite; danach streut die Kugel stärker */
   eff: number; strayed: boolean;
   dead: boolean;
@@ -921,7 +923,7 @@ export class Game {
       const a = f.aim + (Math.random() - 0.5) * 2 * (w.spread + extra);
       this.bullets.push({
         id: this.ids++, x: sx, y: sy, vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed,
-        owner: f, dmg: f.isPlayer ? w.damage : w.damage * 0.85, traveled: 0, range: w.range * (w.splash ? 1 : 1.6), weapon: w.name, wid: w.id, dead: false, eff: w.range, strayed: false,
+        owner: f, gold: w.tier === 5, dmg: f.isPlayer ? w.damage : w.damage * 0.85, traveled: 0, range: w.range * (w.splash ? 1 : 1.6), weapon: w.name, wid: w.id, dead: false, eff: w.range, strayed: false,
       });
     }
     if (!f.isPlayer) {

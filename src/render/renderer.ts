@@ -52,6 +52,11 @@ const SHOT: Record<WeaponId, { color: number; len: number; thick: number; flash:
 
 interface FighterView {
   root: THREE.Group;
+  /** grauer Bodenschatten (nur am Boden bzw. kurz vor der Landung) */
+  shadow: THREE.Mesh;
+  /** Beine im Fahrtwind (geglättet): nach hinten / zur Seite */
+  legFwd: number;
+  legSide: number;
   lean: THREE.Group;
   rig: Rig;
   chute: THREE.Group;
@@ -646,7 +651,7 @@ export class Renderer {
     root.add(shadow, lean);
     this.world!.add(root);
     const v: FighterView = {
-      root, lean, rig, chute, flash: 0, weaponId: f.weapon.id + f.weapon.tier, chuteT: 0, walkT: Math.random() * 6, amp: 0, deadT: 0,
+      root, shadow, legFwd: 0, legSide: 0, lean, rig, chute, flash: 0, weaponId: f.weapon.id + f.weapon.tier, chuteT: 0, walkT: Math.random() * 6, amp: 0, deadT: 0,
       aimBlend: 0, recoil: 0, dustT: 0, spin: null, yaw: f.aim, reloadBlend: 0, punchT: 0, punchArm: 0, kneel: 0,
     };
     v.spin = rig.gunKick.getObjectByName('spin') ?? null;
@@ -1724,6 +1729,17 @@ export class Renderer {
     const speed = Math.hypot(f.vx, f.vy);
     const falling = f.phase === 'fall';
     const freefall = falling && f.z > CHUTE_Z;
+    // Bodenschatten: in der Luft weg, kurz vor der Landung wächst er am Boden heran
+    if (falling) {
+      const k = clamp01(1 - f.z / 140);
+      v.shadow.visible = k > 0.02;
+      v.shadow.position.y = -f.z * S + 0.04;
+      v.shadow.scale.setScalar(0.7 * k);
+    } else if (!v.shadow.visible || v.shadow.position.y !== 0.04) {
+      v.shadow.visible = true;
+      v.shadow.position.y = 0.04;
+      v.shadow.scale.setScalar(0.7);
+    }
     // Blickrichtung: am Fallschirm in Flugrichtung, sonst zur Zielrichtung
     // Freifall: Blick von der Kamera weg (Kopf zeigt im Bild nach oben, Füße zur Kamera)
     const wantYaw = freefall ? -Math.PI / 2 : falling && speed > 40 ? Math.atan2(f.vy, f.vx) : f.aim;
@@ -1817,7 +1833,16 @@ export class Renderer {
     rig.head.rotation.x = 0;
     rig.legs.forEach((l) => { l.hip.rotation.x = 0; l.hip.rotation.y = 0; });
     v.punchT = Math.max(0, v.punchT - dt * 6);
-    animateRig(rig, { punch: v.punchT, punchArm: v.punchArm, phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, weapon: f.weapon.id, reload: v.reloadBlend, time: this.time + f.id, falling, freefall, freeK: clamp01((DROP_Z - f.z) / (DROP_Z - CHUTE_Z)) });
+    if (falling) {
+      // Fahrtwind: Beine wehen entgegen der Flugrichtung (bezogen auf die Blickrichtung der Figur)
+      const cy = Math.cos(v.yaw), sy = Math.sin(v.yaw), sp = 180;
+      const fwd = Math.max(-1, Math.min(1, (f.vx * cy + f.vy * sy) / sp));
+      const side = Math.max(-1, Math.min(1, (-f.vx * sy + f.vy * cy) / sp));
+      const kk = 1 - Math.exp(-dt * 4);
+      v.legFwd = lerp(v.legFwd, fwd, kk);
+      v.legSide = lerp(v.legSide, side, kk);
+    } else { v.legFwd = 0; v.legSide = 0; }
+    animateRig(rig, { punch: v.punchT, punchArm: v.punchArm, phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, weapon: f.weapon.id, reload: v.reloadBlend, time: this.time + f.id, falling, freefall, legFwd: v.legFwd, legSide: v.legSide, freeK: clamp01((DROP_Z - f.z) / (DROP_Z - CHUTE_Z)) });
     if (v.squash && v.squash > 0) {
       // Landung: kurz stauchen und federnd zurück
       v.squash = Math.max(0, v.squash - dt * 3.5);
@@ -1852,9 +1877,13 @@ export class Renderer {
     }
   }
 
-  private bulletMesh(wid: WeaponId) {
-    const pool = this.bulletPools.get(wid) ?? [];
-    this.bulletPools.set(wid, pool);
+  private goldCore = new THREE.MeshBasicMaterial({ color: 0xff8a1a, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
+  private goldGlow = new THREE.MeshBasicMaterial({ color: 0xffc233, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false });
+  private bulletMesh(wid: WeaponId, gold = false) {
+    // goldene (legendäre) Waffen: leuchtend orangefarbener Kern mit goldenem Schein
+    const pk = gold && wid !== 'rocket' ? wid + ':gold' : wid;
+    const pool = this.bulletPools.get(pk) ?? [];
+    this.bulletPools.set(pk, pool);
     let m = pool.pop();
     if (!m) {
       if (wid === 'rocket') {
@@ -1869,13 +1898,22 @@ export class Renderer {
         fire.position.x = -0.45;
         g.add(body, tip, fire);
         m = g;
+      } else if (pk !== wid) {
+        const st = SHOT[wid];
+        const g = new THREE.Group();
+        const glowM = new THREE.Mesh(this.g.bullet, this.goldGlow);
+        glowM.scale.set(st.len * 1.15, st.thick * 2.1, st.thick * 2.1);
+        const core = new THREE.Mesh(this.g.bullet, this.goldCore);
+        core.scale.set(st.len, st.thick * 1.05, st.thick * 1.05);
+        g.add(glowM, core);
+        m = g;
       } else {
         const st = SHOT[wid];
         const mesh = new THREE.Mesh(this.g.bullet, this.shotMat[wid]);
         mesh.scale.set(st.len, st.thick, st.thick);
         m = mesh;
       }
-      m.userData.wid = wid;
+      m.userData.wid = pk;
       this.world!.add(m);
     }
     m.visible = true;
@@ -1894,7 +1932,7 @@ export class Renderer {
     for (const b of game.bullets) {
       let m = this.bulletViews.get(b);
       if (!m) {
-        m = this.bulletMesh(b.wid);
+        m = this.bulletMesh(b.wid, b.gold);
         m.rotation.y = -Math.atan2(b.vy, b.vx);
         this.bulletViews.set(b, m);
       }

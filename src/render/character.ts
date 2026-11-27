@@ -460,6 +460,9 @@ export interface AnimState {
   freefall?: boolean;
   /** Fortschritt des Freifalls 0..1 (anfangs steiler Sturzflug, dann flacher) */
   freeK?: number;
+  /** Fahrtwind in der Luft: Bewegung nach vorne / zur Seite (-1..1, relativ zur Figur) */
+  legFwd?: number;
+  legSide?: number;
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -539,8 +542,10 @@ export function animateRig(rig: Rig, s: AnimState) {
     rig.torso.rotation.set(0, 0, 0.12);
     rig.pelvis.rotation.set(0, 0, 0);
     shoulders(rig);
-    rig.legs[0].hip.rotation.set(0.38 + fl2, 0, -0.15);
-    rig.legs[1].hip.rotation.set(-0.38 - fl2, 0, -0.15);
+    // Beine ruhig gespreizt, nur ganz leichtes Flattern im Wind, seitlich entgegen der Flugrichtung
+    const sd = (s.legSide ?? 0) * 0.25;
+    rig.legs[0].hip.rotation.set(0.36 + fl2 * 0.25 + sd, 0, -0.15);
+    rig.legs[1].hip.rotation.set(-0.36 - fl2 * 0.25 + sd, 0, -0.15);
     rig.legs.forEach((l) => (l.knee.rotation.z = -0.7));
     const ty = rig.torso.position.y;
     reach(rig.arms[0], new THREE.Vector3(0.18, 0.62 - ty + 1.12 + fl, 0.95), 1);
@@ -550,10 +555,11 @@ export function animateRig(rig: Rig, s: AnimState) {
   }
   if (s.falling) {
     // am Fallschirm: Arme halten die Leinen, Beine baumeln
-    const sway = Math.sin(s.time * 2.4 + phase);
-    rig.legs[0].hip.rotation.z = 0.15 + sway * 0.12;
-    rig.legs[1].hip.rotation.z = -0.05 - sway * 0.12;
-    rig.legs.forEach((l) => (l.knee.rotation.z = -0.35));
+    // Beine hängen ruhig und wehen entgegen der Flugrichtung (vorwärts -> nach hinten, seitwärts -> zur anderen Seite)
+    const fwd = s.legFwd ?? 0, side = s.legSide ?? 0, wob = Math.sin(s.time * 1.7) * 0.025;
+    rig.legs[0].hip.rotation.set(side * 0.32 + 0.05, 0, 0.08 - fwd * 0.42 + wob);
+    rig.legs[1].hip.rotation.set(side * 0.32 - 0.05, 0, 0.02 - fwd * 0.42 - wob);
+    rig.legs.forEach((l, i) => (l.knee.rotation.z = -0.32 - Math.max(0, fwd) * 0.18 - i * 0.06));
     rig.torso.rotation.set(0, 0, 0);
     shoulders(rig);
     // beide Hände greifen die Steuerleinen über dem Kopf (Torso-Koordinaten: Körper minus Torso-Höhe)
