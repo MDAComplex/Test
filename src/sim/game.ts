@@ -78,7 +78,8 @@ export function freefallPos(f: { landX: number; landY: number; id: number }, u: 
   const side = f.id % 2 ? 1 : -1;
   // vorwärts und abwärts gemeinsam (aus Sicht der Kamera: gleichmäßig von unten zur Bildmitte),
   // schnell herein, zum Ende hin ruhiger; dazu ein Bogen zur Seite und leichtes Pendeln
-  const e = 1 - Math.pow(1 - u, 2);
+  // Anfang wie bisher, aber am Ende nicht bis zum Stillstand abbremsen (sonst „hängt“ man kurz vor dem Schirm)
+  const e = 0.3 * u + 0.7 * (1 - Math.pow(1 - u, 2));
   // Bogen und Pendeln nur am Anfang; zum Ende laufen Auslenkung UND Seitwärtsbewegung gegen null,
   // damit die Figur beim Öffnen des Schirms gerade und mittig ist
   const settle = (1 - u) * (1 - u);
