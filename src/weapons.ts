@@ -32,4 +32,49 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   rocket: { id: 'rocket', name: 'Raketenwerfer', damage: 75, rate: 1500, range: 420, speed: 620, spread: 0.02, mag: 1, reload: 2400, pellets: 1, tier: 5, length: 44, moveMul: 0.8, twoHanded: true, splash: 120 },
 };
 
-export const TIER_COLORS: Record<number, number> = { 0: 0xdddddd, 1: 0xbfc5cc, 2: 0x5fd068, 3: 0x45a3ff, 4: 0xc070ff, 5: 0xffa726 };
+/** Seltenheit: 1 Grau, 2 Grün, 3 Blau, 4 Lila (episch), 5 Gold (legendär) */
+export type Rarity = 1 | 2 | 3 | 4 | 5;
+export const TIER_COLORS: Record<number, number> = { 0: 0xdddddd, 1: 0xbfc5cc, 2: 0x5fd068, 3: 0x45a3ff, 4: 0xb35cff, 5: 0xffc233 };
+export const RARITY_NAMES: Record<number, string> = { 0: '', 1: 'Gewöhnlich', 2: 'Ungewöhnlich', 3: 'Selten', 4: 'Episch', 5: 'Legendär' };
+/** Schaden je Seltenheit (Grundwerte oben gelten für Blau) */
+export const DMG_MUL: Record<number, number> = { 0: 1, 1: 0.82, 2: 0.91, 3: 1, 4: 1.1, 5: 1.22 };
+/** grobe Stärke der Waffenart, für Bots und Vergleiche */
+const TYPE_RANK: Record<WeaponId, number> = { fists: 0, pistol: 1, smg: 2, shotgun: 2.1, rifle: 3, sniper: 3, minigun: 5, rocket: 5 };
+
+export type GunId = Exclude<WeaponId, 'fists'>;
+export type WeaponLoot = `w:${GunId}:${Rarity}`;
+
+const cache = new Map<string, WeaponDef>();
+/** Waffe in bestimmter Seltenheit (gecacht, damit Vergleiche per Referenz klappen) */
+export function weaponOf(id: WeaponId, rarity: number): WeaponDef {
+  if (id === 'fists') return WEAPONS.fists;
+  const key = id + rarity;
+  let w = cache.get(key);
+  if (!w) {
+    const b = WEAPONS[id];
+    // Minigun und Raketenwerfer: Grundwerte gelten für Lila
+    const mul = b.tier === 5 ? DMG_MUL[rarity] / DMG_MUL[4] : DMG_MUL[rarity];
+    w = { ...b, tier: rarity, damage: Math.round(b.damage * mul * 10) / 10, reload: Math.round(b.reload * (1 - (rarity - 1) * 0.03)) };
+    cache.set(key, w);
+  }
+  return w;
+}
+
+export const wKind = (id: WeaponId, rarity: number) => `w:${id}:${rarity}` as WeaponLoot;
+export function parseWeapon(k: string): WeaponDef {
+  const [, id, r] = k.split(':');
+  return weaponOf(id as WeaponId, Number(r) || WEAPONS[id as WeaponId].tier);
+}
+export const weaponScore = (w: WeaponDef) => (w.id === 'fists' ? 0 : TYPE_RANK[w.id] + (w.tier - 1) * 0.55);
+
+/** Seltenheit würfeln: Gewichte für Grau..Gold */
+export function rollRarity(r: () => number, weights: [number, number, number, number, number]): Rarity {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  let v = r() * sum;
+  for (let i = 0; i < 5; i++) { v -= weights[i]; if (v < 0) return (i + 1) as Rarity; }
+  return 1;
+}
+/** Boden-Loot: ca. 5 % Gold */
+export const GROUND_RARITY: [number, number, number, number, number] = [36, 30, 19, 10, 5];
+export const CRATE_RARITY: [number, number, number, number, number] = [24, 32, 24, 14, 6];
+export const CHEST_RARITY: [number, number, number, number, number] = [12, 30, 32, 19, 7];

@@ -1,5 +1,5 @@
 import { WORLD, FIGHTER_COUNT, FIGHTER_R, PLAYER_SPEED, BOT_SPEED, PLANE_Z, FALL_SPEED, PLANE_TIME } from '../config';
-import { WEAPONS, WeaponId, WeaponDef } from '../weapons';
+import { WEAPONS, WeaponId, WeaponDef, parseWeapon, wKind, weaponScore, rollRarity, CHEST_RARITY, CRATE_RARITY, RARITY_NAMES } from '../weapons';
 import { MapData, LootKind, Obs, House } from '../mapgen';
 import { botNames, BODY_COLORS, PLAYER_COLOR } from '../names';
 import { recordResult } from '../storage';
@@ -194,7 +194,7 @@ export function segRect(x1: number, y1: number, x2: number, y2: number, r: Rect)
 }
 
 export const lootLabel = (k: LootKind) =>
-  k === 'ammo' ? 'Munition' : k === 'ammo6' ? 'Munition (groß)' : k === 'armor' ? 'Rüstung' : k === 'medkit' ? 'Kleines Medikit' : k === 'bigmed' ? 'Großes Medikit' : WEAPONS[k.slice(2) as WeaponId].name;
+  k === 'ammo' ? 'Munition' : k === 'ammo6' ? 'Munition (groß)' : k === 'armor' ? 'Rüstung' : k === 'medkit' ? 'Kleines Medikit' : k === 'bigmed' ? 'Großes Medikit' : `${parseWeapon(k).name} (${RARITY_NAMES[parseWeapon(k).tier]})`;
 
 // ---------- Spiel ----------
 
@@ -918,10 +918,10 @@ export class Game {
     f.killedBy = attacker;
     if (attacker) attacker.kills++;
     const drops: LootKind[] = [];
-    if (f.weapon.id !== 'fists') drops.push(`w:${f.weapon.id}` as LootKind);
+    if (f.weapon.id !== 'fists') drops.push(wKind(f.weapon.id, f.weapon.tier));
     if (f.ammo >= 15) drops.push('ammo');
     if (f.armor >= 25) drops.push('armor');
-    if (f.backup && f.backup.w.id !== 'pistol') drops.push(`w:${f.backup.w.id}` as LootKind);
+    if (f.backup && f.backup.w.id !== 'pistol') drops.push(wKind(f.backup.w.id, f.backup.w.tier));
     const off = Math.random() * Math.PI;
     drops.forEach((k, i) => {
       const a = off + (i / drops.length) * Math.PI * 2;
@@ -1283,7 +1283,7 @@ export class Game {
     // Heilung wird sofort verbraucht: nur nützlich, wenn Leben fehlt
     if (k === 'medkit') return f.hp < (f.isPlayer ? 100 : 85);
     if (k === 'bigmed') return f.hp < (f.isPlayer ? 100 : 60);
-    return WEAPONS[k.slice(2) as WeaponId].tier > f.weapon.tier;
+    return weaponScore(parseWeapon(k)) > weaponScore(f.weapon) + 0.01;
   }
 
   private hasNoWeapon(f: Fighter) {
@@ -1373,12 +1373,12 @@ export class Game {
     const pickExtra = () => extras[Math.floor(Math.random() * extras.length)];
     let kinds: LootKind[];
     if (o.kind === 'airdrop') {
-      kinds = [w < 0.5 ? 'w:minigun' : 'w:rocket', 'armor', 'bigmed', 'ammo'];
+      kinds = [wKind(w < 0.5 ? 'minigun' : 'rocket', Math.random() < 0.15 ? 5 : 4), 'armor', 'bigmed', 'ammo'];
     } else if (o.kind === 'chest') {
-      kinds = [w < 0.28 ? 'w:smg' : w < 0.5 ? 'w:shotgun' : w < 0.85 ? 'w:rifle' : 'w:sniper', 'ammo', pickExtra()];
+      kinds = [wKind(w < 0.28 ? 'smg' : w < 0.5 ? 'shotgun' : w < 0.85 ? 'rifle' : 'sniper', rollRarity(Math.random, CHEST_RARITY)), 'ammo', pickExtra()];
       if (Math.random() < 0.4) kinds.push(pickExtra());
     } else {
-      kinds = [w < 0.32 ? 'w:smg' : w < 0.56 ? 'w:shotgun' : w < 0.9 ? 'w:rifle' : 'w:sniper', pickExtra()];
+      kinds = [wKind(w < 0.32 ? 'smg' : w < 0.56 ? 'shotgun' : w < 0.9 ? 'rifle' : 'sniper', rollRarity(Math.random, CRATE_RARITY)), pickExtra()];
       if (Math.random() < 0.35) kinds.push(pickExtra());
     }
     const off = Math.random() * Math.PI * 2;
@@ -1432,7 +1432,7 @@ export class Game {
       for (const l of this.loot) {
         if (l.taken) continue;
         if (l.kind.startsWith('w:')) {
-          if (!this.input.autoWeapon || !standing || l.kind === `w:${f.weapon.id}` || (f.backup && l.kind === `w:${f.backup.w.id}`)) continue;
+          if (!this.input.autoWeapon || !standing || l.kind === wKind(f.weapon.id, f.weapon.tier) || (f.backup && l.kind === wKind(f.backup.w.id, f.backup.w.tier))) continue;
         } else if (!this.isUseful(f, l.kind)) continue;
         const d = (l.x - f.x) ** 2 + (l.y - f.y) ** 2;
         if (d < bd) { bd = d; best = l; }
@@ -1468,8 +1468,8 @@ export class Game {
       f.healUntil = this.time + 500;
       if (f.isPlayer) this.stats.heals++;
     } else {
-      const w = WEAPONS[k.slice(2) as WeaponId];
-      if (!manual && (f.isPlayer || w.tier <= f.weapon.tier)) return false;
+      const w = parseWeapon(k);
+      if (!manual && (f.isPlayer || weaponScore(w) <= weaponScore(f.weapon) + 0.01)) return false;
       const old = f.weapon, oldMag = f.mag;
       f.weapon = w;
       f.mag = w.mag;
@@ -1481,7 +1481,7 @@ export class Game {
         // zweiter Platz frei: alte Waffe wandert dorthin
         f.backup = { w: old, mag: oldMag };
       } else if (old.id !== 'pistol' || manual) {
-        this.spawnLoot(l.x + 8, l.y + 8, `w:${old.id}` as LootKind);
+        this.spawnLoot(l.x + 8, l.y + 8, wKind(old.id, old.tier));
       }
     }
     l.taken = true;

@@ -1,9 +1,10 @@
+import { WeaponLoot, wKind, rollRarity, GROUND_RARITY } from './weapons';
 import { WORLD } from './config';
 import { mulberry32 } from './rng';
 
 export type ObsKind = 'tree' | 'rock' | 'crate' | 'chest' | 'airdrop' | 'wall' | 'bush' | 'water' | 'fence' | 'barrel' | 'hay';
 export interface Obs { kind: ObsKind; x: number; y: number; r: number; w: number; h: number }
-export type LootKind = 'ammo' | 'ammo6' | 'armor' | 'medkit' | 'bigmed' | 'w:pistol' | 'w:smg' | 'w:shotgun' | 'w:rifle' | 'w:sniper' | 'w:minigun' | 'w:rocket';
+export type LootKind = 'ammo' | 'ammo6' | 'armor' | 'medkit' | 'bigmed' | WeaponLoot;
 export interface LootSpawn { x: number; y: number; kind: LootKind }
 export interface Door { x: number; y: number; nx: number; ny: number }
 export interface House { x: number; y: number; s: number; doors: Door[] }
@@ -32,7 +33,7 @@ export function randomLootKind(r: () => number): LootKind {
   if (v < 0.27) {
     const w = r();
     // mehr Pistolen, weil alle ohne Waffe starten
-    return w < 0.32 ? 'w:pistol' : w < 0.56 ? 'w:smg' : w < 0.74 ? 'w:shotgun' : w < 0.94 ? 'w:rifle' : 'w:sniper';
+    return wKind(w < 0.32 ? 'pistol' : w < 0.56 ? 'smg' : w < 0.74 ? 'shotgun' : w < 0.92 ? 'rifle' : 'sniper', rollRarity(r, GROUND_RARITY));
   }
   // Munition: meist 3er-Packung, seltener die 6er-Packung
   if (v < 0.72) return r() < 0.22 ? 'ammo6' : 'ammo';

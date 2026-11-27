@@ -4,7 +4,7 @@ import { Renderer } from '../render/renderer';
 import { loadStats } from '../storage';
 import { Settings, loadSettings, saveSettings } from '../settings';
 import { Sfx } from '../sfx';
-import { WEAPONS, TIER_COLORS, WeaponId } from '../weapons';
+import { WEAPONS, TIER_COLORS, WeaponId, parseWeapon, RARITY_NAMES } from '../weapons';
 import { Preview } from './preview';
 import { portrait } from './portrait';
 import { CHUTE_COLORS, CHUTE_LOGOS } from '../chute';
@@ -862,11 +862,11 @@ export class Hud {
     const nw = null as typeof game.nearbyWeapon;
     this.e.pickcard.classList.toggle('hidden', !nw);
     if (nw) {
-      const w = WEAPONS[nw.kind.slice(2) as WeaponId];
+      const w = parseWeapon(nw.kind);
       const col = hex(TIER_COLORS[w.tier]);
       this.e.pickcard.style.borderColor = col;
       this.e.pcIcon.style.background = col;
-      this.e.pcName.textContent = w.name;
+      this.e.pcName.textContent = `${w.name} · ${RARITY_NAMES[w.tier]}`;
       this.e.pcStats.textContent = `Schaden ${w.damage * w.pellets}  •  Reichweite ${Math.round(w.range / 10)} m  •  Magazin ${w.mag}`;
     }
     this.e.prompt.textContent = p.phase === 'fall' ? 'Lenk deinen Fallschirm zum Landeplatz' : '';

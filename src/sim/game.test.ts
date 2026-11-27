@@ -85,11 +85,11 @@ describe('Waffen', () => {
     const { g, p } = groundGame();
     expect(p.weapon.id).toBe('fists');
     // erste Waffe ersetzt die Fäuste
-    g.tryPickup(p, g.spawnLoot(p.x, p.y, 'w:rifle'), true);
+    g.tryPickup(p, g.spawnLoot(p.x, p.y, 'w:rifle:3'), true);
     expect(p.weapon.id).toBe('rifle');
     expect(p.backup).toBeNull();
     // zweite Waffe: alte wandert in den zweiten Platz
-    g.tryPickup(p, g.spawnLoot(p.x, p.y, 'w:smg'), true);
+    g.tryPickup(p, g.spawnLoot(p.x, p.y, 'w:smg:2'), true);
     expect(p.weapon.id).toBe('smg');
     expect(p.backup?.w.id).toBe('rifle');
     g.swapWeapon(p);

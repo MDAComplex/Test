@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { S, WORLD, PLANE_Z, PLANE_TIME } from '../config';
 import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop, isContainer } from '../sim/game';
-import { WEAPONS, TIER_COLORS, WeaponId } from '../weapons';
+import { WEAPONS, TIER_COLORS, WeaponId, parseWeapon } from '../weapons';
+import { buildGun } from './guns';
 import { LootKind } from '../mapgen';
 import { WHITE_CHUTE } from '../chute';
 import { buildCharacter, buildChute, animateRig, poseLying, poseCrawl, makeToon, Rig } from './character';
@@ -164,8 +165,7 @@ export class Renderer {
   private perRound: { dispose(): void }[] = [];
   private time = 0;
   private gradient: THREE.DataTexture;
-  private gunCache = new Map<WeaponId, THREE.Group>();
-  private charToon: (c: number) => THREE.MeshToonMaterial;
+    private charToon: (c: number) => THREE.MeshToonMaterial;
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.1);
 
@@ -547,127 +547,10 @@ export class Renderer {
 
   // ---------- Modelle ----------
 
-  /** Detailliertes Waffenmodell, zeigt nach +X, Ursprung am Griff */
-  private makeGun(id: WeaponId) {
-    const cached = this.gunCache.get(id);
-    if (cached) return cached.clone();
-    const g = new THREE.Group();
-    const acc = this.tier[WEAPONS[id].tier];
-    const p = (geo: THREE.BufferGeometry, mat: THREE.Material, sx: number, sy: number, sz: number, x: number, y: number, z = 0, rz = 0) => {
-      const m = new THREE.Mesh(geo, mat);
-      m.scale.set(sx, sy, sz);
-      m.position.set(x, y, z);
-      m.rotation.z = rz;
-      m.castShadow = true;
-      g.add(m);
-      return m;
-    };
-    const B = this.g.box, CX = this.g.cylX;
-    switch (id) {
-      case 'fists':
-        break;
-      case 'pistol':
-        p(B, this.m.metal, 0.44, 0.13, 0.1, 0.18, 0.06);
-        p(B, this.m.metal2, 0.3, 0.08, 0.09, 0.12, -0.03);
-        p(B, this.m.metal, 0.1, 0.24, 0.09, 0.01, -0.12, 0, -0.25);
-        p(B, acc, 0.16, 0.035, 0.105, 0.24, 0.13);
-        break;
-      case 'smg':
-        p(B, this.m.metal, 0.56, 0.15, 0.12, 0.2, 0.02);
-        p(CX, this.m.metal2, 0.24, 0.035, 0.035, 0.6, 0.04);
-        p(B, this.m.metal, 0.08, 0.3, 0.07, 0.26, -0.2, 0, 0.1);
-        p(B, this.m.metal, 0.09, 0.2, 0.08, 0.02, -0.12, 0, -0.2);
-        p(B, this.m.metal2, 0.24, 0.07, 0.06, -0.16, 0.0);
-        p(B, acc, 0.22, 0.04, 0.125, 0.24, 0.1);
-        break;
-      case 'shotgun':
-        p(CX, this.m.metal, 0.95, 0.045, 0.045, 0.55, 0.05);
-        p(CX, this.m.metal2, 0.7, 0.035, 0.035, 0.45, -0.03);
-        p(B, this.m.wood, 0.26, 0.09, 0.11, 0.58, -0.03);
-        p(B, this.m.metal, 0.3, 0.15, 0.12, 0.06, 0.01);
-        p(B, this.m.wood, 0.38, 0.14, 0.09, -0.26, -0.04, 0, 0.15);
-        p(B, acc, 0.16, 0.035, 0.125, 0.06, 0.09);
-        break;
-      case 'rifle':
-        p(B, this.m.metal, 0.5, 0.16, 0.12, 0.15, 0.02);
-        p(B, this.m.metal2, 0.32, 0.12, 0.11, 0.52, 0.02);
-        p(CX, this.m.metal, 0.3, 0.03, 0.03, 0.82, 0.03);
-        p(B, this.m.metal, 0.1, 0.3, 0.08, 0.22, -0.2, 0, 0.28);
-        p(B, this.m.metal, 0.09, 0.2, 0.08, 0.0, -0.12, 0, -0.2);
-        p(B, this.m.metal2, 0.32, 0.14, 0.09, -0.24, -0.01);
-        p(B, this.m.metal, 0.18, 0.06, 0.05, 0.15, 0.13);
-        p(B, acc, 0.3, 0.04, 0.125, 0.5, 0.09);
-        break;
-      case 'sniper': {
-        // Repetierbüchse: langer Lauf mit Mündungsbremse, großes Zielfernrohr, Kammerstengel, Schaft mit Wangenauflage
-        const olive = this.m.sniperBody, dark = this.m.metal, mid = this.m.metal2;
-        p(B, olive, 0.62, 0.13, 0.11, 0.12, 0.0);                 // Gehäuse/Vorderschaft
-        p(B, olive, 0.3, 0.09, 0.1, 0.55, -0.01);                 // Vorderschaft vorne, schlanker
-        p(CX, dark, 0.78, 0.024, 0.024, 1.02, 0.02);              // Lauf
-        p(B, dark, 0.11, 0.05, 0.05, 1.43, 0.02);                 // Mündungsbremse
-        p(B, mid, 0.02, 0.055, 0.056, 1.42, 0.02);                // Schlitz der Bremse
-        p(B, dark, 0.32, 0.03, 0.06, 0.12, 0.08);                 // Montageschiene
-        // Zielfernrohr mit Linsen und Ringen
-        p(CX, dark, 0.46, 0.042, 0.042, 0.12, 0.16);
-        p(CX, dark, 0.09, 0.062, 0.062, 0.38, 0.16);              // Objektiv (vorne dicker)
-        p(CX, dark, 0.07, 0.052, 0.052, -0.13, 0.16);             // Okular
-        p(CX, this.m.scopeLens, 0.01, 0.054, 0.054, 0.43, 0.16);  // Linse vorne
-        p(CX, this.m.scopeLens, 0.01, 0.044, 0.044, -0.17, 0.16);
-        p(CX, mid, 0.03, 0.046, 0.046, 0.12, 0.16);               // Verstelltürmchen-Basis
-        p(B, mid, 0.04, 0.05, 0.04, 0.12, 0.21);                  // Höhenturm
-        p(B, mid, 0.04, 0.04, 0.05, 0.12, 0.16, 0.06);            // Seitenturm
-        for (const rx of [-0.02, 0.24]) p(B, dark, 0.035, 0.06, 0.07, rx, 0.11); // Ringe
-        // Kammerstengel mit Kugel
-        p(B, dark, 0.02, 0.02, 0.12, -0.03, 0.04, 0.07);
-        const knob = new THREE.Mesh(this.g.flash, dark);
-        knob.scale.setScalar(0.028); knob.position.set(-0.03, 0.04, 0.135); knob.castShadow = true; g.add(knob);
-        // Magazin, Abzugsbügel, Pistolengriff
-        p(B, dark, 0.1, 0.1, 0.08, 0.16, -0.1);
-        p(B, dark, 0.11, 0.02, 0.03, 0.0, -0.08);
-        p(B, olive, 0.08, 0.2, 0.08, -0.06, -0.13, 0, -0.35);
-        // Schaft mit Wangenauflage und Schaftkappe
-        p(B, olive, 0.42, 0.1, 0.08, -0.36, -0.02, 0, 0.05);
-        p(B, olive, 0.3, 0.05, 0.075, -0.33, 0.06);
-        p(B, olive, 0.08, 0.17, 0.08, -0.56, -0.04, 0, 0.05);
-        p(B, this.m.black, 0.03, 0.18, 0.085, -0.61, -0.04, 0, 0.05);
-        // eingeklapptes Zweibein
-        p(B, mid, 0.26, 0.018, 0.018, 0.64, -0.08, 0.03);
-        p(B, mid, 0.26, 0.018, 0.018, 0.64, -0.08, -0.03);
-        p(B, acc, 0.22, 0.03, 0.115, 0.42, 0.045);                 // Seltenheitsstreifen
-        break;
-      }
-      case 'minigun': {
-        p(B, this.m.metal, 0.46, 0.26, 0.24, 0.02, 0.0);
-        p(B, this.m.metal2, 0.22, 0.24, 0.22, -0.02, -0.24);
-        p(B, this.m.metal, 0.1, 0.1, 0.3, -0.1, 0.18);
-        const spin = new THREE.Group();
-        spin.name = 'spin';
-        for (let i = 0; i < 6; i++) {
-          const a = (i / 6) * Math.PI * 2;
-          const b = new THREE.Mesh(CX, this.m.metal2);
-          b.scale.set(0.85, 0.028, 0.028);
-          b.position.set(0.45, Math.cos(a) * 0.075, Math.sin(a) * 0.075);
-          spin.add(b);
-        }
-        const cap = new THREE.Mesh(CX, this.m.metal);
-        cap.scale.set(0.06, 0.12, 0.12);
-        cap.position.x = 0.78;
-        spin.add(cap);
-        g.add(spin);
-        p(B, acc, 0.3, 0.05, 0.25, 0.02, 0.14);
-        break;
-      }
-      case 'rocket':
-        p(CX, this.m.rocketBody, 1.25, 0.11, 0.11, 0.3, 0.06);
-        p(CX, this.m.metal, 0.08, 0.13, 0.13, 0.92, 0.06);
-        p(this.g.coneX, this.m.red, 0.14, 0.08, 0.08, 1.0, 0.06);
-        p(B, this.m.metal, 0.09, 0.22, 0.08, 0.06, -0.12, 0, -0.15);
-        p(B, this.m.metal2, 0.14, 0.08, 0.05, 0.25, 0.2);
-        p(B, acc, 0.3, 0.05, 0.12, 0.3, 0.17);
-        break;
-    }
-    this.gunCache.set(id, g);
-    return g.clone();
+  /** Waffenmodell (siehe guns.ts), zeigt nach +X, Ursprung am Griff */
+  private makeGun(id: WeaponId, tier: number) {
+    if (id === 'fists') return new THREE.Group();
+    return buildGun(id, tier, this.gradient);
   }
 
   private chuteTexture(color: number) {
@@ -720,7 +603,7 @@ export class Renderer {
     shadow.scale.setScalar(0.7);
     const lean = new THREE.Group();
     const rig = buildCharacter({ kind: f.look.char, shirt: f.color, seed: f.id * 7 + 3, gradient: this.gradient, toon: this.charToon, outfit: f.look.outfit });
-    rig.gunKick.add(this.makeGun(f.weapon.id));
+    rig.gunKick.add(this.makeGun(f.weapon.id, f.weapon.tier));
     lean.add(rig.body);
     const { chute, disposables } = buildChute(f.look.chute, f.look.design ?? WHITE_CHUTE, this.gradient, this.m.line);
     this.perRound.push(...disposables, ...rig.mats);
@@ -730,7 +613,7 @@ export class Renderer {
     root.add(shadow, lean);
     this.world!.add(root);
     const v: FighterView = {
-      root, lean, rig, chute, flash: 0, weaponId: f.weapon.id, walkT: Math.random() * 6, amp: 0, deadT: 0,
+      root, lean, rig, chute, flash: 0, weaponId: f.weapon.id + f.weapon.tier, walkT: Math.random() * 6, amp: 0, deadT: 0,
       aimBlend: 0, recoil: 0, dustT: 0, spin: null, yaw: f.aim, reloadBlend: 0, punchT: 0, punchArm: 0, kneel: 0,
     };
     v.spin = rig.gunKick.getObjectByName('spin') ?? null;
@@ -765,7 +648,8 @@ export class Renderer {
       item.add(m);
     };
     if (l.kind.startsWith('w:')) {
-      const g = this.makeGun(l.kind.slice(2) as WeaponId);
+      const w = parseWeapon(l.kind);
+      const g = this.makeGun(w.id, w.tier);
       g.scale.setScalar(1.15);
       g.position.x = -0.45;
       item.add(g);
@@ -812,7 +696,7 @@ export class Renderer {
   }
 
   private lootTier(k: LootKind) {
-    if (k.startsWith('w:')) return WEAPONS[k.slice(2) as WeaponId].tier;
+    if (k.startsWith('w:')) return parseWeapon(k).tier;
     return k === 'armor' ? 3 : k === 'bigmed' ? 3 : k === 'medkit' ? 2 : 1;
   }
 
@@ -1744,11 +1628,11 @@ export class Renderer {
     const v = this.fighterViews.get(f);
     if (!v) return;
     const rig = v.rig;
-    if (v.weaponId !== f.weapon.id) {
+    if (v.weaponId !== f.weapon.id + f.weapon.tier) {
       rig.gunKick.clear();
-      rig.gunKick.add(this.makeGun(f.weapon.id));
+      rig.gunKick.add(this.makeGun(f.weapon.id, f.weapon.tier));
       v.spin = rig.gunKick.getObjectByName('spin') ?? null;
-      v.weaponId = f.weapon.id;
+      v.weaponId = f.weapon.id + f.weapon.tier;
     }
     if (!f.alive) {
       // umfallen (0,45 s), liegen bleiben, dann im Boden versinken (gesamt ~2,8 s)
@@ -2170,7 +2054,7 @@ export class Renderer {
     const p = game.player;
     const show = this.fpp.on && p.alive && !p.downed;
     if (!show) { if (this.fppView) this.fppView.visible = false; return; }
-    const key = p.weapon.id + p.color;
+    const key = p.weapon.id + p.weapon.tier + p.color;
     if (!this.fppView || this.fppWeapon !== key) {
       if (this.fppView) this.camera.remove(this.fppView);
       this.fppView = this.buildViewModel(p);
@@ -2229,7 +2113,7 @@ export class Renderer {
       }
       return g;
     }
-    const gun = this.makeGun(p.weapon.id);
+    const gun = this.makeGun(p.weapon.id, p.weapon.tier);
     gun.scale.setScalar(0.3);
     gun.rotation.y = Math.PI / 2;
     // Griff (Waffen-Koordinaten ~ (0,-0.12,0)) an die rechte Hand
