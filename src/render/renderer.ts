@@ -1709,7 +1709,9 @@ export class Renderer {
     const falling = f.phase === 'fall';
     const freefall = falling && f.z > CHUTE_Z;
     // Blickrichtung: am Fallschirm in Flugrichtung, sonst zur Zielrichtung
-    const wantYaw = falling && speed > 40 ? Math.atan2(f.vy, f.vx) : f.aim;
+    // Freifall: Blick von der Kamera weg (Kopf zeigt im Bild nach oben, Füße zur Kamera)
+    const wantYaw = freefall ? -Math.PI / 2 : falling && speed > 40 ? Math.atan2(f.vy, f.vx) : f.aim;
+    if (freefall) v.yaw = wantYaw;
     {
       let d = wantYaw - v.yaw;
       while (d > Math.PI) d -= Math.PI * 2;

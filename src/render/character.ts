@@ -515,8 +515,8 @@ export function animateRig(rig: Rig, s: AnimState) {
   if (s.freefall) {
     // Bauchlage: Körper nach vorn gekippt, Arme und Beine gespreizt, flattert im Wind
     const fl = Math.sin(s.time * 13) * 0.04, fl2 = Math.sin(s.time * 11 + 1) * 0.05;
-    rig.body.rotation.z = -1.3;
-    rig.body.position.set(0.85, 0.9, 0);
+    rig.body.rotation.z = -1.15;
+    rig.body.position.set(0.8, 0.85, 0);
     rig.torso.rotation.set(0, 0, 0.12);
     rig.pelvis.rotation.set(0, 0, 0);
     shoulders(rig);
