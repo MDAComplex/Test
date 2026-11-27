@@ -110,7 +110,7 @@ export class Hud {
           <div class="ds-map"><canvas width="1536" height="1536" aria-label="Landepunkt wählen"></canvas></div>
           <div class="ds-side">
             <div class="ds-title">Wähle deinen<br>Landepunkt</div>
-            <div class="ds-timer"><svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="52" class="bg"/><circle cx="60" cy="60" r="52" class="fg"/></svg><b class="ds-num">20</b></div>
+            <div class="ds-timer"><svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="52" class="bg"/><circle cx="60" cy="60" r="52" class="fg"/></svg><b class="ds-num">15</b></div>
             <div class="ds-hint"></div>
             <div class="ds-team"></div>
           </div>

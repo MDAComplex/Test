@@ -336,3 +336,17 @@ describe('Wiederbeleben im Team', () => {
     expect(near.length).toBe(1);
   });
 });
+
+describe('Countdown', () => {
+  for (const mode of ['solo', 'duo', 'squad'] as const) {
+    it(`${mode}: 15 Sekunden, dann springen alle gleichzeitig`, () => {
+      const g = new Game(generateMap(3), undefined, mode);
+      expect(g.dropLeft()).toBe(15);
+      for (let t = 0; t < 14900; t += 50) g.update(50);
+      expect(g.fighters.every((f) => f.phase === 'plane')).toBe(true);
+      expect(Math.ceil(g.dropLeft())).toBe(1);
+      for (let t = 0; t < 200; t += 50) g.update(50);
+      expect(g.fighters.every((f) => f.phase === 'fall')).toBe(true);
+    });
+  }
+});

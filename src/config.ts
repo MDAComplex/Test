@@ -7,4 +7,5 @@ export const BOT_SPEED = 128;
 export const S = 0.05;
 export const PLANE_Z = 800;
 export const FALL_SPEED = 105;
-export const PLANE_TIME = 20000;
+/** Countdown zur Landepunkt-Auswahl (gilt für Solo, Duo und Squad) */
+export const PLANE_TIME = 15000;
