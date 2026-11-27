@@ -107,6 +107,20 @@ export class Fighter {
   moving = false;
   /** Spielstil der Bots */
   style: 'normal' | 'aggro' | 'careful' = 'normal';
+  /** Persönlichkeit: Jäger sucht Kämpfe, Camper hält Häuser, Looter sammelt erst alles, Ratte versteckt sich bis zu den Top 5 */
+  persona: 'hunter' | 'camper' | 'looter' | 'rat' | 'normal' = 'normal';
+  /** Zonen-Rotation: wie früh (ms) der Bot zur nächsten Zone aufbricht, und sein Zielpunkt darin */
+  rotEarly = 0; rotX = 0; rotY = 0; rotKey = -1;
+  /** Haus halten: Platz innen an der Tür */
+  holdX = 0; holdY = 0; holdAim = 0; holdHouse = -1;
+  /** kurzes Stehenbleiben beim Ausweichen */
+  stopUntil = 0;
+  /** an der Deckung rauslehnen: wann und zu welcher Seite */
+  peekUntil = 0; peekNext = 0; peekSide = 1;
+  /** Rückzug nach starkem Schaden, danach Rache am Angreifer */
+  retreatUntil = 0; revengeUntil = 0;
+  /** zuletzt gesehener Gegner (auch wenn er sich hinter einer Wand versteckt) */
+  memory: { who: Fighter; x: number; y: number; t: number } | null = null;
   flinchUntil = 0;
   lastTrigger = -99999;
   spinStart = 0;
@@ -231,6 +245,8 @@ export class Game {
   events: GameEvent[] = [];
   /** zuletzt gehörte Schüsse (für Bots: hinlaufen oder meiden) */
   private shotsHeard: { x: number; y: number; t: number; by: Fighter }[] = [];
+  /** laufende Kämpfe (wer trifft wen), für Dritt-Parteien */
+  private fights: { x: number; y: number; t: number; a: Fighter; v: Fighter }[] = [];
   airdrops: Airdrop[] = [];
   private nextAirdrop = 0;
   over = false;
@@ -277,6 +293,13 @@ export class Game {
       f.strafe = Math.random() < 0.5 ? 1 : -1;
       const st = Math.random();
       f.style = st < 0.3 ? 'aggro' : st < 0.6 ? 'careful' : 'normal';
+      const pr = Math.random();
+      // dezent: die meisten spielen normal, die Persönlichkeit färbt nur leicht ab
+      f.persona = pr < 0.15 ? 'hunter' : pr < 0.27 ? 'camper' : pr < 0.45 ? 'looter' : pr < 0.53 ? 'rat' : 'normal';
+      if (f.persona === 'hunter' && Math.random() < 0.6) f.style = 'aggro';
+      else if (f.persona === 'rat' && Math.random() < 0.6) f.style = 'careful';
+      // manche brechen früh zur Zone auf, andere (vor allem Looter) spät
+      f.rotEarly = -6000 + Math.random() * 22000 + (f.persona === 'looter' ? -7000 : f.persona === 'rat' ? 6000 : 0);
       const sk = Math.random();
       f.skill = sk < 0.3 ? 0.65 : sk < 0.85 ? 1 : 1.35;
       // erster Bot eines Teams plant den Absprung, die anderen folgen ihm
@@ -757,6 +780,18 @@ export class Game {
       }
     }
     if (f.target && (!f.target.alive || f.target.phase !== 'ground')) f.target = null;
+    if (f.target) f.memory = { who: f.target, x: f.target.x, y: f.target.y, t: now };
+    else if (f.memory && (!f.memory.who.alive || now - f.memory.t > 6000)) f.memory = null;
+
+    // Raketenwerfer: Gegner, der sich gerade hinter Deckung versteckt hat, wird herausgesprengt
+    if (!f.target && f.weapon.splash && f.memory && now - f.memory.t < 2500 && f.mag > 0 && !f.reloading) {
+      const m = f.memory, d = Math.hypot(m.x - f.x, m.y - f.y);
+      if (d > f.weapon.splash + 40 && d < f.weapon.range) {
+        f.aim = rotateTo(f.aim, Math.atan2(m.y - f.y, m.x - f.x), 0.35);
+        if (Math.abs(wrap(Math.atan2(m.y - f.y, m.x - f.x) - f.aim)) < 0.08) this.tryFire(f, now);
+        return;
+      }
+    }
 
     if (f.target) {
       const ang = Math.atan2(f.target.y - f.y, f.target.x - f.x);
@@ -777,6 +812,14 @@ export class Game {
     const styleK = f.style === 'aggro' ? 1.05 : f.style === 'careful' ? 0.8 : 0.92;
     // ohne Waffe nur Gegner direkt in der Nähe angreifen, sonst zuerst Waffe suchen
     let bestD = f.weapon.id === 'fists' ? 95 : f.weapon.range * (f.isPlayer ? 1 : ramp * styleK);
+    if (!f.isPlayer && f.weapon.id !== 'fists') {
+      const attacked = now - f.lastHitAt < 3000;
+      // Ratte: bis zu den Top 5 nur kämpfen, wenn sie angegriffen wird oder jemand ganz nah ist
+      if (f.persona === 'rat' && !attacked && this.aliveCount() > 5) bestD *= 0.6;
+      // Looter: erst ausrüsten, vorher nur in der Nähe kämpfen
+      else if (f.persona === 'looter' && !attacked && !this.geared(f, now)) bestD *= 0.85;
+      else if (f.persona === 'hunter') bestD *= 1.06;
+    }
     for (const o of this.fighters) {
       if (o === f || !o.alive || o.phase !== 'ground' || this.ally(o, f)) continue;
       // Niedergeschlagene werden erledigt, wenn kein stehender Gegner näher ist
@@ -936,7 +979,8 @@ export class Game {
       if (!f.alive || f.phase !== 'ground' || (f !== b.owner && this.ally(f, b.owner))) continue;
       const d = Math.hypot(f.x - x, f.y - y);
       if (d > r + FIGHTER_R) continue;
-      if (!this.hasLOS(x, y, f.x, f.y) && d > 30) continue;
+      // hinter dünner Deckung trifft die Druckwelle noch, wenn man nah dran ist
+      if (!this.hasLOS(x, y, f.x, f.y) && d > r * 0.55) continue;
       const k = Math.max(0.25, 1 - d / (r + FIGHTER_R));
       // auch der Schütze selbst bekommt vollen Schaden, wenn er im Explosionsradius steht
       this.damage(f, b.dmg * k, b.owner, false, b.weapon);
@@ -985,6 +1029,10 @@ export class Game {
       dmg -= a;
     }
     f.hp -= dmg;
+    if (attacker && attacker !== f) {
+      this.fights.push({ x: (f.x + attacker.x) / 2, y: (f.y + attacker.y) / 2, t: this.time, a: attacker, v: f });
+      if (this.fights.length > 40) this.fights.shift();
+    }
     if (attacker) {
       f.lastAttacker = attacker;
       f.lastHitAt = this.time;
@@ -1101,6 +1149,89 @@ export class Game {
 
   // ---------- Bots ----------
 
+  /** gut ausgerüstet: brauchbare Waffe und etwas Schild (oder die Runde läuft schon lange) */
+  private geared(f: Fighter, now: number) {
+    return (weaponScore(f.weapon) >= 3 && f.armor >= 25) || now > PLANE_TIME + 120000;
+  }
+
+  /** Zone aus Sicht eines Bots: je nach Persönlichkeit früher oder später zur nächsten Zone */
+  private botSafe(f: Fighter, now: number): Circle {
+    if (this.zoneState === 'shrink') return this.zoneNext;
+    if (this.zoneState === 'wait' && PHASES[this.phase].wait - (now - this.phaseStart) < 12000 + f.rotEarly) return this.zoneNext;
+    return this.zoneCur;
+  }
+
+  /** Zielpunkt der Rotation in der nächsten Zone (pro Bot und Phase fest, damit nicht alle zur Mitte laufen) */
+  private rotPoint(f: Fighter, c: Circle) {
+    const key = this.phase * 10 + (c === this.zoneNext ? 1 : 0);
+    if (f.rotKey !== key) {
+      f.rotKey = key;
+      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * c.r * 0.55;
+      f.rotX = clamp(c.x + Math.cos(a) * rr, 150, WORLD - 150);
+      f.rotY = clamp(c.y + Math.sin(a) * rr, 150, WORLD - 150);
+    }
+    return { x: f.rotX, y: f.rotY };
+  }
+
+  /** Dritt-Partei: frischer Kampf in Hörweite, an dem der Bot nicht beteiligt ist */
+  private thirdParty(f: Fighter, now: number) {
+    if (f.weapon.id === 'fists') return null;
+    const top5 = this.aliveCount() <= 5;
+    // Third-Partying: fast alle machen mit, wenn sie fit und bewaffnet sind (Jäger aus größerer Entfernung)
+    const fit = f.hp > 55;
+    const range = !fit ? 0
+      : f.persona === 'hunter' ? 1100
+      : f.persona === 'rat' ? (top5 ? 800 : 0)
+      : f.persona === 'looter' ? (this.geared(f, now) ? 800 : 500)
+      : f.skill >= 1 ? 850 : 600;
+    if (!range) return null;
+    for (let i = this.fights.length - 1; i >= 0; i--) {
+      const h = this.fights[i];
+      if (now - h.t > 4000) break;
+      if (h.a === f || h.v === f || this.ally(h.a, f) || this.ally(h.v, f)) continue;
+      const d = Math.hypot(h.x - f.x, h.y - f.y);
+      if (d > 120 && d < range) return h;
+    }
+    return null;
+  }
+
+  /** nächste Heilung (Medikit) in der Nähe */
+  private nearestHeal(f: Fighter) {
+    let best: Loot | null = null, bd = 800;
+    for (const l of this.loot) {
+      if (l.taken || (l.kind !== 'medkit' && l.kind !== 'bigmed')) continue;
+      const d = Math.hypot(l.x - f.x, l.y - f.y);
+      if (d < bd) { bd = d; best = l; }
+    }
+    return best;
+  }
+
+  /** Versorgungspaket in Reichweite, das sich lohnt */
+  private airdropGoal(f: Fighter) {
+    if (f.persona === 'rat' && this.aliveCount() > 5) return null;
+    const range = f.persona === 'hunter' ? 1600 : f.persona === 'looter' ? 1400 : f.persona === 'camper' ? 600 : f.weapon.id === 'fists' ? 500 : 1150;
+    let best: { x: number; y: number } | null = null, bd = range;
+    for (const d of this.airdrops) {
+      if (d.obstacle && d.obstacle.opened) continue;
+      const dist = Math.hypot(d.x - f.x, d.y - f.y);
+      if (dist < bd) { bd = dist; best = { x: d.x, y: d.y }; }
+    }
+    return best;
+  }
+
+  /** Haus halten: Platz innen an der Tür, Blick nach draußen */
+  private holdSpot(f: Fighter, hi: number) {
+    const h = this.houses[hi];
+    if (f.holdHouse !== hi && h.doors.length) {
+      const d = h.doors[f.id % h.doors.length];
+      f.holdHouse = hi;
+      f.holdX = d.x - d.nx * 75;
+      f.holdY = d.y - d.ny * 75;
+      f.holdAim = Math.atan2(d.ny, d.nx);
+    }
+    return f.holdHouse === hi ? { x: f.holdX, y: f.holdY } : null;
+  }
+
   safeCircle(now: number): Circle {
     if (this.zoneState === 'shrink') return this.zoneNext;
     if (this.zoneState === 'wait' && PHASES[this.phase].wait - (now - this.phaseStart) < 12000) return this.zoneNext;
@@ -1117,9 +1248,12 @@ export class Game {
       f.moveY = d > 20 ? dy / d : 0;
       return;
     }
-    const safe = this.safeCircle(now);
+    const safe = this.botSafe(f, now);
     const dSafe = Math.hypot(safe.x - f.x, safe.y - f.y) || 1;
-    const outside = dSafe > Math.max(40, safe.r * 0.8);
+    // gierige Looter sammeln in den ersten Zonen noch im Sturm weiter (manche erwischt es dabei)
+    const greedy = f.persona === 'looter' && this.phase < 2 && f.hp > 70 && !!f.lootTarget;
+    const outside = dSafe > Math.max(40, safe.r * 0.8) && !greedy;
+    const inHouse = this.houseAt(f.x, f.y);
     const t = f.target;
     let dx = 0, dy = 0;
     let goal: { x: number; y: number } | null = null;
@@ -1165,51 +1299,140 @@ export class Game {
 
     if (f.lootTarget && (f.lootTarget.taken || now > f.lootUntil)) f.lootTarget = null;
 
-    // unter Beschuss und angeschlagen: Deckung hinter einem Hindernis suchen
-    const needCover = (f.hp < 65 && now - f.lastHitAt < 1500) || (f.reloading && f.skill >= 1) || (f.mag === 0 && f.weapon.id !== 'fists');
-    if (t && f.style !== 'aggro' && needCover && now > f.coverUntil && (f.skill >= 1 || Math.random() < 0.4)) {
+    const alive = this.aliveCount();
+    const tD = t ? Math.hypot(t.x - f.x, t.y - f.y) : 0;
+    // Rückzug: stark angeschlagen und unter Beschuss -> echt fliehen, dann Heilung suchen und zurückkommen
+    if (t && f.hp < (f.style === 'aggro' ? 25 : 40) && t.hp > f.hp + 10 && now > f.retreatUntil + 4000 && f.skill >= 0.8) {
+      f.retreatUntil = now + 2600;
+      f.revengeUntil = now + 20000;
       const c = this.findCover(f, t);
       if (c) { f.coverX = c.x; f.coverY = c.y; f.coverUntil = now + 2600; }
     }
+    // unter Beschuss und angeschlagen: Deckung hinter einem Hindernis suchen; Vorsichtige spielen generell aus der Deckung
+    const needCover = (f.hp < 65 && now - f.lastHitAt < 1500) || (f.reloading && f.skill >= 1) || (f.mag === 0 && f.weapon.id !== 'fists')
+      || (f.style === 'careful' && tD > 220 && f.skill >= 1);
+    if (t && f.style !== 'aggro' && needCover && now > f.coverUntil && (f.skill >= 1 || Math.random() < 0.4)) {
+      const c = this.findCover(f, t);
+      if (c) { f.coverX = c.x; f.coverY = c.y; f.coverUntil = now + 3200; }
+    }
+    // Mitspieler, die denselben Gegner angreifen (für Flankieren)
+    const flankMate = t && this.mode !== 'solo'
+      ? this.teammates(f).find((m) => m.alive && !m.isPlayer && !m.downed && m.target === t && m.id < f.id) ?? null : null;
     if (now < f.coverUntil && !outside) {
       dx = f.coverX - f.x;
       dy = f.coverY - f.y;
-      if (Math.hypot(dx, dy) < 18) { dx = 0; dy = 0; }
+      const atCover = Math.hypot(dx, dy) < 22;
+      if (atCover) { dx = 0; dy = 0; }
+      // Peeken: kurz zur Seite raus, schießen, zurück; starke Bots wechseln dabei die Seite
+      const m = f.memory;
+      if (atCover && m && !f.reloading && f.mag > 0 && f.hp > 30 && now > f.retreatUntil) {
+        if (now > f.peekNext) {
+          if (f.skill >= 1.3) f.peekSide *= -1;
+          else if (Math.random() < 0.25) f.peekSide *= -1;
+          f.peekUntil = now + 550 + Math.random() * 450;
+          f.peekNext = f.peekUntil + 700 + Math.random() * 900;
+          f.coverUntil = Math.max(f.coverUntil, f.peekNext + 200);
+        }
+        if (now < f.peekUntil) {
+          const ang = Math.atan2(m.y - f.y, m.x - f.x) + (Math.PI / 2) * f.peekSide;
+          dx = Math.cos(ang); dy = Math.sin(ang);
+        }
+      }
+    } else if (now < f.retreatUntil && t) {
+      // Flucht weg vom Angreifer
+      const ang = Math.atan2(t.y - f.y, t.x - f.x);
+      dx = -Math.cos(ang) + Math.cos(ang + Math.PI / 2) * f.strafe * 0.4;
+      dy = -Math.sin(ang) + Math.sin(ang + Math.PI / 2) * f.strafe * 0.4;
     } else if (t) {
       const ang = Math.atan2(t.y - f.y, t.x - f.x);
-      const d = Math.hypot(t.x - f.x, t.y - f.y);
+      const d = tD;
       const fleeHp = f.style === 'careful' ? 45 : f.style === 'aggro' ? 15 : 30;
       const unarmedVsGun = f.weapon.id === 'fists' && t.weapon.id !== 'fists' && d > 70;
       if ((f.hp < fleeHp && t.hp > f.hp + 15) || unarmedVsGun) {
         dx = -Math.cos(ang);
         dy = -Math.sin(ang);
+      } else if (t.reloading && f.skill >= 1 && f.weapon.id !== 'fists' && d < f.weapon.range && d > 70) {
+        // Gegner lädt nach: gute Bots stürmen direkt drauf zu
+        dx = Math.cos(ang); dy = Math.sin(ang);
+      } else if (flankMate) {
+        // Flankieren: einer bindet von vorne, dieser läuft seitlich herum
+        const base = Math.atan2(flankMate.y - t.y, flankMate.x - t.x) + (f.id % 2 ? 1.35 : -1.35);
+        const pref = Math.max(120, f.weapon.range * 0.5);
+        const gx = t.x + Math.cos(base) * pref, gy = t.y + Math.sin(base) * pref;
+        dx = gx - f.x; dy = gy - f.y;
+        if (Math.hypot(dx, dy) < 40) { dx = Math.cos(ang + Math.PI / 2) * f.strafe; dy = Math.sin(ang + Math.PI / 2) * f.strafe; }
       } else {
         let pref = f.weapon.id === 'fists' ? 20 : f.weapon.range * (f.style === 'aggro' ? 0.35 : f.style === 'careful' ? 0.7 : 0.55);
         // Taktik: angeschlagene Gegner bedrängen, mit größerer Reichweite auf Abstand halten
         if (t.hp + t.armor < 45 && f.hp > 55) pref = Math.min(pref, f.weapon.range * 0.3);
         else if (f.skill >= 1 && t.weapon.range < f.weapon.range * 0.8) pref = f.weapon.range * 0.78;
         const radial = d > pref + 50 ? 1 : d < pref - 50 ? -0.8 : 0;
-        if (now > f.strafeUntil) { if (Math.random() < 0.6) f.strafe *= -1; f.strafeUntil = now + 350 + Math.random() * 900 / f.skill; }
-        dx = Math.cos(ang) * radial + Math.cos(ang + Math.PI / 2) * f.strafe * 0.9;
-        dy = Math.sin(ang) * radial + Math.sin(ang + Math.PI / 2) * f.strafe * 0.9;
+        // Ausweichen: unregelmäßig die Seite wechseln, kurz stehen bleiben, dann wieder losrennen
+        if (now > f.strafeUntil) {
+          if (Math.random() < 0.65) f.strafe *= -1;
+          f.strafeUntil = now + 250 + Math.random() * 800 / f.skill;
+          if (f.skill >= 1 && Math.random() < 0.3) f.stopUntil = now + 180 + Math.random() * 220;
+        }
+        if (now < f.stopUntil) { dx = 0; dy = 0; }
+        else {
+          dx = Math.cos(ang) * radial + Math.cos(ang + Math.PI / 2) * f.strafe;
+          dy = Math.sin(ang) * radial + Math.sin(ang + Math.PI / 2) * f.strafe;
+        }
       }
       if (outside) {
         dx += ((safe.x - f.x) / dSafe) * 1.5;
         dy += ((safe.y - f.y) / dSafe) * 1.5;
       }
     } else if (outside) {
-      dx = (safe.x - f.x) / dSafe;
-      dy = (safe.y - f.y) / dSafe;
-    } else if (f.lastAttacker && f.lastAttacker.alive && now - f.lastHitAt < 2500) {
+      // Rotation: früh/spät je nach Bot, zu einem eigenen Punkt in der Zone (über Brücken, siehe unten)
+      goal = this.rotPoint(f, safe);
+      dx = goal.x - f.x;
+      dy = goal.y - f.y;
+    } else if (f.lastAttacker && f.lastAttacker.alive && now - f.lastHitAt < 2500 && now > f.retreatUntil) {
       dx = f.lastAttacker.x - f.x;
       dy = f.lastAttacker.y - f.y;
     } else if (f.pickLoot && !f.pickLoot.taken && Math.hypot(f.pickLoot.x - f.x, f.pickLoot.y - f.y) < PICKUP_R) {
       // stehen bleiben, bis der Gegenstand aufgehoben ist
       dx = 0; dy = 0;
-    } else if (this.heardFight(f, now)) {
+    } else if (f.hp < 60 && this.nearestHeal(f)) {
+      // nach dem Rückzug: Heilung holen
+      const h = this.nearestHeal(f)!;
+      goal = { x: h.x, y: h.y };
+      dx = h.x - f.x; dy = h.y - f.y;
+    } else if (now < f.revengeUntil && f.hp >= 70 && f.lastAttacker && f.lastAttacker.alive && Math.hypot(f.lastAttacker.x - f.x, f.lastAttacker.y - f.y) < 1000) {
+      // geheilt: zurück zum Angreifer
+      goal = { x: f.lastAttacker.x, y: f.lastAttacker.y };
+      dx = goal.x - f.x; dy = goal.y - f.y;
+    } else if (inHouse >= 0 && f.weapon.id !== 'fists' && ((f.persona === 'camper' && now < f.campUntil + 15000) || ((f.style === 'careful' || f.persona === 'camper') && this.heardFight(f, now)))) {
+      // Haus verteidigen: innen an der Tür warten statt rauszulaufen
+      const sp = this.holdSpot(f, inHouse);
+      if (sp) {
+        dx = sp.x - f.x; dy = sp.y - f.y;
+        if (Math.hypot(dx, dy) < 16) { dx = 0; dy = 0; f.aim = rotateTo(f.aim, f.holdAim, 0.25); }
+      }
+    } else if (this.airdropGoal(f)) {
+      // Versorgungspaket: hinlaufen, dort entstehen Kämpfe
+      goal = this.airdropGoal(f)!;
+      dx = goal.x - f.x; dy = goal.y - f.y;
+      if (Math.hypot(dx, dy) < 50) { dx = 0; dy = 0; }
+    } else if (this.thirdParty(f, now)) {
+      // Dritt-Partei: zum Kampf, nah dran den schwächeren Beteiligten angreifen
+      const h = this.thirdParty(f, now)!;
+      const parts = [h.a, h.v].filter((x) => x.alive && x.phase === 'ground' && !this.ally(x, f));
+      const weak = parts.sort((p, q) => (p.hp + p.armor) - (q.hp + q.armor))[0];
+      if (weak && Math.hypot(weak.x - f.x, weak.y - f.y) < f.weapon.range && this.hasLOS(f.x, f.y, weak.x, weak.y)) {
+        f.target = weak; f.targetSince = now - 300;
+      }
+      goal = { x: h.x, y: h.y };
+      dx = h.x - f.x; dy = h.y - f.y;
+    } else if (f.persona === 'rat' && alive > 5 && this.heardFight(f, now)) {
+      // Ratte: weg von Kämpfen
+      const h = this.heardFight(f, now)!;
+      dx = f.x - h.x; dy = f.y - h.y;
+    } else if (this.heardFight(f, now) && f.persona !== 'camper' && f.persona !== 'looter') {
       const h = this.heardFight(f, now)!;
       const bold = f.weapon.id !== 'fists' && f.hp > 60 && f.skill > 1.2;
-      // Mutige laufen zum Kampf (Dritt-Partei), Vorsichtige weichen aus
+      // Mutige laufen zum Kampf, Vorsichtige weichen aus
       dx = (h.x - f.x) * (bold ? 1 : -1);
       dy = (h.y - f.y) * (bold ? 1 : -1);
     } else {
@@ -1220,13 +1443,35 @@ export class Game {
           f.lootUntil = now + 7000;
         }
       }
-      // vorsichtige Bots verstecken sich zwischendurch in Büschen
-      if (!f.lootTarget && f.style === 'careful' && now > f.campUntil + 8000 && Math.random() < 0.08) {
+      const geared = this.geared(f, now);
+      // Camper: ausgerüstet ein Haus in der Zone suchen und halten
+      if (f.persona === 'camper' && f.weapon.id !== 'fists' && (geared || !f.lootTarget) && inHouse < 0) {
+        const hs = this.houses.map((h, i) => ({ h, i })).filter(({ h }) => (h.x - safe.x) ** 2 + (h.y - safe.y) ** 2 < (safe.r * 0.75) ** 2)
+          .sort((p, q) => Math.hypot(p.h.x - f.x, p.h.y - f.y) - Math.hypot(q.h.x - f.x, q.h.y - f.y))[0];
+        if (hs && Math.random() < 0.15 && Math.hypot(hs.h.x - f.x, hs.h.y - f.y) < 900) { f.campX = hs.h.x; f.campY = hs.h.y; f.campUntil = now + 2000; f.lootTarget = null; }
+      }
+      // Ratten (und vorsichtige Bots) verstecken sich in Büschen
+      const hideChance = f.persona === 'rat' && alive > 5 ? 0.15 : f.style === 'careful' ? 0.06 : 0;
+      if (!f.lootTarget && hideChance && now > f.campUntil + (f.persona === 'rat' ? 2000 : 8000) && Math.random() < hideChance) {
         const b = this.bushes.filter((b) => (b.x - safe.x) ** 2 + (b.y - safe.y) ** 2 < (safe.r * 0.8) ** 2)
           .sort((a, c) => ((a.x - f.x) ** 2 + (a.y - f.y) ** 2) - ((c.x - f.x) ** 2 + (c.y - f.y) ** 2))[0];
-        if (b && Math.hypot(b.x - f.x, b.y - f.y) < 600) { f.campX = b.x; f.campY = b.y; f.campUntil = now + 7000 + Math.random() * 6000; }
+        if (b && Math.hypot(b.x - f.x, b.y - f.y) < 700) { f.campX = b.x; f.campY = b.y; f.campUntil = now + 9000 + Math.random() * 8000; }
+      }
+      // Jäger: ausgerüstet aktiv Gegner suchen (zuletzt gesehen oder der nächste in der Gegend)
+      let hunt: { x: number; y: number } | null = null;
+      if (f.persona === 'hunter' && weaponScore(f.weapon) >= 2 && f.hp > 50) {
+        if (f.memory && now - f.memory.t < 6000) hunt = { x: f.memory.x, y: f.memory.y };
+        else {
+          let bd = 850;
+          for (const o of this.fighters) {
+            if (o === f || !o.alive || o.phase !== 'ground' || this.ally(o, f)) continue;
+            const d = Math.hypot(o.x - f.x, o.y - f.y);
+            if (d < bd) { bd = d; hunt = { x: o.x, y: o.y }; }
+          }
+        }
       }
       if (now < f.campUntil) {
+        goal = { x: f.campX, y: f.campY };
         dx = f.campX - f.x;
         dy = f.campY - f.y;
         if (Math.hypot(dx, dy) < 14) { dx = 0; dy = 0; }
@@ -1235,6 +1480,9 @@ export class Game {
         const lead = this.teamLead(f)!;
         dx = lead.x - f.x;
         dy = lead.y - f.y;
+      } else if (hunt && (geared || !f.lootTarget)) {
+        goal = hunt;
+        dx = hunt.x - f.x; dy = hunt.y - f.y;
       } else if (f.lootTarget) {
         dx = f.lootTarget.x - f.x;
         dy = f.lootTarget.y - f.y;
