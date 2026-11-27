@@ -244,7 +244,8 @@ export class Renderer {
     ring: new THREE.RingGeometry(0.82, 1, 48),
     beam: new THREE.CylinderGeometry(0.35, 0.35, 1, 16, 1, true),
     particle: new THREE.BoxGeometry(0.16, 0.16, 0.16),
-    bullet: new THREE.BoxGeometry(1, 1, 1),
+    // Schuss als runde Kapsel entlang X (Gesamtlänge 1, Durchmesser 1), damit Länge/Dicke wie vorher skaliert werden
+    bullet: new THREE.CapsuleGeometry(0.5, 2, 6, 12).rotateZ(Math.PI / 2).scale(1 / 3, 1, 1),
     flash: new THREE.SphereGeometry(1, 10, 8),
     // rundes Grasblatt (Basis bei y = 0, Spitze oben): fein unterteilt, weich gewölbt
     blade: (() => {
