@@ -21,7 +21,7 @@ function getMats(gradient: THREE.Texture) {
     gold: toon(0xffc93c),
     greenMain: toon(0x3fcf6a), greenMain2: toon(0x2fbf5c), greenDark: toon(0x1f8a43),
     healGlow: new THREE.MeshBasicMaterial({ color: 0xc8ffd8 }), healLiquid: new THREE.MeshBasicMaterial({ color: 0x5dff8a }),
-    shieldLiquid: new THREE.MeshBasicMaterial({ color: 0x6ad0ff }), techDark: toon(0x30343d), techScreen: toon(0x15181e),
+    shieldLiquid: new THREE.MeshBasicMaterial({ color: 0x6ad0ff }), techDark: toon(0x30343d), shieldDark: toon(0x2a3550), techScreen: toon(0x15181e),
     syringeGlass: new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: gradient, transparent: true, opacity: 0.5 }), shieldGlow: new THREE.MeshBasicMaterial({ color: 0xcfe8ff }),
   };
   return mats;
@@ -64,53 +64,53 @@ export function buildItem(kind: Kind, gradient: THREE.Texture): THREE.Group {
       put(e, mat, x, y, z);
     }
   };
+  const flush = (target: THREE.Object3D) => {
+    for (const [mat, geos] of parts) { const mesh = new THREE.Mesh(mergeGeometries(geos)!, mat); mesh.castShadow = true; target.add(mesh); }
+    parts.clear();
+  };
+  const disc = (mat: THREE.Material, r: number, x: number, y: number, z: number) => put(new THREE.CircleGeometry(r, 24), mat, x, y, z);
   if (kind === 'medkit') {
-    // kleine Heilung: Spritze mit grüner Heilflüssigkeit (liegt flach, etwas größer, damit man sie gut sieht)
-    const k = 1.5;
-    const glassM = M.syringeGlass;
-    put(new THREE.CylinderGeometry(0.08 * k, 0.08 * k, 0.5 * k, 18), glassM, 0, 0.13 * k, 0, 0, 0, Math.PI / 2);
-    put(new THREE.CylinderGeometry(0.065 * k, 0.065 * k, 0.36 * k, 16), M.healLiquid, 0.04 * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
-    for (const x of [-0.1, 0.05, 0.2]) put(new THREE.CylinderGeometry(0.083 * k, 0.083 * k, 0.012 * k, 18), M.white, x * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
-    put(new THREE.CylinderGeometry(0.11 * k, 0.11 * k, 0.03 * k, 18), M.white, -0.25 * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
-    put(new THREE.CylinderGeometry(0.025 * k, 0.025 * k, 0.18 * k, 8), M.dark, -0.34 * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
-    put(new THREE.CylinderGeometry(0.065 * k, 0.065 * k, 0.03 * k, 14), M.dark, -0.43 * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
-    put(new THREE.CylinderGeometry(0.04 * k, 0.07 * k, 0.05 * k, 14), M.greenDark, 0.27 * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
-    put(new THREE.CylinderGeometry(0.008 * k, 0.008 * k, 0.16 * k, 6), M.metal, 0.37 * k, 0.13 * k, 0, 0, 0, Math.PI / 2);
-    for (const [mat, geos] of parts) { const mesh = new THREE.Mesh(mergeGeometries(geos)!, mat); mesh.castShadow = true; g.add(mesh); }
-    g.position.y = -0.1;
+    // kleine Medibox: kompakter, fast würfelförmiger Kasten, grüner Deckel (umgekehrt zum großen Medikit), Tragegurt oben
+    rb(M.white, 0.5, 0.26, 0.42, 0, 0.13, 0, 0.09);
+    rb(M.greenMain, 0.52, 0.12, 0.44, 0, 0.31, 0, 0.06);
+    rb(M.healLiquid, 0.53, 0.025, 0.45, 0, 0.255, 0, 0.012);
+    icon('cross', 0.2, M.white, 0, 0.375, 0);
+    rb(M.dark, 0.06, 0.05, 0.3, 0, 0.4, 0, 0.02);
+    for (const z of [-0.15, 0.15]) rb(M.dark, 0.06, 0.05, 0.05, 0, 0.37, z, 0.02);
+    disc(M.techScreen, 0.075, 0, 0.12, 0.212);
+    icon('cross', 0.09, M.healLiquid, 0, 0.12, 0.222, true);
+    flush(g);
+    g.position.y = -0.18;
     cache.set(kind, g);
     return g.clone();
   }
-  // Tech-Koffer (großes Medikit V4 / Schildkoffer E): dunkles Unterteil, Leuchtstreifen, heller Deckel mit Symbol.
-  // Der Deckel ist ein eigenes Teil ('lid') mit Scharnier hinten, damit er beim Aufheben aufspringen kann.
-  const heal = kind === 'bigmed';
-  const glowM = heal ? M.healLiquid : M.shieldLiquid;
-  const w = 0.9, d = 0.62, h = 0.3;
-  rb(M.techDark, w, h, d, 0, h / 2, 0, 0.14);
-  rb(glowM, w + 0.02, 0.04, d + 0.02, 0, h - 0.04, 0, 0.02);
-  rb(M.techScreen, 0.22, 0.2, 0.02, 0, h * 0.5, d / 2 + 0.005, 0.05);
-  if (heal) icon('cross', 0.13, glowM, 0, h * 0.5, d / 2 + 0.02, true); else icon('shield', 0.13, glowM, 0, h * 0.5, d / 2 + 0.02, true);
-  if (heal) for (const x of [-0.3, 0.3]) rb(M.metal, 0.1, 0.14, 0.05, x, h, d / 2 + 0.01, 0.02);
-  // Inhalt (sieht man nur, wenn der Deckel offen ist)
-  rb(M.white, w - 0.1, 0.03, d - 0.1, 0, h + 0.005, 0, 0.02);
-  for (let i = 0; i < 4; i++) put(new THREE.CylinderGeometry(0.04, 0.04, 0.2, 10), glowM, -0.27 + i * 0.18, h + 0.05, 0.03, Math.PI / 2);
-  for (const [mat, geos] of parts) { const mesh = new THREE.Mesh(mergeGeometries(geos)!, mat); mesh.castShadow = true; g.add(mesh); }
-  parts.clear();
-  // Deckel: Drehpunkt an der Hinterkante
-  rb(M.white, w, 0.26, d, 0, 0.13, d / 2, 0.14);
-  if (heal) {
-    put(new THREE.TorusGeometry(0.16, 0.025, 8, 28), glowM, 0, 0.265, d / 2, Math.PI / 2);
-    icon('cross', 0.2, M.greenMain, 0, 0.265, d / 2);
+  if (kind === 'bigmed') {
+    // großes Medikit (Tech-Koffer): dunkles Unterteil, grüner Leuchtstreifen, weißer Deckel mit eingelassenem Panel
+    rb(M.techDark, 0.9, 0.3, 0.62, 0, 0.16, 0, 0.14);
+    rb(M.white, 0.9, 0.26, 0.62, 0, 0.42, 0, 0.14);
+    rb(M.healLiquid, 0.92, 0.04, 0.64, 0, 0.3, 0, 0.02);
+    // Deckel: Leuchtfuge um ein erhöhtes Panel, darauf Ring und Kreuz, vorne zwei Lichtschlitze
+    rb(M.healLiquid, 0.72, 0.02, 0.46, 0, 0.552, 0, 0.08);
+    rb(M.whiteShade, 0.68, 0.035, 0.42, 0, 0.565, 0, 0.08);
+    put(new THREE.TorusGeometry(0.15, 0.022, 8, 28), M.healLiquid, 0, 0.59, 0, Math.PI / 2);
+    icon('cross', 0.19, M.greenMain, 0, 0.59, 0);
+    for (const x of [-0.27, 0.27]) rb(M.healLiquid, 0.12, 0.02, 0.012, x, 0.48, 0.315, 0.008);
+    for (const x of [-0.3, 0.3]) rb(M.metal, 0.1, 0.14, 0.05, x, 0.3, 0.32, 0.02);
+    disc(M.techScreen, 0.1, 0, 0.15, 0.315);
+    icon('cross', 0.12, M.healLiquid, 0, 0.15, 0.325, true);
   } else {
-    rb(M.techScreen, 0.36, 0.03, 0.3, 0, 0.26, d / 2, 0.05);
-    icon('shield', 0.22, glowM, 0, 0.285, d / 2);
+    // Schildkoffer: dunkelblaues Unterteil, blauer Leuchtstreifen, weißer Deckel mit Display und Leuchtrahmen
+    rb(M.shieldDark, 0.82, 0.42, 0.56, 0, 0.23, 0, 0.1);
+    rb(M.shieldLiquid, 0.84, 0.04, 0.58, 0, 0.28, 0, 0.02);
+    rb(M.white, 0.76, 0.1, 0.5, 0, 0.47, 0, 0.05);
+    rb(M.shieldLiquid, 0.42, 0.02, 0.36, 0, 0.523, 0, 0.06);
+    rb(M.techScreen, 0.38, 0.03, 0.32, 0, 0.535, 0, 0.05);
+    icon('shield', 0.22, M.shieldLiquid, 0, 0.555, 0);
+    for (const x of [-0.3, 0.3]) rb(M.shieldLiquid, 0.1, 0.015, 0.012, x, 0.47, 0.256, 0.006);
+    disc(M.techScreen, 0.11, 0, 0.21, 0.285);
+    icon('shield', 0.13, M.shieldLiquid, 0, 0.21, 0.295, true);
   }
-  const lid = new THREE.Group();
-  lid.name = 'lid';
-  lid.position.set(0, h + 0.01, -d / 2);
-  for (const [mat, geos] of parts) { const mesh = new THREE.Mesh(mergeGeometries(geos)!, mat); mesh.castShadow = true; lid.add(mesh); }
-  parts.clear();
-  g.add(lid);
+  flush(g);
   g.position.y = -0.2;
   cache.set(kind, g);
   return g.clone();

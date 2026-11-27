@@ -1522,16 +1522,7 @@ export class Renderer {
           const v = this.lootViews.get(e.loot.id);
           if (v) {
             this.lootViews.delete(e.loot.id);
-            // Koffer: Deckel springt auf, Koffer schrumpft weg (0,25 s); alles andere verschwindet sofort
-            const lid = v.item.getObjectByName('lid');
-            if (lid) {
-              const root = v.root, s0 = root.scale.x;
-              this.addTimed(root, 0.25, (t) => {
-                const k = 1 - t; // t läuft 1 -> 0
-                lid.rotation.x = -Math.min(1, k * 2.5) * 1.15;
-                root.scale.setScalar(s0 * (k < 0.45 ? 1 + k * 0.25 : Math.max(0.01, 1.11 * (1 - (k - 0.45) / 0.55))));
-              });
-            } else this.world!.remove(v.root);
+            this.world!.remove(v.root);
           }
           break;
         }
