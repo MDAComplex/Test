@@ -522,7 +522,7 @@ export class Game {
 
   private resolve(f: Fighter) {
     const R = FIGHTER_R;
-    this.query(f.x - R - 60, f.y - R - 60, f.x + R + 60, f.y + R + 60, (o) => {
+    this.query(f.x - R - 110, f.y - R - 110, f.x + R + 110, f.y + R + 110, (o) => {
       if (o.circle) {
         const dx = f.x - o.x, dy = f.y - o.y, d = Math.hypot(dx, dy), m = R + o.r;
         if (d < m && d > 0.001) {

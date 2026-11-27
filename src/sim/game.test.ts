@@ -269,3 +269,23 @@ describe('Brücken', () => {
     }
   });
 });
+
+describe('Fluss', () => {
+  it('niemand läuft durchs Wasser (außer über Brücken)', () => {
+    const g = new Game(generateMap(31));
+    const p = g.player;
+    for (const f of g.fighters) { f.phase = 'ground'; f.z = 0; if (!f.isPlayer) { f.alive = false; f.x = 10; f.y = 10; } }
+    g.time = 30000;
+    const rv = g.map.river;
+    // Startpunkt neben dem Fluss, weit weg von Brücken, dann quer zum Fluss laufen
+    const pts = rv.water.filter((w) => w.x > 300 && w.y > 300 && w.x < 3700 && w.y < 3700 && rv.bridges.every((b) => Math.hypot(b.x - w.x, b.y - w.y) > 400));
+    const w = pts[Math.floor(pts.length / 2)];
+    const i = rv.water.indexOf(w), nb = rv.water[i + 1];
+    const ang = Math.atan2(nb.y - w.y, nb.x - w.x) + Math.PI / 2;
+    p.x = w.x + Math.cos(ang) * 160; p.y = w.y + Math.sin(ang) * 160; p.vx = p.vy = 0;
+    g.input.mx = -Math.cos(ang); g.input.my = -Math.sin(ang);
+    for (let t = 0; t < 3000; t += 16) g.update(16);
+    const minD = Math.min(...rv.water.map((q) => Math.hypot(q.x - p.x, q.y - p.y)));
+    expect(minD).toBeGreaterThan(rv.width / 2);
+  });
+});

@@ -6,6 +6,7 @@ import { Settings, loadSettings, saveSettings } from '../settings';
 import { Sfx } from '../sfx';
 import { WEAPONS, TIER_COLORS, WeaponId } from '../weapons';
 import { Preview } from './preview';
+import { portrait } from './portrait';
 import { CHUTE_COLORS, CHUTE_LOGOS } from '../chute';
 import { Profile, loadProfile, saveProfile, levelInfo, SKINS, skinColor, taskText, awardRound, RoundReward } from '../profile';
 
@@ -68,7 +69,7 @@ export class Hud {
   private previewChute = false;
   private dirsLayer: HTMLElement;
   private stickMax = 55;
-  private teamRows: { f: Fighter; row: HTMLElement; bar: HTMLElement }[] = [];
+  private teamRows: { f: Fighter; row: HTMLElement; bar: HTMLElement; ar: HTMLElement }[] = [];
 
   constructor(private cb: { play: () => void; menu: () => void; settingsChanged: (s: Settings) => void }) {
     this.labelsLayer = $('<div id="labels"></div>');
@@ -526,13 +527,18 @@ export class Hud {
     this.bigBase = this.buildMiniBase(game, 1024);
     this.e.team.innerHTML = '';
     this.teamRows = [];
+    // Profil: immer man selbst, dazu die Teamkameraden (Bild, Name, Leben und Schild)
     const mates = game.mode === 'solo' ? [] : game.teammates(game.player);
-    this.e.team.classList.toggle('hidden', mates.length === 0);
-    for (const m of mates) {
-      const row = $(`<div class="tm"><span class="tm-n"></span><div class="tm-bar"><i></i></div></div>`);
-      row.querySelector('.tm-n')!.textContent = m.name;
+    this.e.team.classList.remove('hidden');
+    for (const m of [game.player, ...mates]) {
+      const row = $(`<div class="tm"><img class="tm-av" alt=""><div class="tm-info"><span class="tm-n"></span><div class="tm-bar ar"><i></i></div><div class="tm-bar"><i></i></div></div></div>`);
+      if (m.isPlayer) row.classList.add('me');
+      row.querySelector('.tm-n')!.textContent = m.isPlayer ? 'Du' : m.name;
+      const img = row.querySelector('img') as HTMLImageElement;
+      img.src = portrait(m.look.char, m.color, m.id * 7 + 3, m.look.outfit ?? 'none');
       this.e.team.append(row);
-      this.teamRows.push({ f: m, row, bar: row.querySelector('i') as HTMLElement });
+      const bars = row.querySelectorAll('.tm-bar i');
+      this.teamRows.push({ f: m, row, bar: bars[1] as HTMLElement, ar: bars[0] as HTMLElement });
     }
     for (const f of game.fighters) {
       if (f.isPlayer) continue;
@@ -826,6 +832,7 @@ export class Hud {
       t.row.classList.toggle('dead', !f.alive);
       t.row.classList.toggle('down', f.alive && f.downed);
       t.bar.style.width = `${!f.alive ? 0 : f.downed ? f.downHp : Math.max(0, f.hp)}%`;
+      t.ar.style.width = `${f.alive && !f.downed ? f.armor : 0}%`;
     }
     this.e.downnote.classList.toggle('hidden', !(p.alive && p.downed));
     if (p.downed) (this.e.downnote.querySelector('i') as HTMLElement).style.width = `${p.downHp}%`;

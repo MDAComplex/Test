@@ -62,6 +62,8 @@ interface FighterView {
   yaw: number;
   reloadBlend: number;
   punchT: number;
+  /** 0 = steht, 1 = kniet/kriecht (kurze Übergangsanimation) */
+  kneel: number;
   punchArm: 0 | 1;
 }
 interface Particle { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; life: number; max: number }
@@ -729,7 +731,7 @@ export class Renderer {
     this.world!.add(root);
     const v: FighterView = {
       root, lean, rig, chute, flash: 0, weaponId: f.weapon.id, walkT: Math.random() * 6, amp: 0, deadT: 0,
-      aimBlend: 0, recoil: 0, dustT: 0, spin: null, yaw: f.aim, reloadBlend: 0, punchT: 0, punchArm: 0,
+      aimBlend: 0, recoil: 0, dustT: 0, spin: null, yaw: f.aim, reloadBlend: 0, punchT: 0, punchArm: 0, kneel: 0,
     };
     v.spin = rig.gunKick.getObjectByName('spin') ?? null;
     this.fighterViews.set(f, v);
@@ -1816,6 +1818,18 @@ export class Renderer {
 
     // niedergeschlagen: auf den Bauch fallen und langsam kriechen
     rig.body.rotation.z = lerp(rig.body.rotation.z, 0, 1 - Math.exp(-dt * 8));
+    // kurzer Übergang: auf die Knie fallen bzw. wieder aufstehen (~0,35 s)
+    v.kneel = Math.max(0, Math.min(1, v.kneel + (f.downed ? 1 : -1) * dt / 0.35));
+    if (v.kneel > 0 && v.kneel < 1) {
+      const e = v.kneel * v.kneel * (3 - 2 * v.kneel);
+      poseCrawl(rig, v.walkT, 0);
+      // erst in die Knie (Körper sinkt), dann nach vorne auf die Hände
+      rig.body.position.y = -0.42 * Math.min(1, e * 1.7);
+      rig.torso.rotation.z = -1.25 * Math.max(0, (e - 0.4) / 0.6);
+      rig.head.rotation.z = 1.0 * Math.max(0, (e - 0.4) / 0.6);
+      v.lean.rotation.set(0, 0, 0);
+      return;
+    }
     if (f.downed) {
       const crawl = Math.min(1, speed / 40);
       v.walkT += dt * (2 + crawl * 5);

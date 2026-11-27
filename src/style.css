@@ -318,3 +318,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
 .xhair::after { top: 10px; left: 0; height: 2px; width: 22px; }
 .rb.fire { right: max(24px, env(safe-area-inset-right, 0px)); bottom: 120px; width: 96px; height: 96px; font-size: 16px; background: rgba(220, 60, 50, 0.9); }
 @media (max-height: 520px) { .rb.fire { bottom: 86px; width: 82px; height: 82px; } }
+
+/* Profilleiste (eigenes Profil + Team) */
+.team { min-width: 178px; gap: 7px; }
+.tm { flex-direction: row; align-items: center; gap: 8px; color: #fff; }
+.tm.me .tm-n { color: var(--gold); }
+.tm-av { width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(180deg, #9fd4f2, #5f9fd0); border: 2px solid rgba(255,255,255,0.85); object-fit: cover; flex: none; }
+.tm-info { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.tm-n { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tm-bar.ar { height: 4px; }
+.tm-bar.ar i { background: linear-gradient(180deg, #8fd0ff, #3d93f0); }
+.tm.down .tm-av { filter: grayscale(0.6) sepia(0.6) hue-rotate(-30deg) saturate(3); }
+.tm.dead .tm-av { filter: grayscale(1) brightness(0.6); }
+@media (max-width: 640px), (max-height: 520px) { .tm-av { width: 30px; height: 30px; } .team { min-width: 140px; } }
