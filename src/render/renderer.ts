@@ -5,6 +5,7 @@ import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop, isContainer 
 import { WEAPONS, TIER_COLORS, WeaponId, parseWeapon } from '../weapons';
 import { CHUTE_Z, DROP_Z, FREE_BACK } from '../sim/game';
 import { buildGun } from './guns';
+import { buildItem } from './items';
 import type { WrapId } from '../wraps';
 import { LootKind, RAIL_R, FOUNTAIN_R } from '../mapgen';
 import { WHITE_CHUTE } from '../chute';
@@ -699,27 +700,12 @@ export class Renderer {
           item.add(c, tip);
         }
       }
-    } else if (l.kind === 'armor') {
-      // Schild-Symbol: oben gerade, unten spitz, mit hellem Rand und Emblem
-      const rim = new THREE.Mesh(this.g.shield, this.m.armorLight);
-      rim.scale.set(0.86, 0.86, 0.9);
-      rim.position.z = -0.03;
-      const face = new THREE.Mesh(this.g.shield, this.m.armor);
-      face.scale.set(0.72, 0.72, 1);
-      face.position.z = 0.02;
-      const emblem = new THREE.Mesh(this.g.shield, this.m.armorLight);
-      emblem.scale.set(0.3, 0.3, 1.4);
-      emblem.position.set(0, 0.04, 0.03);
-      for (const m of [rim, face, emblem]) { m.castShadow = true; item.add(m); }
-    } else if (l.kind === 'bigmed') {
-      box(this.m.red, 0.95, 0.6, 0.6);
-      box(this.m.white, 0.18, 0.05, 0.5, 0, 0.31, 0);
-      box(this.m.white, 0.6, 0.05, 0.18, 0, 0.31, 0);
-      box(this.m.metal, 0.3, 0.08, 0.08, 0, 0.38, 0);
-    } else {
-      box(this.m.white, 0.62, 0.4, 0.45);
-      box(this.m.red, 0.12, 0.04, 0.34, 0, 0.21, 0);
-      box(this.m.red, 0.4, 0.04, 0.12, 0, 0.21, 0);
+    } else if (l.kind === 'armor' || l.kind === 'medkit' || l.kind === 'bigmed') {
+      // neue Modelle: Schild mit Leuchtkern, weiße Erste-Hilfe-Tasche, roter Notfallkoffer
+      const it = buildItem(l.kind, this.gradient);
+      if (l.kind === 'armor') { it.scale.setScalar(1.05); it.position.y = 0.05; }
+      else if (l.kind === 'bigmed') it.scale.setScalar(1.05);
+      item.add(it);
     }
     root.add(item);
     if (pop) root.scale.setScalar(0.01);

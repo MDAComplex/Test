@@ -590,9 +590,10 @@ export function animateRig(rig: Rig, s: AnimState) {
   const twist = -Math.sin(phase) * (live ? 0.12 : 0.07) * amp;
   rig.torso.rotation.set(-Math.sin(phase) * (live ? 0.06 : 0.03) * amp, twist + blade, -(live ? 0.09 : 0.05) * amp);
   rig.head.rotation.y -= blade + twist;
+  if (!live) rig.head.rotation.z = 0;
   if (live) {
     // Kopf nickt leicht verzögert mit (Nachschwingen), im Stand schaut er sich ein wenig um und verlagert das Gewicht
-    rig.head.rotation.z += Math.sin(phase * 2 - 0.7) * 0.07 * amp + Math.sin(s.time * 0.7) * 0.04 * (1 - amp);
+    rig.head.rotation.z = Math.sin(phase * 2 - 0.7) * 0.07 * amp + Math.sin(s.time * 0.7) * 0.04 * (1 - amp);
     rig.body.position.z += Math.sin(s.time * 1.1) * 0.02 * (1 - amp);
   }
   // Atmen im Stand

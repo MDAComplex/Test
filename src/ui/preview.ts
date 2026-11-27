@@ -83,6 +83,7 @@ export class Preview {
       this.holder.rotation.y = this.lobby ? Math.sin(this.t * 0.45) * 0.45 - 0.15 : this.t * 0.6;
       if (this.canvas.clientWidth && (this.canvas.width !== Math.round(this.canvas.clientWidth * this.renderer.getPixelRatio()))) this.resize();
       if (this.rig) {
+        this.rig.head.rotation.set(0, 0, 0);
         if (this.extra.emote && !this.showChute) animateEmote(this.rig, this.extra.emote, this.t);
         else animateRig(this.rig, { phase: this.t * 4, amp: 0, aim: 0, twoHanded: !!this.extra.gun && this.extra.gun.id !== 'pistol', weapon: this.extra.gun?.id ?? 'fists', reload: 0, time: this.t, falling: this.showChute });
       }
