@@ -1633,7 +1633,8 @@ export class Renderer {
       const len = game.rayLength(p.x, p.y, aimA, p.weapon.range) * S;
       this.aimLine.position.set(p.x * S + Math.cos(aimA) * 0.9, 0.16, p.y * S + Math.sin(aimA) * 0.9);
       this.aimLine.rotation.y = -aimA;
-      const l = Math.max(0.5, len - 0.9);
+      // auf ganze Punkte runden (Abstand 0.8), damit am Ende kein halber Punkt steht
+      const l = Math.max(0.8, Math.floor((len - 0.9) / 0.8) * 0.8);
       this.aimLine.scale.set(l, 1, 0.4);
       this.aimMat.uniforms.uLen.value = l;
     }
