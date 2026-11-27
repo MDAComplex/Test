@@ -511,6 +511,7 @@ export function animateRig(rig: Rig, s: AnimState) {
   const sh = Math.sin(phase + Math.PI - 0.25) * amp;
   shoulders(rig, sh * 0.045, -sh * 0.045, Math.max(0, -sh) * 0.02, Math.max(0, sh) * 0.02);
   rig.body.rotation.z = 0;
+  rig.body.rotation.x = 0;
   rig.legs.forEach((l) => (l.hip.rotation.x = 0));
   if (s.freefall) {
     // Bauchlage: Körper nach vorn gekippt, Arme und Beine gespreizt, flattert im Wind
@@ -667,41 +668,93 @@ export function poseCrawl(rig: Rig, t: number, moving: number) {
   rig.head.rotation.x = 0;
 }
 
-/** liegende Pose (tot) */
+/** Momentaufnahme aller Gelenke, damit das Sterben aus der aktuellen Haltung heraus beginnt */
+export type PoseSnap = number[];
+const V3 = 3;
+function joints(rig: Rig): THREE.Object3D[] {
+  return [rig.body, rig.torso, rig.pelvis, rig.head, rig.legs[0].hip, rig.legs[1].hip, rig.legs[0].knee, rig.legs[1].knee,
+    rig.arms[0].shoulder, rig.arms[1].shoulder, rig.arms[0].elbow, rig.arms[1].elbow];
+}
+export function capturePose(rig: Rig): PoseSnap {
+  rig.body.rotation.order = 'YXZ';
+  const out: number[] = [];
+  for (const j of joints(rig)) out.push(j.rotation.x, j.rotation.y, j.rotation.z);
+  out.push(rig.body.position.x, rig.body.position.y, rig.body.position.z);
+  return out;
+}
+function applyPose(rig: Rig, p: PoseSnap) {
+  joints(rig).forEach((j, i) => j.rotation.set(p[i * V3], p[i * V3 + 1], p[i * V3 + 2]));
+  const o = joints(rig).length * V3;
+  rig.body.position.set(p[o], p[o + 1], p[o + 2]);
+}
+const mix = (a: PoseSnap, b: PoseSnap, k: number) => a.map((v, i) => v + (b[i] - v) * k);
+
+/** Gelenk-Zielwerte: body [rx, ry, rz], torso, pelvis, head, Hüfte r/l, Knie r/l, Schulter r/l, Ellbogen r/l, body-Position */
+type PoseDef = { body?: number[]; torso?: number[]; head?: number[]; hip?: number[][]; knee?: number[]; sh?: number[][]; el?: number[]; pos?: number[] };
+function build(base: PoseSnap, d: PoseDef): PoseSnap {
+  const p = base.slice();
+  const set = (idx: number, v?: number[]) => { if (v) for (let k = 0; k < 3; k++) if (v[k] !== undefined && !Number.isNaN(v[k])) p[idx * V3 + k] = v[k]; };
+  set(0, d.body); set(1, d.torso); p[2 * V3] = p[2 * V3 + 1] = p[2 * V3 + 2] = 0; set(3, d.head);
+  if (d.hip) { set(4, d.hip[0]); set(5, d.hip[1]); }
+  if (d.knee) { p[6 * V3 + 2] = d.knee[0]; p[7 * V3 + 2] = d.knee[1]; p[6 * V3] = p[6 * V3 + 1] = p[7 * V3] = p[7 * V3 + 1] = 0; }
+  if (d.sh) { set(8, d.sh[0]); set(9, d.sh[1]); }
+  if (d.el) { p[10 * V3 + 2] = d.el[0]; p[11 * V3 + 2] = d.el[1]; p[10 * V3] = p[10 * V3 + 1] = p[11 * V3] = p[11 * V3 + 1] = 0; }
+  if (d.pos) { const o = 12 * V3; p[o] = d.pos[0]; p[o + 1] = d.pos[1]; p[o + 2] = d.pos[2]; }
+  return p;
+}
+const N = NaN;
+
+export type DeathKind = 'back' | 'front' | 'left' | 'right' | 'down';
+
 /**
- * Sterben: erst knicken die Knie ein und der Oberkörper sackt nach vorn (0–0,22 s),
- * dann kippt der Körper mit zunehmender Geschwindigkeit nach hinten um (bis 0,72 s),
- * prallt kurz auf und bleibt entspannt liegen.
+ * Sterben aus der aktuellen Haltung: im Stehen knicken die Knie ein, der Körper dreht sich leicht und
+ * kippt mit zunehmender Geschwindigkeit (nach hinten, vorne oder zur Seite), prallt auf und die Glieder sacken nach.
+ * Wer niedergeschlagen kriecht, bricht ein und rollt leicht auf die Seite.
  */
-export function poseDeath(rig: Rig, t: number) {
-  const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
-  const A = 0.25, B = 0.85;
-  const a = Math.min(1, t / A);
-  const ea = 1 - Math.pow(1 - a, 2);
-  const b = Math.max(0, Math.min(1, (t - A) / (B - A)));
-  const eb = b * b; // wie Schwerkraft: wird schneller
-  shoulders(rig);
-  rig.pelvis.rotation.set(0, 0, 0);
+export function poseDeath(rig: Rig, snap: PoseSnap, kind: DeathKind, t: number, seed: number) {
   rig.gunPivot.visible = false;
-  rig.body.position.z = 0;
-  // Einknicken
-  const knee = lerp(-0.95 * ea, -0.35, eb);
-  const hip = lerp(0.55 * ea, 0.15, eb);
-  rig.legs[0].hip.rotation.set(0, 0, hip);
-  rig.legs[1].hip.rotation.set(0, 0, hip * 0.8);
-  rig.legs.forEach((l, i) => (l.knee.rotation.z = knee * (i ? 0.9 : 1)));
-  rig.torso.rotation.set(0, 0, lerp(-0.3 * ea, 0.05, eb));
-  rig.head.rotation.set(0, 0, lerp(-0.35 * ea, 0.15, eb));
-  // Arme: erst schlaff, beim Umkippen fliegen sie nach oben, danach liegen sie locker
-  const flail = Math.sin(b * Math.PI) * 0.6;
-  rig.arms[0].shoulder.rotation.set(flail * 0.4, 0, lerp(0.25 * ea, 2.3, eb) + flail);
-  rig.arms[1].shoulder.rotation.set(-flail * 0.4, 0, lerp(0.2 * ea, 2.1, eb) + flail * 0.8);
-  rig.arms.forEach((ar) => { ar.elbow.rotation.set(0, 0, lerp(0.45, 0.6, eb)); });
-  // Umkippen nach hinten; beim Aufprall kurz nachfedern
-  const impact = Math.max(0, t - B);
-  const bounce = impact > 0 ? Math.sin(impact * 20) * 0.07 * Math.exp(-impact * 7) : 0;
-  rig.body.rotation.z = eb * (Math.PI / 2) - Math.abs(bounce);
-  rig.body.position.y = lerp(-0.28 * ea, 0, eb);
+  shoulders(rig);
+  const yaw = snap[1];
+  const tw = ((seed % 7) / 7 - 0.5) * 0.9; // leichte Drehung beim Fallen
+  const rnd = ((seed * 37) % 11) / 11 - 0.5;
+  const sideS = kind === 'left' ? 1 : -1;
+  let fin: PoseSnap, buckle: PoseSnap | null = null, midP: PoseSnap | null = null;
+  if (kind === 'down') {
+    fin = build(snap, { body: [0.45 + rnd * 0.3, yaw + tw * 0.5, -1.5], torso: [0, 0, 0.05], head: [0.7, 0, 0.1], hip: [[0, 0, 0.1], [0, 0, 0.4]], knee: [-0.25, -0.9], sh: [[0, 0, 2.6], [0.3, 0, 0.35]], el: [0.35, 1.1], pos: [0.2, 0.2, 0] });
+    midP = build(snap, { body: [0.1, yaw, -1.2], torso: [0, 0, -0.5], head: [0, 0, 0.5], sh: [[0, 0, 1.9], [0, 0, 0.9]], el: [0.9, 0.9], pos: [0.1, -0.15, 0] });
+  } else {
+    const fall: number[] = kind === 'back' ? [rnd * 0.25, yaw + tw, 1.5] : kind === 'front' ? [rnd * 0.25, yaw + tw, -1.5] : [sideS * 1.45, yaw + tw, 0.25 * rnd];
+    const lean: number[] = kind === 'back' ? [0, yaw + tw * 0.3, 0.22] : kind === 'front' ? [0, yaw + tw * 0.3, -0.3] : [sideS * 0.25, yaw + tw * 0.3, 0];
+    buckle = build(snap, { body: lean, torso: [0, 0, kind === 'back' ? 0.15 : -0.3], head: [0, 0, kind === 'back' ? 0.35 : -0.35], hip: [[0, 0, 0.5], [0, 0, 0.35]], knee: [-0.9, -0.7], sh: [[0.2, 0, 0.5], [-0.2, 0, 0.35]], el: [0.6, 0.5], pos: [0, -0.32, 0] });
+    midP = build(snap, { body: fall.map((v, i) => (i === 1 ? v : v * 0.55)), torso: [0, 0, kind === 'front' ? -0.25 : 0.2], head: [0, 0, kind === 'front' ? -0.5 : 0.5], hip: [[0, 0, 0.7], [0, 0, 0.3]], knee: [-1.15, -0.8], sh: [[0.7, 0, 1.9], [-0.7, 0, 1.6]], el: [0.4, 0.6], pos: [0, -0.42, 0] });
+    if (kind === 'back') fin = build(snap, { body: fall, torso: [0, 0, 0.1], head: [rnd * 0.8, 0, 0.25], hip: [[0.15, 0, 0.35], [-0.1, 0, 0.1]], knee: [-0.65, -0.25], sh: [[0.4, 0, 2.2], [-0.5, 0, 1.55]], el: [0.7, 0.3], pos: [0, 0.12, 0] });
+    else if (kind === 'front') fin = build(snap, { body: fall, torso: [0, 0, -0.05], head: [0.65, 0, -0.1], hip: [[0, 0, -0.1], [0, 0, 0.25]], knee: [-0.3, -0.75], sh: [[0.6, 0, 0.9], [-0.9, 0, 0.35]], el: [0.9, 0.4], pos: [0, 0.18, 0] });
+    else fin = build(snap, { body: fall, torso: [0, 0, -0.15], head: [sideS * 0.3, 0, 0], hip: [[0, 0, 0.65], [0, 0, 0.2]], knee: [-1.05, -0.4], sh: [[0, 0, 0.8], [0, 0, 2.0]], el: [1.0, 0.4], pos: [0, 0.22, 0] });
+  }
+  void N;
+  let p: PoseSnap;
+  if (buckle) {
+    const A = 0.2, B = 0.55, C = 0.82;
+    if (t < A) { const k = t / A; p = mix(snap, buckle, 1 - (1 - k) * (1 - k)); }
+    else if (t < B) { const k = (t - A) / (B - A); p = mix(buckle, midP!, k * k); }
+    else if (t < C) { const k = (t - B) / (C - B); p = mix(midP!, fin, k * k); }
+    else p = fin.slice();
+    // Aufprall: kurz zurückfedern, Kopf schlägt nach
+    const im = t - C;
+    if (im > 0) {
+      const bo = Math.sin(im * 22) * 0.07 * Math.exp(-im * 8);
+      if (kind === 'left' || kind === 'right') p[0] -= Math.sign(p[0]) * Math.abs(bo); else p[2] -= Math.sign(p[2]) * Math.abs(bo);
+      p[3 * V3 + 2] += bo * 2;
+    }
+  } else {
+    const A = 0.25, B = 0.6;
+    if (t < A) { const k = t / A; p = mix(snap, midP!, k * k); }
+    else if (t < B) { const k = (t - A) / (B - A); p = mix(midP!, fin, 1 - (1 - k) * (1 - k)); }
+    else p = fin.slice();
+    const im = t - B;
+    if (im > 0) p[2] -= Math.sin(im * 18) * 0.05 * Math.exp(-im * 8);
+  }
+  applyPose(rig, p);
 }
 
 export function poseLying(rig: Rig, t: number, crawl: boolean) {

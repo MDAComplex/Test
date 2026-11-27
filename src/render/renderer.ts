@@ -7,7 +7,7 @@ import { CHUTE_Z } from '../sim/game';
 import { buildGun } from './guns';
 import { LootKind, RAIL_R } from '../mapgen';
 import { WHITE_CHUTE } from '../chute';
-import { buildCharacter, buildChute, animateRig, poseLying, poseCrawl, poseDeath, makeToon, Rig } from './character';
+import { buildCharacter, buildChute, animateRig, poseLying, poseCrawl, poseDeath, capturePose, makeToon, Rig, PoseSnap, DeathKind } from './character';
 
 const W = WORLD * S;
 const WALL_H = 2.1;
@@ -70,6 +70,9 @@ interface FighterView {
   punchArm: 0 | 1;
   /** Öffnen des Fallschirms 0..1 */
   chuteT: number;
+  /** Haltung beim Tod und Art des Umfallens */
+  deathSnap?: PoseSnap;
+  deathKind?: DeathKind;
 }
 interface Particle { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; life: number; max: number }
 interface Puff { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number; max: number; size: number; grow: number }
@@ -1682,11 +1685,14 @@ export class Renderer {
     if (!f.alive) {
       // umfallen (0,45 s), liegen bleiben, dann im Boden versinken (gesamt ~2,8 s)
       if (v.root.visible) {
-        // war schon niedergeschlagen (liegt): Umfallen überspringen
-        if (v.deadT === 0 && v.kneel > 0.5) v.deadT = 0.85;
+        if (!v.deathSnap) {
+          v.deathSnap = capturePose(rig);
+          const r = (f.id * 7 + Math.floor(this.time * 10)) % 10;
+          v.deathKind = v.kneel > 0.5 ? 'down' : r < 4 ? 'back' : r < 7 ? 'front' : r < 9 ? 'left' : 'right';
+        }
         v.deadT += dt;
         v.lean.rotation.set(0, 0, 0);
-        poseDeath(rig, v.deadT);
+        poseDeath(rig, v.deathSnap, v.deathKind!, v.deadT, f.id);
         v.chute.visible = false;
         if (v.deadT > 2.2) {
           const sink = Math.min(1, (v.deadT - 2.2) / 0.6);
