@@ -444,6 +444,8 @@ export interface AnimState {
   falling: boolean;
   /** Freifall vor dem Öffnen des Schirms: Bauchlage mit ausgebreiteten Armen und Beinen */
   freefall?: boolean;
+  /** Fortschritt des Freifalls 0..1 (anfangs steiler Sturzflug, dann flacher) */
+  freeK?: number;
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -516,7 +518,8 @@ export function animateRig(rig: Rig, s: AnimState) {
   if (s.freefall) {
     // Bauchlage: Körper nach vorn gekippt, Arme und Beine gespreizt, flattert im Wind
     const fl = Math.sin(s.time * 13) * 0.04, fl2 = Math.sin(s.time * 11 + 1) * 0.05;
-    rig.body.rotation.z = -1.15;
+    const fk = s.freeK ?? 0.5;
+    rig.body.rotation.z = -1.45 + fk * 0.4;
     rig.body.position.set(0.8, 0.85, 0);
     rig.torso.rotation.set(0, 0, 0.12);
     rig.pelvis.rotation.set(0, 0, 0);

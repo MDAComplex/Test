@@ -70,15 +70,27 @@ export type GameEvent =
   | { type: 'playerOut' };
 
 export type Phase = 'plane' | 'fall' | 'ground';
+/** Position im Freifall bei Fortschritt u (0..1); Spieler und Bots folgen derselben Bahn zu ihrem Punkt */
+export function freefallPos(f: { landX: number; landY: number; id: number }, u: number) {
+  const side = f.id % 2 ? 1 : -1;
+  // vorwärts und abwärts gemeinsam (aus Sicht der Kamera: gleichmäßig von unten zur Bildmitte),
+  // schnell herein, zum Ende hin ruhiger; dazu ein Bogen zur Seite und leichtes Pendeln
+  const e = 1 - Math.pow(1 - u, 2);
+  const arc = Math.sin(u * Math.PI) * FREE_ARC * side;
+  const sway = Math.sin(u * Math.PI * 3) * 22 * (1 - u);
+  const bob = Math.sin(u * Math.PI * 2) * 25 * (1 - u);
+  return { x: f.landX + arc + sway, y: f.landY + (1 - e) * FREE_BACK, z: DROP_Z + (CHUTE_Z - DROP_Z) * e + bob };
+}
+
 /** Höhe, auf der sich der Fallschirm öffnet (darüber: Freifall ohne Lenken) */
 export const CHUTE_Z = 230;
 /** Absprunghöhe: höher als früher, damit der Freifall länger und realistischer wirkt */
 export const DROP_Z = 1250;
-const FREEFALL_TIME = 2.9;
-const FREEFALL_SPEED = (DROP_Z - CHUTE_Z) / FREEFALL_TIME;
-/** im Freifall: leicht nach vorne (im Bild nach oben) treiben und seitlich hin und her schwanken */
-const FREE_FWD = 85;
-const FREE_SWAY = 32;
+/** Dauer des Freifalls (s): die Figur fliegt von hinter der Kamera in einem Bogen nach vorne zum Landepunkt */
+export const FREEFALL_TIME = 4.5;
+/** Startabstand hinter dem Landepunkt (im Bild unten, nah an der Kamera) und seitlicher Bogen */
+export const FREE_BACK = 760;
+const FREE_ARC = 110;
 const CHUTE_SPEED = CHUTE_Z / 4.2;
 export type Mode = 'solo' | 'duo' | 'squad';
 export const TEAM_SIZE: Record<Mode, number> = { solo: 1, duo: 2, squad: 4 };
@@ -541,21 +553,23 @@ export class Game {
         // Start etwas hinter dem Punkt, weil man im Freifall nach vorne treibt
         f.z = DROP_Z;
         f.jumpAt = now;
-        f.x = clamp(spot.x, 60, WORLD - 60);
-        f.y = clamp(spot.y + FREE_FWD * FREEFALL_TIME, 60, WORLD - 60);
+        f.landX = clamp(spot.x, 60, WORLD - 60);
+        f.landY = clamp(spot.y, 60, WORLD - 60);
+        f.x = f.landX;
+        f.y = f.landY + FREE_BACK;
         f.vx = f.vy = 0;
         this.events.push({ type: 'jump', f });
       } else if (f.phase === 'fall') {
         const free = f.z > CHUTE_Z;
-        f.z -= (free ? FREEFALL_SPEED : CHUTE_SPEED) * dt;
         if (free) {
-          // Luftwiderstand: nach vorne gleiten, seitlich pendeln (Ableitung einer Sinus-Schwingung)
-          const ft = (now - f.jumpAt) / 1000;
-          f.vy = -FREE_FWD;
-          f.vx = Math.cos(ft * 2.1 + f.id) * FREE_SWAY * 2.1 * 0.5;
-          f.x += f.vx * dt;
-          f.y += f.vy * dt;
-        }
+          // feste Bahn (für alle gleich): nach vorne gleiten, weicher Bogen zur Seite, leichtes Pendeln,
+          // endet genau über dem Landepunkt auf Schirmhöhe
+          const u = Math.min(1, (now - f.jumpAt) / 1000 / FREEFALL_TIME);
+          const pos = freefallPos(f, u);
+          if (dt > 0) { f.vx = (pos.x - f.x) / dt; f.vy = (pos.y - f.y) / dt; }
+          f.x = pos.x; f.y = pos.y; f.z = pos.z;
+          if (u >= 1) f.z = CHUTE_Z - 0.01;
+        } else f.z -= CHUTE_SPEED * dt;
         if (free && f.z <= CHUTE_Z) this.events.push({ type: 'chute', f });
         // tief über einem Haus: vom Dach seitlich abrutschen, damit niemand ins Haus fällt
         if (f.z < 120) this.pushOutOfHouse(f);
@@ -1241,6 +1255,8 @@ export class Game {
   private think(f: Fighter, now: number) {
     f.nextThink = now + 220 + Math.random() * 120;
     if (f.phase === 'fall') {
+      // im Freifall folgt jeder seiner festen Bahn, gelenkt wird erst am Schirm
+      if (f.z > CHUTE_Z) { f.moveX = f.moveY = 0; return; }
       const lead = this.mode !== 'solo' ? (f.team === this.player.team ? this.player : f.leader) : null;
       if (lead && lead.alive) { f.landX = lead.x + ((f.id % 3) - 1) * 90; f.landY = lead.y + ((f.id % 2) ? 70 : -70); }
       const dx = f.landX - f.x, dy = f.landY - f.y, d = Math.hypot(dx, dy);

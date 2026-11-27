@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { S, WORLD, PLANE_Z, PLANE_TIME } from '../config';
 import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop, isContainer } from '../sim/game';
 import { WEAPONS, TIER_COLORS, WeaponId, parseWeapon } from '../weapons';
-import { CHUTE_Z, DROP_Z } from '../sim/game';
+import { CHUTE_Z, DROP_Z, FREE_BACK } from '../sim/game';
 import { buildGun } from './guns';
 import { LootKind, RAIL_R } from '../mapgen';
 import { WHITE_CHUTE } from '../chute';
@@ -13,7 +13,7 @@ const W = WORLD * S;
 const WALL_H = 2.1;
 const PITCH = (58 * Math.PI) / 180;
 const PITCH_AIR = (74 * Math.PI) / 180;
-const FREE_PITCH = (50 * Math.PI) / 180;
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const WATER = 0x3aa6dc;
 
 const C = {
@@ -144,6 +144,7 @@ export class Renderer {
   pitch = PITCH;
   /** Kamera beim nächsten Bild ohne Nachziehen setzen (z. B. beim Absprung) */
   snapCam = false;
+  camDist = 0;
   private sun: THREE.DirectionalLight;
   private hemi: THREE.HemisphereLight;
   /** Tageszeit der Runde: Licht, Farben, Sonnenrichtung */
@@ -1351,56 +1352,55 @@ export class Renderer {
     return Math.abs(x * S - this.camTarget.x) < m && Math.abs(y * S - this.camTarget.z) < m;
   }
 
-  /** Freifall: Windstreifen ziehen nach oben an der Figur vorbei, Kondensspuren an Händen und Füßen */
-  private streaks: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; ox: number; oz: number; y: number; sp: number }[] = [];
-  private trailT = 0;
+  /** Freifall: feine Windstreifen in Flugrichtung, die an der Figur vorbeiziehen (im Raum fest, die Figur fliegt hindurch) */
+  private streaks: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; pos: THREE.Vector3; len: number }[] = [];
+  private ffPrev = new THREE.Vector3();
+  private ffVel = new THREE.Vector3(0, -1, 0);
   private updateFreefallFx(game: Game, dt: number) {
     const p = game.player;
     const on = p.alive && p.phase === 'fall' && p.z > CHUTE_Z;
-    if (on && !this.streaks.length) {
-      for (let i = 0; i < 26; i++) {
-        const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false });
-        const mesh = new THREE.Mesh(this.g.box, mat);
-        this.world!.add(mesh);
-        this.streaks.push({ mesh, mat, ox: 0, oz: 0, y: 0, sp: 0 });
-      }
-      for (const st of this.streaks) this.respawnStreak(st, true);
+    const cur = new THREE.Vector3(p.x * S, p.z * S, p.y * S);
+    if (on && dt > 0) {
+      const v = cur.clone().sub(this.ffPrev).divideScalar(dt);
+      if (v.lengthSq() > 1 && v.lengthSq() < 1e5) this.ffVel.lerp(v, 0.2);
     }
+    this.ffPrev.copy(cur);
+    if (on && !this.streaks.length) {
+      for (let i = 0; i < 18; i++) {
+        const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false });
+        const mesh = new THREE.Mesh(this.g.cyl, mat);
+        this.world!.add(mesh);
+        const st = { mesh, mat, pos: new THREE.Vector3(), len: 1 };
+        this.streaks.push(st);
+        this.respawnStreak(st, cur, true);
+      }
+    }
+    const dir = this.ffVel.clone().normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
     for (const st of this.streaks) {
       st.mesh.visible = on;
       if (!on) continue;
-      st.y += st.sp * dt;
-      if (st.y > 7) this.respawnStreak(st, false);
-      const k = Math.min(1, (7 - st.y) / 3) * Math.min(1, (st.y + 7) / 3);
-      st.mat.opacity = 0.55 * k;
-      st.mesh.position.set(p.x * S + st.ox, p.z * S + st.y, p.y * S + st.oz);
-    }
-    if (on) {
-      this.trailT -= dt;
-      if (this.trailT <= 0) {
-        this.trailT = 0.035;
-        const v = this.fighterViews.get(p);
-        if (v) {
-          const yaw = -v.rig.body.rotation.y;
-          const c = Math.cos(yaw), sn = Math.sin(yaw);
-          // Hände (seitlich vorn) und Füße (hinten) im Bauchlage-Körper, grob aus der Pose
-          for (const [fw, side] of [[1.6, 1.1], [1.6, -1.1], [-0.9, 0.35], [-0.9, -0.35]]) {
-            const wx = p.x * S + c * fw - sn * side, wz = p.y * S + sn * fw + c * side;
-            this.puff(wx, p.z * S + 0.9, wz, this.m.contrail, 0.06, 0.15, 0.22, 0, 12, 0);
-          }
-        }
-      }
+      const rel = st.pos.clone().sub(cur);
+      const along = rel.dot(dir);
+      // hinter der Figur angekommen: vorne neu erzeugen
+      if (along < -5 || rel.length() > 22) this.respawnStreak(st, cur, false);
+      const d = st.pos.distanceTo(cur);
+      st.mat.opacity = 0.42 * Math.min(1, (22 - d) / 8) * Math.min(1, Math.max(0, d - 1.2) / 2);
+      st.mesh.position.copy(st.pos);
+      st.mesh.quaternion.copy(q);
+      st.mesh.scale.set(0.022, st.len, 0.022);
     }
   }
 
-  private respawnStreak(st: { ox: number; oz: number; y: number; sp: number; mesh: THREE.Mesh }, any: boolean) {
-    const a = Math.random() * Math.PI * 2, r = 1.6 + Math.random() * 5;
-    st.ox = Math.cos(a) * r;
-    st.oz = Math.sin(a) * r;
-    st.y = any ? -7 + Math.random() * 14 : -7 - Math.random() * 2;
-    st.sp = 26 + Math.random() * 18;
-    const len = 1.2 + Math.random() * 2.2;
-    st.mesh.scale.set(0.04, len, 0.04);
+  private respawnStreak(st: { pos: THREE.Vector3; len: number }, cur: THREE.Vector3, any: boolean) {
+    const dir = this.ffVel.clone().normalize();
+    // Punkt vor der Figur (in Flugrichtung), seitlich versetzt
+    const side = new THREE.Vector3(1, 0, 0).cross(dir).normalize();
+    const side2 = dir.clone().cross(side).normalize();
+    const a = Math.random() * Math.PI * 2, r = 1.4 + Math.random() * 4.5;
+    const ahead = any ? -5 + Math.random() * 20 : 10 + Math.random() * 8;
+    st.pos.copy(cur).addScaledVector(dir, ahead).addScaledVector(side, Math.cos(a) * r).addScaledVector(side2, Math.sin(a) * r);
+    st.len = 1.6 + Math.random() * 2.6;
   }
 
   private puff(x: number, y: number, z: number, mat: THREE.Material, size: number, grow: number, life: number, vx = 0, vy = 0, vz = 0) {
@@ -1825,7 +1825,7 @@ export class Renderer {
     rig.head.rotation.x = 0;
     rig.legs.forEach((l) => { l.hip.rotation.x = 0; l.hip.rotation.y = 0; });
     v.punchT = Math.max(0, v.punchT - dt * 6);
-    animateRig(rig, { punch: v.punchT, punchArm: v.punchArm, phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, weapon: f.weapon.id, reload: v.reloadBlend, time: this.time + f.id, falling, freefall });
+    animateRig(rig, { punch: v.punchT, punchArm: v.punchArm, phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, weapon: f.weapon.id, reload: v.reloadBlend, time: this.time + f.id, falling, freefall, freeK: clamp01((DROP_Z - f.z) / (DROP_Z - CHUTE_Z)) });
 
     v.recoil = Math.max(0, v.recoil - dt * 9);
     rig.gunKick.position.x = -v.recoil * (f.weapon.id === 'shotgun' || f.weapon.id === 'sniper' || f.weapon.id === 'rocket' ? 0.22 : 0.1);
@@ -2258,12 +2258,6 @@ export class Renderer {
       tz = W / 2;
       ty = 0;
       zoom = 3;
-    } else if (p.phase === 'fall' && p.z > CHUTE_Z) {
-      // Freifall: nah an der Figur, damit man den Sprung sieht
-      tx = p.x * S;
-      tz = p.y * S;
-      ty = p.z * S;
-      zoom = 0.38;
     } else {
       tx = p.x * S;
       tz = p.y * S;
@@ -2278,14 +2272,28 @@ export class Renderer {
       }
     }
     const free = !spec && p.phase === 'fall' && p.z > CHUTE_Z;
-    let k = 1 - Math.exp(-dt * (free ? 14 : p.phase === 'fall' ? 2.6 : 6));
+    if (free) {
+      // Freifall: Kamera steht fast still über dem Landepunkt; die Figur kommt von unten (hinter der Kamera)
+      // ins Bild und fliegt in die Bildmitte, wo sich der Schirm öffnet
+      const u = clamp01((DROP_Z - p.z) / (DROP_Z - CHUTE_Z));
+      const back = FREE_BACK * S + 3, up = (DROP_Z - CHUTE_Z) * S + 16 - u * 7;
+      this.camTarget.set(p.landX * S, CHUTE_Z * S, p.landY * S);
+      this.pitch = Math.atan2(up, back);
+      this.camDist = Math.hypot(up, back);
+      this.camera.position.set(this.camTarget.x, this.camTarget.y + up, this.camTarget.z + back);
+      this.camera.lookAt(this.camTarget);
+      return;
+    }
+    let k = 1 - Math.exp(-dt * (p.phase === 'fall' ? 2.2 : 6));
     if (this.snapCam) { k = 1; this.snapCam = false; }
     this.camTarget.x = lerp(this.camTarget.x, tx, k);
     this.camTarget.y = lerp(this.camTarget.y, ty, k);
     this.camTarget.z = lerp(this.camTarget.z, tz, k);
     const air = p.phase === 'plane' ? 1 : Math.min(1, p.z / DROP_Z);
-    this.pitch = lerp(this.pitch, free ? FREE_PITCH : lerp(PITCH, PITCH_AIR, air), k);
-    const dist = this.baseDist * zoom;
+    this.pitch = lerp(this.pitch, lerp(PITCH, PITCH_AIR, air), k);
+    // Abstand weich nachführen (nach dem Freifall zoomt die Kamera sanft heran)
+    this.camDist = this.camDist > 0 ? lerp(this.camDist, this.baseDist * zoom, k) : this.baseDist * zoom;
+    const dist = this.camDist;
     this.shake = Math.max(0, this.shake - dt * 3);
     const sx = (Math.random() - 0.5) * this.shake, sz = (Math.random() - 0.5) * this.shake;
     this.camera.position.set(this.camTarget.x + sx, this.camTarget.y + dist * Math.sin(this.pitch), this.camTarget.z + dist * Math.cos(this.pitch) + sz);
