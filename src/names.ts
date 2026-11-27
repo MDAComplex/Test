@@ -3,13 +3,20 @@ const BASE = [
   'Wirbel', 'Glitch', 'Hai', 'Falke', 'Ninja', 'Donner', 'Keks', 'Viper', 'Bolt', 'Mango',
   'Frost', 'Joker', 'Ronin', 'Spike', 'Tiger', 'Wolf', 'Komet', 'Dusty', 'Echo', 'Laser',
   'Brezel', 'Rakete', 'Zack', 'Fuchs', 'Gecko', 'Orbit',
+  'Nova', 'Quasar', 'Pixie', 'Rocket', 'Sparky', 'Blaze', 'Storm', 'Raven', 'Cobalt', 'Ember',
+  'Jinx', 'Nitro', 'Pogo', 'Rusty', 'Sly', 'Taco', 'Waffle', 'Yeti', 'Ziggy', 'Bandit',
+  'Comet', 'Drift', 'Fizz', 'Gizmo', 'Hopper', 'Kiwi', 'Lucky', 'Muffin', 'Nacho', 'Otto',
 ];
 
 export function botNames(count: number): string[] {
   const pool = [...BASE].sort(() => Math.random() - 0.5);
+  const used = new Set<string>();
   return Array.from({ length: count }, (_, i) => {
     const n = pool[i % pool.length];
-    return Math.random() < 0.45 ? `${n}${Math.floor(Math.random() * 99) + 1}` : n;
+    let name = i < pool.length && Math.random() >= 0.45 ? n : `${n}${Math.floor(Math.random() * 99) + 1}`;
+    while (used.has(name)) name = `${n}${Math.floor(Math.random() * 999) + 1}`;
+    used.add(name);
+    return name;
   });
 }
 

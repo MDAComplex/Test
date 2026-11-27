@@ -1,6 +1,6 @@
 import { WORLD, FIGHTER_COUNT, FIGHTER_R, PLAYER_SPEED, BOT_SPEED, PLANE_Z, FALL_SPEED, PLANE_TIME } from '../config';
 import { WEAPONS, WeaponId, WeaponDef, parseWeapon, wKind, weaponScore, rollRarity, CHEST_RARITY, CRATE_RARITY, RARITY_NAMES } from '../weapons';
-import { MapData, LootKind, Obs, House } from '../mapgen';
+import { MapData, LootKind, Obs, House, isLand, ISLAND, landRadius } from '../mapgen';
 import { botNames, BODY_COLORS, PLAYER_COLOR } from '../names';
 import { recordResult } from '../storage';
 import type { ChuteDesign } from '../chute';
@@ -19,6 +19,8 @@ export interface Obstacle {
   id: number;
   kind: Obs['kind'];
   x: number; y: number; r: number; w: number; h: number;
+  /** nur 'box': Farbe und Höhe */
+  c?: number; tall?: number;
   rect: Rect;
   circle: boolean;
   /** blockiert Schüsse und Sicht */
@@ -101,7 +103,7 @@ const FREE_ARC = 110;
 const CHUTE_SPEED = CHUTE_Z / 4.2;
 export type Mode = 'solo' | 'duo' | 'squad';
 export const TEAM_SIZE: Record<Mode, number> = { solo: 1, duo: 2, squad: 4 };
-export const MODE_COUNT: Record<Mode, number> = { solo: 25, duo: 24, squad: 24 };
+export const MODE_COUNT: Record<Mode, number> = { solo: 100, duo: 100, squad: 100 };
 
 export class Fighter {
   id: number;
@@ -183,10 +185,11 @@ export class Fighter {
 }
 
 export const PHASES = [
-  { wait: 40000, shrink: 25000, r: 1150, dps: 2 },
-  { wait: 25000, shrink: 20000, r: 720, dps: 4 },
-  { wait: 20000, shrink: 18000, r: 420, dps: 6 },
-  { wait: 15000, shrink: 15000, r: 200, dps: 9 },
+  { wait: 55000, shrink: 35000, r: 2400, dps: 2 },
+  { wait: 40000, shrink: 30000, r: 1500, dps: 3 },
+  { wait: 32000, shrink: 25000, r: 900, dps: 5 },
+  { wait: 25000, shrink: 20000, r: 480, dps: 7 },
+  { wait: 18000, shrink: 15000, r: 220, dps: 10 },
   { wait: 10000, shrink: 12000, r: 0, dps: 14 },
 ];
 
@@ -201,7 +204,7 @@ export const PICK_TIME: Record<string, number> = { ammo: 350, ammo6: 450, weapon
 export const OPEN_TIME: Record<string, number> = { crate: CRATE_TIME, chest: 2200, airdrop: 3200 };
 export const isContainer = (o: { kind: string }) => o.kind === 'crate' || o.kind === 'chest' || o.kind === 'airdrop';
 // drei Versorgungspakete pro Match
-const AIRDROP_TIMES = [70000, 130000, 185000];
+const AIRDROP_TIMES = [80000, 150000, 220000, 290000];
 const AIRDROP_Z = 900;
 export const pickTime = (k: LootKind) => (k.startsWith('w:') ? PICK_TIME.weapon : PICK_TIME[k]);
 
@@ -334,7 +337,7 @@ export class Game {
     }
     for (const f of this.fighters) { f.x = WORLD / 2; f.y = WORLD / 2; }
 
-    this.zoneCur = { x: WORLD / 2, y: WORLD / 2, r: WORLD * 0.72 };
+    this.zoneCur = { x: ISLAND.x, y: ISLAND.y, r: ISLAND.r * 1.12 };
     this.zoneFrom = { ...this.zoneCur };
     this.zoneNext = this.computeNext(this.zoneCur, PHASES[0].r);
   }
@@ -360,7 +363,7 @@ export class Game {
       rect = { x: o.x - o.w / 2, y: o.y - o.h / 2, w: o.w, h: o.h };
     }
     const blocks = o.kind !== 'water' && o.kind !== 'fence';
-    const ob: Obstacle = { id: this.ids++, kind: o.kind, x: o.x, y: o.y, r: o.r, w: o.w, h: o.h, rect, circle, blocks, stamp: 0, opened: false, taken: false, progress: 0 };
+    const ob: Obstacle = { id: this.ids++, kind: o.kind, x: o.x, y: o.y, r: o.r, w: o.w, h: o.h, c: o.c, tall: o.tall, rect, circle, blocks, stamp: 0, opened: false, taken: false, progress: 0 };
     this.obstacles.push(ob);
     const c0 = clamp(Math.floor(rect.x / CELL), 0, GRID - 1), c1 = clamp(Math.floor((rect.x + rect.w) / CELL), 0, GRID - 1);
     const r0 = clamp(Math.floor(rect.y / CELL), 0, GRID - 1), r1 = clamp(Math.floor((rect.y + rect.h) / CELL), 0, GRID - 1);
@@ -400,8 +403,21 @@ export class Game {
     return best * range;
   }
 
+  /** Punkt aufs Land ziehen (Richtung Inselmitte), falls er im Meer liegt */
+  landPoint(x: number, y: number, pad = 150) {
+    for (let i = 0; i < 80 && !isLand(x, y, pad); i++) { x += (ISLAND.x - x) * 0.05; y += (ISLAND.y - y) * 0.05; }
+    return { x, y };
+  }
+
+  /** an der Küste: niemand läuft ins Meer */
+  private keepOnLand(f: Fighter) {
+    const dx = f.x - ISLAND.x, dy = f.y - ISLAND.y, d = Math.hypot(dx, dy) || 1;
+    const lim = landRadius(Math.atan2(dy, dx)) - 70;
+    if (d > lim) { f.x = ISLAND.x + (dx / d) * lim; f.y = ISLAND.y + (dy / d) * lim; }
+  }
+
   isFree(x: number, y: number, pad = 28) {
-    if (x < 80 || y < 80 || x > WORLD - 80 || y > WORLD - 80) return false;
+    if (!isLand(x, y, 90)) return false;
     return !this.query(x - pad, y - pad, x + pad, y + pad, (o) =>
       x > o.rect.x - pad && x < o.rect.x + o.rect.w + pad && y > o.rect.y - pad && y < o.rect.y + o.rect.h + pad,
     );
@@ -434,10 +450,12 @@ export class Game {
       x = h.x + Math.cos(a) * (h.s / 2 + 80 + Math.random() * 120);
       y = h.y + Math.sin(a) * (h.s / 2 + 80 + Math.random() * 120);
     } else {
-      x = 400 + Math.random() * (WORLD - 800);
-      y = 400 + Math.random() * (WORLD - 800);
+      const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * landRadius(a) * 0.85;
+      x = ISLAND.x + Math.cos(a) * d;
+      y = ISLAND.y + Math.sin(a) * d;
     }
-    const spot = this.findFreeNear(clamp(x, 300, WORLD - 300), clamp(y, 300, WORLD - 300));
+    const lp = this.landPoint(x, y, 250);
+    const spot = this.findFreeNear(lp.x, lp.y);
     f.landX = spot.x;
     f.landY = spot.y;
   }
@@ -445,7 +463,8 @@ export class Game {
   /** Spieler wählt seinen Landepunkt (nur in der Auswahlphase) */
   chooseDrop(x: number, y: number) {
     if (this.time >= PLANE_TIME || this.player.phase !== 'plane') return;
-    this.dropPick = { x: clamp(x, 300, WORLD - 300), y: clamp(y, 300, WORLD - 300) };
+    // Punkt im Meer: aufs nächste Land (Richtung Inselmitte) ziehen
+    this.dropPick = this.landPoint(x, y, 220);
     this.dropPickAt = this.time;
   }
 
@@ -466,8 +485,10 @@ export class Game {
   computeNext(cur: Circle, r: number): Circle {
     const a = Math.random() * Math.PI * 2;
     const d = Math.random() * Math.max(0, cur.r - r) * 0.85;
-    const lim = Math.max(150, r * 0.6);
-    return { x: clamp(cur.x + Math.cos(a) * d, lim, WORLD - lim), y: clamp(cur.y + Math.sin(a) * d, lim, WORLD - lim), r };
+    // neue Mitte liegt immer auf der Insel (nicht zu nah an der Küste)
+    let x = cur.x + Math.cos(a) * d, y = cur.y + Math.sin(a) * d;
+    for (let i = 0; i < 40 && !isLand(x, y, Math.min(600, r * 0.5 + 150)); i++) { x += (ISLAND.x - x) * 0.08; y += (ISLAND.y - y) * 0.08; }
+    return { x, y, r };
   }
 
   aliveCount() {
@@ -650,10 +671,12 @@ export class Game {
       }
     });
     this.keepOutOfRiver(f);
+    this.keepOnLand(f);
   }
 
   /** liegt der Punkt im Fluss (nicht auf einer Brücke) oder in einem Teich? */
   private wet(x: number, y: number, pad = 0) {
+    if (!isLand(x, y, 40 - pad)) return true;
     const rv = this.map.river, pts = rv.pts;
     if (!this.onBridge(x, y)) {
       for (let i = 0; i < pts.length - 1; i++) {
@@ -1217,8 +1240,9 @@ export class Game {
     if (f.rotKey !== key) {
       f.rotKey = key;
       const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * c.r * 0.55;
-      f.rotX = clamp(c.x + Math.cos(a) * rr, 150, WORLD - 150);
-      f.rotY = clamp(c.y + Math.sin(a) * rr, 150, WORLD - 150);
+      const rp = this.landPoint(c.x + Math.cos(a) * rr, c.y + Math.sin(a) * rr, 200);
+      f.rotX = rp.x;
+      f.rotY = rp.y;
     }
     return { x: f.rotX, y: f.rotY };
   }
@@ -1547,8 +1571,9 @@ export class Game {
       } else {
         if (now > f.wanderUntil || Math.hypot(f.wanderX - f.x, f.wanderY - f.y) < 60) {
           const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * safe.r * 0.7;
-          f.wanderX = clamp(safe.x + Math.cos(a) * rr, 120, WORLD - 120);
-          f.wanderY = clamp(safe.y + Math.sin(a) * rr, 120, WORLD - 120);
+          const wp = this.landPoint(safe.x + Math.cos(a) * rr, safe.y + Math.sin(a) * rr, 200);
+          f.wanderX = wp.x;
+          f.wanderY = wp.y;
           f.wanderUntil = now + 4000 + Math.random() * 4000;
         }
         dx = f.wanderX - f.x;

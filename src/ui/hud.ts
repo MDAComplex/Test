@@ -1,4 +1,5 @@
 import { WORLD, FIGHTER_COUNT, PLANE_TIME } from '../config';
+import { coastPolygon, BEACH_W } from '../mapgen';
 import { CHUTE_Z } from '../sim/game';
 import { Game, Fighter, GameEvent, GameResult, lootLabel, isContainer } from '../sim/game';
 import { Renderer } from '../render/renderer';
@@ -83,6 +84,8 @@ export class Hud {
   private dropCanvas!: HTMLCanvasElement;
   private lastTick = -1;
   private wIconKey = '';
+  private curPlace = '';
+  private placeTimer = 0;
   private previewChute = false;
   private dirsLayer: HTMLElement;
   private stickMax = 55;
@@ -127,6 +130,7 @@ export class Hud {
           </div>
         </div>
         <div class="whiteflash"></div>
+        <div class="placebanner"><small>Du bist in</small><b></b></div>
         <div class="tip hidden"></div>
         <div class="team hidden"></div>
         <div class="downnote hidden"><b>Du bist niedergeschlagen</b><span>Dein Team kann dich wiederbeleben</span><div class="bar"><i></i></div></div>
@@ -230,7 +234,7 @@ export class Hud {
     this.ringArc = this.ring.querySelector('.fg') as SVGCircleElement;
     this.ringArc.style.strokeDasharray = String(RING_C);
 
-    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname', 'killnote', 'team', 'downnote', 'bigmap', 'bighint', 'xhair', 'fire', 'dropsel', 'whiteflash']) {
+    for (const k of ['alive', 'kills', 'zone', 'warn', 'feed', 'center', 'toast', 'prompt', 'wname', 'ammo', 'jump', 'reload', 'pickcard', 'buttons', 'gear', 'altslot', 'altname', 'tip', 'specbar', 'specname', 'killnote', 'team', 'downnote', 'bigmap', 'bighint', 'xhair', 'fire', 'dropsel', 'whiteflash', 'placebanner']) {
       this.e[k] = this.hud.querySelector('.' + k)!;
     }
     this.e.arBar = this.hud.querySelector('.bar.ar i')!;
@@ -489,8 +493,8 @@ export class Hud {
     this.menu.querySelectorAll<HTMLElement>('.modeseg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
     this.menu.querySelector('.msub')!.textContent =
       m === 'solo' ? `${FIGHTER_COUNT} Kämpfer  •  Nur einer überlebt`
-      : m === 'duo' ? '12 Teams à 2  •  Das letzte Team gewinnt'
-      : '6 Teams à 4  •  Das letzte Team gewinnt';
+      : m === 'duo' ? '50 Teams à 2  •  Das letzte Team gewinnt'
+      : '25 Teams à 4  •  Das letzte Team gewinnt';
   }
 
   private renderProfile() {
@@ -906,6 +910,17 @@ export class Hud {
   update(game: Game, r: Renderer) {
     this.sfx.frame();
     const p = game.player;
+    // Ortsname einblenden, wenn man einen Ort betritt
+    if (p.alive && (p.phase === 'ground' || p.phase === 'fall')) {
+      let here = '';
+      for (const q of game.map.pois) if (Math.hypot(q.x - p.x, q.y - p.y) < Math.max(450, q.r)) { here = q.name; break; }
+      if (here && here !== this.curPlace) {
+        const b = this.e.placebanner;
+        b.querySelector('b')!.textContent = here;
+        b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+      }
+      this.curPlace = here;
+    }
     const fppNow = this.fppOn();
     this.e.xhair.classList.toggle('hidden', !fppNow || p.downed);
     this.e.fire.classList.toggle('hidden', !fppNow || !this.touch || p.downed);
@@ -1121,68 +1136,52 @@ export class Hud {
     c.width = c.height = N;
     const g = c.getContext('2d')!;
     const k = N / WORLD;
+    const map = game.map;
     let seed = 1234567;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     // Meer
+    const sea = g.createRadialGradient(N / 2, N / 2, N * 0.3, N / 2, N / 2, N * 0.75);
+    sea.addColorStop(0, '#3fb6e0'); sea.addColorStop(1, '#1d6fa8');
+    g.fillStyle = sea;
+    g.fillRect(0, 0, N, N);
     if (big) {
-      const sea = g.createRadialGradient(N / 2, N / 2, N * 0.3, N / 2, N / 2, N * 0.75);
-      sea.addColorStop(0, '#3fb6e0'); sea.addColorStop(1, '#1d6fa8');
-      g.fillStyle = sea;
-      g.fillRect(0, 0, N, N);
       g.strokeStyle = 'rgba(255,255,255,0.10)'; g.lineWidth = 1.4 * q;
-      for (let i = 0; i < 70; i++) {
-        const x = rnd() * N, y = rnd() * N, w = (6 + rnd() * 8) * q;
-        g.beginPath(); g.moveTo(x - w, y); g.quadraticCurveTo(x, y - 2.5 * q, x + w, y); g.stroke();
-      }
-      // Strand mit weichem Übergang ins Wasser
-      g.save();
-      g.shadowColor = 'rgba(160,235,255,0.9)'; g.shadowBlur = 10 * q;
-      g.fillStyle = '#f1dc9f';
-      g.beginPath(); g.roundRect(3 * q, 3 * q, N - 6 * q, N - 6 * q, 20 * q); g.fill();
-      g.restore();
-    } else {
-      g.fillStyle = '#ecd59a';
-      g.fillRect(0, 0, N, N);
+      for (let i = 0; i < 70; i++) { const x = rnd() * N, y = rnd() * N, w = (6 + rnd() * 8) * q; g.beginPath(); g.moveTo(x - w, y); g.quadraticCurveTo(x, y - 2.5 * q, x + w, y); g.stroke(); }
     }
-    // Gras
-    if (big) {
-      const gr = g.createLinearGradient(0, 0, N, N);
-      gr.addColorStop(0, '#93d264'); gr.addColorStop(1, '#74b84c');
-      g.fillStyle = gr;
-    } else g.fillStyle = '#86c95a';
-    g.beginPath();
-    g.roundRect(6 * q, 6 * q, N - 12 * q, N - 12 * q, 16 * q);
-    g.fill();
-    if (big) {
-      g.save(); g.clip();
-      for (let i = 0; i < 900; i++) {
-        g.fillStyle = rnd() < 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(30,80,20,0.06)';
-        g.beginPath(); g.arc(rnd() * N, rnd() * N, (2 + rnd() * 5) * q, 0, 7); g.fill();
-      }
-      g.restore();
+    // Insel: Klippe, Strand, Gras
+    const poly = (pts: { x: number; y: number }[], dy = 0) => { g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(p.x * k, p.y * k + dy) : g.moveTo(p.x * k, p.y * k + dy))); g.closePath(); };
+    const coast = coastPolygon(240), inner = coastPolygon(240, BEACH_W);
+    g.fillStyle = '#8c6f52'; poly(coast, 3 * q); g.fill();
+    g.save(); g.shadowColor = 'rgba(160,235,255,0.9)'; g.shadowBlur = 8 * q; g.fillStyle = '#f1dc9f'; poly(coast); g.fill(); g.restore();
+    g.fillStyle = '#86c95a'; poly(inner); g.fill();
+    g.save(); poly(coast); g.clip();
+    const RC: Record<string, string> = { snow: '#eef4fb', desert: '#e8c088', grove: '#a6dc78', beach: '#f1dc9f', farm: '#9ccd5e', industry: '#b9bcc2', forest: '#5d9f43', city: '#cfd4da' };
+    for (const rg of map.regions) {
+      if (rg.kind === 'city') continue;
+      const gr = g.createRadialGradient(rg.x * k, rg.y * k, rg.r * 0.55 * k, rg.x * k, rg.y * k, rg.r * k);
+      gr.addColorStop(0, RC[rg.kind] + 'ff'); gr.addColorStop(1, RC[rg.kind] + '00');
+      g.fillStyle = gr; g.beginPath(); g.arc(rg.x * k, rg.y * k, rg.r * k, 0, 7); g.fill();
     }
-    g.fillStyle = big ? 'rgba(52,120,40,0.45)' : 'rgba(70,140,50,0.55)';
-    for (const f of game.map.forests) { g.beginPath(); g.arc(f.x * k, f.y * k, f.r * k, 0, 7); g.fill(); }
+    g.fillStyle = '#cfd4da'; g.beginPath(); g.arc(map.ring.x * k, map.ring.y * k, map.ring.r * k, 0, 7); g.fill();
     g.fillStyle = '#e6c86e';
-    for (const f of game.map.fields) {
-      g.fillRect((f.x - f.w / 2) * k, (f.y - f.h / 2) * k, f.w * k, f.h * k);
-      if (big) {
-        g.strokeStyle = 'rgba(160,120,40,0.35)'; g.lineWidth = 1 * q;
-        for (let x = f.x - f.w / 2 + 30; x < f.x + f.w / 2; x += 45) {
-          g.beginPath(); g.moveTo(x * k, (f.y - f.h / 2) * k); g.lineTo(x * k, (f.y + f.h / 2) * k); g.stroke();
-        }
-      }
-    }
-    const rv = game.map.river;
-    const riverPath = () => { g.beginPath(); rv.pts.forEach((pt, i) => (i ? g.lineTo(pt.x * k, pt.y * k) : g.moveTo(pt.x * k, pt.y * k))); };
+    for (const f of map.fields) g.fillRect((f.x - f.w / 2) * k, (f.y - f.h / 2) * k, f.w * k, f.h * k);
+    // Straßen
     g.lineCap = 'round'; g.lineJoin = 'round';
+    for (const [col, extra] of [['#5f6670', 1.6], ['#9aa1ab', 0]] as [string, number][]) {
+      g.strokeStyle = col;
+      for (const rd of map.roads) { g.lineWidth = Math.max(1.2 * q, rd.w * k) + extra * q; g.beginPath(); rd.pts.forEach((p, i) => (i ? g.lineTo(p.x * k, p.y * k) : g.moveTo(p.x * k, p.y * k))); g.stroke(); }
+      g.lineWidth = Math.max(1.4 * q, map.ring.w * k) + extra * q; g.beginPath(); g.arc(map.ring.x * k, map.ring.y * k, map.ring.r * k, 0, 7); g.stroke();
+    }
+    const rv = map.river;
+    const riverPath = () => { g.beginPath(); rv.pts.forEach((pt, i) => (i ? g.lineTo(pt.x * k, pt.y * k) : g.moveTo(pt.x * k, pt.y * k))); };
     if (big) {
       g.strokeStyle = '#d9c483'; g.lineWidth = rv.width * k + 5 * q; riverPath(); g.stroke();
       g.strokeStyle = '#2f93cf'; g.lineWidth = rv.width * k; riverPath(); g.stroke();
       g.strokeStyle = 'rgba(160,225,255,0.55)'; g.lineWidth = rv.width * k * 0.35; riverPath(); g.stroke();
     } else {
-      g.strokeStyle = '#3aa6dc'; g.lineWidth = rv.width * k; riverPath(); g.stroke();
+      g.strokeStyle = '#3aa6dc'; g.lineWidth = Math.max(1.5 * q, rv.width * k); riverPath(); g.stroke();
     }
+    g.fillStyle = '#7fc8ee'; g.beginPath(); g.arc(map.town.x * k, map.town.y * k, Math.max(1.5 * q, 46 * k), 0, 7); g.fill();
     for (const p of game.map.ponds) {
       if (big) { g.fillStyle = '#d9c483'; g.beginPath(); g.arc(p.x * k, p.y * k, p.r * k + 2.5 * q, 0, 7); g.fill(); }
       g.fillStyle = big ? '#2f93cf' : '#3aa6dc'; g.beginPath(); g.arc(p.x * k, p.y * k, p.r * k, 0, 7); g.fill();
@@ -1227,9 +1226,10 @@ export class Hud {
         g.fillRect(x, y, s, s);
       }
     }
+    g.restore();
     if (big) {
-      // Planquadrate A-H / 1-8
-      const n = 8, step = N / n;
+      // Planquadrate A–J / 1–10
+      const n = 10, step = N / n;
       g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1 * q;
       for (let i = 1; i < n; i++) {
         g.beginPath(); g.moveTo(i * step, 0); g.lineTo(i * step, N); g.stroke();
@@ -1239,9 +1239,20 @@ export class Hud {
       g.textAlign = 'center'; g.textBaseline = 'middle';
       g.lineWidth = 3 * q; g.strokeStyle = 'rgba(0,0,0,0.45)'; g.fillStyle = 'rgba(255,255,255,0.85)';
       for (let i = 0; i < n; i++) {
-        const L = 'ABCDEFGH'[i];
+        const L = 'ABCDEFGHIJ'[i];
         g.strokeText(L, (i + 0.5) * step, 9 * q); g.fillText(L, (i + 0.5) * step, 9 * q);
         g.strokeText(String(i + 1), 9 * q, (i + 0.5) * step); g.fillText(String(i + 1), 9 * q, (i + 0.5) * step);
+      }
+    }
+    // Ortsnamen (große Karte)
+    if (big) {
+      for (const p of map.pois) {
+        const x = p.x * k, y = p.y * k;
+        g.font = `900 ${(p.big ? 8.5 : 6.5) * q}px Nunito, system-ui, sans-serif`;
+        g.textAlign = 'center'; g.textBaseline = 'middle';
+        const w = g.measureText(p.name).width + 8 * q, h = (p.big ? 12 : 10) * q;
+        g.fillStyle = 'rgba(10,20,36,0.72)'; g.beginPath(); g.roundRect(x - w / 2, y - h / 2, w, h, h / 2); g.fill();
+        g.fillStyle = p.big ? '#ffd23f' : '#ffffff'; g.fillText(p.name, x, y + 0.5 * q);
       }
     }
     return c;

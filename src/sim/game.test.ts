@@ -177,8 +177,8 @@ describe('Team-Modi', () => {
     return g;
   };
   it('bildet die richtige Anzahl Teams', () => {
-    expect(teamGame('duo').teamCount()).toBe(12);
-    expect(teamGame('squad').teamCount()).toBe(6);
+    expect(teamGame('duo').teamCount()).toBe(50);
+    expect(teamGame('squad').teamCount()).toBe(25);
     const sq = teamGame('squad');
     expect(sq.teammates(sq.player).length).toBe(3);
   });
@@ -307,7 +307,9 @@ describe('Absprung', () => {
   it('landet am gewählten Punkt, Freifall vor dem Schirm', () => {
     const g = new Game(generateMap(5));
     g.update(16);
-    g.chooseDrop(1200, 2600);
+    // Landepunkt neben dem Stadtplatz (sicher an Land)
+    const tx = g.map.town.x + 700, ty = g.map.town.y + 200;
+    g.chooseDrop(tx, ty);
     let sawChute = false, sawJump = false;
     for (let t = 0; t < 40000 && g.player.phase !== 'ground'; t += 16) {
       g.update(16);
@@ -316,7 +318,7 @@ describe('Absprung', () => {
     }
     expect(sawJump && sawChute).toBe(true);
     expect(g.player.phase).toBe('ground');
-    expect(Math.hypot(g.player.x - 1200, g.player.y - 2600)).toBeLessThan(250);
+    expect(Math.hypot(g.player.x - tx, g.player.y - ty)).toBeLessThan(250);
   });
 });
 

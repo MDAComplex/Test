@@ -563,3 +563,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
 .lk-grid.wide { grid-auto-rows: 96px; }
 .lk-card, .lk-grid.wide .lk-card { aspect-ratio: auto; height: 100%; }
 @media (max-height: 520px) { .lk-grid { grid-auto-rows: 96px; } .lk-grid.wide { grid-auto-rows: 74px; } }
+
+/* Ortsname beim Betreten */
+.placebanner { position: absolute; left: 50%; top: 92px; transform: translateX(-50%); text-align: center; opacity: 0; pointer-events: none; }
+.placebanner small { display: block; font-size: 13px; opacity: .85; text-shadow: var(--shadow); }
+.placebanner b { display: block; font-size: 30px; color: var(--gold); -webkit-text-stroke: 1px #7a3f00; text-shadow: 0 3px 0 #7a3f00, 0 6px 14px rgba(0,0,0,.4); letter-spacing: .5px; }
+.placebanner.show { animation: placeIn 2.6s ease-out forwards; }
+@keyframes placeIn { 0% { opacity: 0; transform: translateX(-50%) translateY(8px); } 12%, 75% { opacity: 1; transform: translateX(-50%) translateY(0); } 100% { opacity: 0; transform: translateX(-50%) translateY(-6px); } }
+@media (max-height: 520px) { .placebanner { top: 60px; } .placebanner b { font-size: 22px; } }

@@ -1,5 +1,6 @@
-export const WORLD = 4000;
-export const FIGHTER_COUNT = 25;
+/** feste Insel für 100 Spieler */
+export const WORLD = 8000;
+export const FIGHTER_COUNT = 100;
 export const FIGHTER_R = 18;
 export const PLAYER_SPEED = 145;
 export const BOT_SPEED = 128;

@@ -7,7 +7,7 @@ import { CHUTE_Z, DROP_Z, FREE_BACK } from '../sim/game';
 import { buildGun } from './guns';
 import { buildItem } from './items';
 import type { WrapId } from '../wraps';
-import { LootKind, RAIL_R, FOUNTAIN_R } from '../mapgen';
+import { LootKind, RAIL_R, FOUNTAIN_R, PLAZA_R, coastPolygon, BEACH_W, ISLAND } from '../mapgen';
 import { WHITE_CHUTE } from '../chute';
 import { ANIM, buildCharacter, buildChute, animateRig, poseLying, poseCrawl, poseDeath, capturePose, makeToon, Rig, PoseSnap, DeathKind } from './character';
 
@@ -363,6 +363,7 @@ export class Renderer {
       chestGlow: basicT(0xffc24a, 0.22),
       dropGlow: basicT(0xff8a1e, 0.25),
       sandBase: toon(0xd9bf83),
+      leavesSnow: toon(0xe8f0f8), leavesSnow2: toon(0xcfdeea), leavesPink: toon(0xf6a9c8), leavesPink2: toon(0xffc2da), cliff: toon(0x9a7a5a), cliffDark: toon(0x6f5640),
       seaFloor: new THREE.MeshBasicMaterial({ color: WATER }),
       dust: basicT(0xe8d8b0, 0.55),
       smoke: basicT(0xe8e8e8, 0.5),
@@ -456,21 +457,82 @@ export class Renderer {
 
   // ---------- Boden ----------
 
+  private boxMats = new Map<number, THREE.Material>();
+  private boxMat(c: number) {
+    let m = this.boxMats.get(c);
+    if (!m) { m = new THREE.MeshToonMaterial({ color: c, gradientMap: this.gradient }); this.boxMats.set(c, m); }
+    return m;
+  }
+
+  private regionAt(game: Game, x: number, y: number) {
+    let best: string | null = null, bd = Infinity;
+    for (const g of game.map.regions) { const d = Math.hypot(g.x - x, g.y - y) / g.r; if (d < 0.85 && d < bd) { bd = d; best = g.kind; } }
+    return best;
+  }
+
+  /** Klippen rund um die Insel und Brandungsstreifen auf dem Wasser */
+  private buildCoast(world: THREE.Group) {
+    const coast = coastPolygon(360);
+    const n = coast.length;
+    // Klippenwand: oben an der Küste, unten leicht nach außen versetzt
+    const pos: number[] = [], idx: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const q = coast[i], dx = q.x - ISLAND.x, dy = q.y - ISLAND.y, d = Math.hypot(dx, dy);
+      pos.push(q.x * S, -0.01, q.y * S, (q.x + dx / d * 30) * S, -2.6, (q.y + dy / d * 30) * S);
+    }
+    for (let i = 0; i < n; i++) { const a = i * 2, b = ((i + 1) % n) * 2; idx.push(a, a + 1, b, b, a + 1, b + 1); }
+    const cg = new THREE.BufferGeometry();
+    cg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    cg.setIndex(idx);
+    cg.computeVertexNormals();
+    const cliff = new THREE.Mesh(cg, this.m.cliff);
+    (this.m.cliff as THREE.Material).side = THREE.DoubleSide;
+    cliff.receiveShadow = true;
+    world.add(cliff);
+    // Brandung: heller Streifen außen an der Klippe, pulsiert leicht
+    const fp: number[] = [], fa: number[] = [], fi: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const q = coast[i], dx = q.x - ISLAND.x, dy = q.y - ISLAND.y, d = Math.hypot(dx, dy);
+      fp.push((q.x + dx / d * 25) * S, -0.36, (q.y + dy / d * 25) * S, (q.x + dx / d * 190) * S, -0.36, (q.y + dy / d * 190) * S);
+      fa.push(1, 0);
+    }
+    for (let i = 0; i < n; i++) { const a = i * 2, b = ((i + 1) % n) * 2; fi.push(a, a + 1, b, b, a + 1, b + 1); }
+    const fg = new THREE.BufferGeometry();
+    fg.setAttribute('position', new THREE.Float32BufferAttribute(fp, 3));
+    fg.setAttribute('aEdge', new THREE.Float32BufferAttribute(fa, 1));
+    fg.setIndex(fi);
+    this.foamMat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false,
+      uniforms: { uT: { value: 0 } },
+      vertexShader: `attribute float aEdge; varying float vE; varying vec2 vXZ; void main(){ vE = aEdge; vec4 wp = modelMatrix * vec4(position,1.0); vXZ = wp.xz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
+      fragmentShader: `uniform float uT; varying float vE; varying vec2 vXZ;
+        void main(){
+          float wave = sin((1.0 - vE) * 14.0 - uT * 2.2 + sin(vXZ.x * 0.15 + vXZ.y * 0.12) * 1.5);
+          float foam = smoothstep(0.8, 1.0, wave) * vE;
+          float edge = smoothstep(0.75, 1.0, vE);
+          vec3 shallow = vec3(0.5, 0.88, 0.92);
+          gl_FragColor = vec4(mix(shallow, vec3(1.0), clamp(foam + edge * 0.8, 0.0, 1.0)), vE * 0.75);
+        }`,
+    });
+    this.perRound.push(this.foamMat, cg, fg);
+    world.add(new THREE.Mesh(fg, this.foamMat));
+  }
+  private foamMat: THREE.ShaderMaterial | null = null;
+
   private groundTexture(game: Game) {
     // höhere Auflösung auf größeren Bildschirmen (PC), Handy bleibt sparsam
     const N = Math.min(window.innerWidth, window.innerHeight) >= 600 ? 4096 : 2048, k = N / WORLD;
     const map = game.map;
     return canvasTexture(N, N, (c) => {
-      const inset = 80 * k, rad = 200 * k;
+      const coast = coastPolygon(360), inner = coastPolygon(360, BEACH_W);
+      const poly = (pts: { x: number; y: number }[]) => { c.beginPath(); pts.forEach((q, i) => (i ? c.lineTo(q.x * k, q.y * k) : c.moveTo(q.x * k, q.y * k))); c.closePath(); };
+      c.clearRect(0, 0, N, N);
       c.fillStyle = C.sand;
-      c.fillRect(0, 0, N, N);
+      poly(coast); c.fill();
       c.fillStyle = C.grass;
-      c.beginPath();
-      c.roundRect(inset, inset, N - inset * 2, N - inset * 2, rad);
-      c.fill();
+      poly(inner); c.fill();
       c.save();
-      c.beginPath();
-      c.roundRect(inset, inset, N - inset * 2, N - inset * 2, rad);
+      poly(coast);
       c.clip();
       let s = map.seed >>> 0;
       const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
@@ -485,6 +547,24 @@ export class Renderer {
       };
       for (let i = 0; i < 90; i++) soft(rnd() * N, rnd() * N, (140 + rnd() * 300) * k, rnd() < 0.5 ? C.grassLight : C.grassDark, 'aa');
       for (const f of map.forests) soft(f.x * k, f.y * k, f.r * 1.15 * k, C.forest, 'ee');
+      // Regionen: eigener Boden (weich auslaufend)
+      const RC: Record<string, string> = { snow: '#eef4fb', desert: '#e8c088', grove: '#a6dc78', beach: C.sand, farm: '#9ccd5e', industry: '#b9bcc2', forest: '#5d9f43', city: '#cfd4da' };
+      for (const g of map.regions) {
+        if (g.kind === 'city') continue;
+        const gr = c.createRadialGradient(g.x * k, g.y * k, g.r * 0.55 * k, g.x * k, g.y * k, g.r * k);
+        gr.addColorStop(0, RC[g.kind] + 'ff'); gr.addColorStop(1, RC[g.kind] + '00');
+        c.fillStyle = gr; c.beginPath(); c.arc(g.x * k, g.y * k, g.r * k, 0, Math.PI * 2); c.fill();
+      }
+      // Schnee: Glitzer, Wüste: Sandkörnung
+      for (const g of map.regions) {
+        if (g.kind !== 'snow' && g.kind !== 'desert') continue;
+        for (let i = 0; i < 400; i++) { const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * g.r * 0.8; c.fillStyle = g.kind === 'snow' ? 'rgba(170,195,225,0.35)' : 'rgba(190,130,70,0.25)'; c.beginPath(); c.arc((g.x + Math.cos(a) * d) * k, (g.y + Math.sin(a) * d) * k, (6 + rnd() * 14) * k, 0, Math.PI * 2); c.fill(); }
+      }
+      // Stadt: gepflasterte Fläche innerhalb der Ringstraße
+      const rg = map.ring;
+      c.fillStyle = '#cfd4da'; c.beginPath(); c.arc(rg.x * k, rg.y * k, rg.r * k, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = 'rgba(150,158,170,0.5)'; c.lineWidth = 3 * k;
+      for (let rr = 450; rr < rg.r; rr += 220) { c.beginPath(); c.arc(rg.x * k, rg.y * k, rr * k, 0, Math.PI * 2); c.stroke(); }
 
       // Felder
       for (const f of map.fields) {
@@ -524,21 +604,33 @@ export class Renderer {
           c.stroke();
         }
       };
-      drawPaths(70, C.path);
-      drawPaths(44, C.pathLight);
+      drawPaths(60, C.path);
+      drawPaths(38, C.pathLight);
+      // Asphaltstraßen mit Mittelstreifen, Ringstraße um die Stadt
+      const roadPath = (pts: { x: number; y: number }[]) => { c.beginPath(); pts.forEach((q, i) => (i ? c.lineTo(q.x * k, q.y * k) : c.moveTo(q.x * k, q.y * k))); };
+      c.lineCap = 'round'; c.lineJoin = 'round';
+      for (const [extra, col] of [[24, '#6f7682'], [0, '#8a929e']] as [number, string][]) {
+        c.strokeStyle = col;
+        for (const rd of map.roads) { c.lineWidth = (rd.w + extra) * k; roadPath(rd.pts); c.stroke(); }
+        c.lineWidth = (rg.w + extra) * k; c.beginPath(); c.arc(rg.x * k, rg.y * k, rg.r * k, 0, Math.PI * 2); c.stroke();
+      }
+      c.strokeStyle = 'rgba(255,255,255,0.85)'; c.lineWidth = 6 * k; c.setLineDash([50 * k, 50 * k]);
+      for (const rd of map.roads) { roadPath(rd.pts); c.stroke(); }
+      c.beginPath(); c.arc(rg.x * k, rg.y * k, rg.r * k, 0, Math.PI * 2); c.stroke();
+      c.setLineDash([]);
       // Dorfplatz
       const t = map.town;
       c.fillStyle = C.path;
       c.beginPath();
-      c.arc(t.x * k, t.y * k, 200 * k, 0, Math.PI * 2);
+      c.arc(t.x * k, t.y * k, (PLAZA_R + 40) * k, 0, Math.PI * 2);
       c.fill();
       c.fillStyle = C.plaza;
       c.beginPath();
-      c.arc(t.x * k, t.y * k, 175 * k, 0, Math.PI * 2);
+      c.arc(t.x * k, t.y * k, PLAZA_R * k, 0, Math.PI * 2);
       c.fill();
       c.strokeStyle = 'rgba(160,140,110,0.5)';
       c.lineWidth = 2;
-      for (let r = 40; r < 175; r += 34) {
+      for (let r = 50; r < PLAZA_R; r += 40) {
         c.beginPath();
         c.arc(t.x * k, t.y * k, r * k, 0, Math.PI * 2);
         c.stroke();
@@ -852,7 +944,7 @@ export class Renderer {
 
     // Wasser
     this.waterMat = new THREE.ShaderMaterial({
-      uniforms: { uT: { value: 0 }, uC: { value: new THREE.Color(this.tod.water) }, uHalf: { value: W / 2 }, uCenter: { value: new THREE.Vector2(W / 2, W / 2) } },
+      uniforms: { uT: { value: 0 }, uC: { value: new THREE.Color(this.tod.water) }, uHalf: { value: W * 4 }, uCenter: { value: new THREE.Vector2(W / 2, W / 2) } },
       vertexShader: `varying vec2 vXZ; void main(){ vec4 wp = modelMatrix * vec4(position,1.0); vXZ = wp.xz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
       fragmentShader: `uniform float uT; uniform vec3 uC; uniform float uHalf; uniform vec2 uCenter; varying vec2 vXZ;
         void main(){
@@ -876,9 +968,9 @@ export class Renderer {
     });
     this.perRound.push(this.waterMat);
     flat(add(this.g.plane, this.waterMat, W / 2, -0.4, W / 2, 1800, 1800, 1)).receiveShadow = false;
-    add(this.g.box, this.m.sandBase, W / 2, -0.62, W / 2, W, 1.2, W, world, false);
+    this.buildCoast(world);
     const tex = this.groundTexture(game);
-    const groundMat = new THREE.MeshToonMaterial({ map: tex, gradientMap: this.gradient });
+    const groundMat = new THREE.MeshToonMaterial({ map: tex, gradientMap: this.gradient, alphaTest: 0.5 });
     this.perRound.push(tex, groundMat);
     flat(add(this.g.plane, groundMat, W / 2, 0, W / 2, W, W, 1));
 
@@ -1015,8 +1107,9 @@ export class Renderer {
         }
         case 'tree': {
           sadd(this.g.trunk, this.m.trunk, x, 1.1, z, 1, 2.2, 1);
-          const mats = [this.m.leaves0, this.m.leaves1, this.m.leaves2];
-          const mat = mats[Math.floor(Math.random() * 3)];
+          const reg = this.regionAt(game, o.x, o.y);
+          const mats = reg === 'snow' ? [this.m.leavesSnow, this.m.leavesSnow2] : reg === 'grove' ? [this.m.leavesPink, this.m.leavesPink2, this.m.leaves0] : [this.m.leaves0, this.m.leaves1, this.m.leaves2];
+          const mat = mats[Math.floor(Math.random() * mats.length)];
           const big = add(this.g.blob, mat, x, 3.2, z, 2.1, 1.7, 2.1);
           const top = add(this.g.blob, mat, x + 0.3, 4.3, z - 0.25, 1.4, 1.2, 1.4);
           this.canopies.push({ meshes: [big, top], x: o.x, y: o.y, r: 50, faded: false, normal: mat, fade: this.m.leavesFade, wobble: 0, base: [] });
@@ -1047,6 +1140,14 @@ export class Renderer {
           sadd(this.g.cyl, mat, x, 0.72, z, r, 1.44, r);
           sadd(this.g.cyl, this.m.barrelBand, x, 0.38, z, r * 1.04, 0.09, r * 1.04);
           sadd(this.g.cyl, this.m.barrelBand, x, 1.06, z, r * 1.04, 0.09, r * 1.04);
+          break;
+        }
+        case 'box': {
+          // Container, Zelte, Türme: farbiger Block mit dunklem Sockel und heller Oberkante
+          const hgt = (o.tall ?? 60) * S, col = o.c ?? 0x8a929e;
+          sadd(this.g.box, this.boxMat(col), x, hgt / 2, z, o.w * S, hgt, o.h * S);
+          sadd(this.g.box, this.boxMat(0x2b2f38), x, 0.08, z, o.w * S + 0.06, 0.16, o.h * S + 0.06);
+          sadd(this.g.box, this.boxMat(0xffffff), x, hgt + 0.04, z, o.w * S * 0.9, 0.08, o.h * S * 0.9);
           break;
         }
         case 'hay': {
@@ -1697,6 +1798,11 @@ export class Renderer {
       v.spin = rig.gunKick.getObjectByName('spin') ?? null;
       v.weaponId = f.weapon.id + f.weapon.tier;
     }
+    // weit weg von der Kamera: Figur nicht zeichnen und nicht animieren (100 Spieler)
+    if (!f.isPlayer && f.phase !== 'plane') {
+      const dx = f.x * S - this.camTarget.x, dz = f.y * S - this.camTarget.z, lim = 85 + this.camTarget.y * 2;
+      if (dx * dx + dz * dz > lim * lim) { v.root.visible = false; return; }
+    }
     if (!f.alive) {
       // umfallen (0,45 s), liegen bleiben, dann im Boden versinken (gesamt ~2,8 s)
       if (v.root.visible) {
@@ -2135,6 +2241,13 @@ export class Renderer {
         }
       }
     };
+    // weit entfernte Bäume nicht zeichnen (große Karte: spart viele Draw-Calls)
+    const cx = this.camTarget.x / S, cy = this.camTarget.y, cz = this.camTarget.z / S;
+    const far2 = (1500 + cy * 40) ** 2;
+    for (const c of this.canopies) {
+      const vis = (c.x - cx) ** 2 + (c.y - cz) ** 2 < far2;
+      if (c.meshes[0].visible !== vis) for (const m of c.meshes) m.visible = vis;
+    }
     fade(this.canopies, 1.0);
     fade(this.bushes, 1.0);
     // Büsche wackeln, wenn jemand hindurchläuft
@@ -2353,6 +2466,7 @@ export class Renderer {
     sc.updateProjectionMatrix();
     this.updateSun();
     if (this.waterMat) this.waterMat.uniforms.uT.value = this.time;
+    if (this.foamMat) this.foamMat.uniforms.uT.value = this.time;
     this.windTime.value = this.time;
     if (this.plane) this.plane.visible = false;
     if (this.playerRing) this.playerRing.visible = false;
