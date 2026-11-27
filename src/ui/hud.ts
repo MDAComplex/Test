@@ -8,6 +8,9 @@ import { Sfx } from '../sfx';
 import { WEAPONS, TIER_COLORS, WeaponId, parseWeapon, RARITY_NAMES } from '../weapons';
 import { Preview } from './preview';
 import { portrait, gunIcon } from './portrait';
+import { Victory } from './victory';
+import { EMOTES, EmoteId } from '../render/emotes';
+import { ANIM } from '../render/character';
 import { CHUTE_COLORS, CHUTE_LOGOS } from '../chute';
 import { Profile, loadProfile, saveProfile, levelInfo, SKINS, skinColor, taskText, awardRound, RoundReward } from '../profile';
 
@@ -69,6 +72,11 @@ export class Hud {
   private lockerEl: HTMLElement;
   private preview: Preview | null = null;
   private lobbyPv: Preview | null = null;
+  private winEl!: HTMLElement;
+  private victory: Victory | null = null;
+  private confettiRaf = 0;
+  /** Siegesbildschirm offen: Spiel angehalten */
+  frozen = false;
   private dropCanvas!: HTMLCanvasElement;
   private lastTick = -1;
   private wIconKey = '';
@@ -177,6 +185,21 @@ export class Hud {
           <button class="btn secondary tomenu">MENÜ</button>
         </div>
       </div>`);
+    this.winEl = $(`
+      <div class="screen hidden" id="win">
+        <div class="win-frame">
+          <div class="win-glow"></div>
+          <canvas class="win-cv" aria-label="Sieger auf dem Podest"></canvas>
+          <canvas class="win-confetti" aria-hidden="true"></canvas>
+          <div class="win-banner"><div class="wb1"></div><div class="wb2"></div></div>
+          <div class="win-names"></div>
+          <div class="win-bottom">
+            <div class="win-stats"></div>
+            <div class="win-reward"></div>
+            <div class="obtns"><button class="btn again">NOCHMAL</button><button class="btn secondary tomenu">MENÜ</button></div>
+          </div>
+        </div>
+      </div>`);
     this.settingsEl = $(`
       <div class="screen hidden" id="settings">
         <div class="panel">
@@ -186,6 +209,7 @@ export class Hud {
           
           <div class="row"><span>Grafik</span><div class="seg" data-key="quality"><button data-v="auto">Automatisch</button><button data-v="high">Hoch</button><button data-v="low">Niedrig (flüssiger)</button></div></div>
           <div class="row"><span>Stick-Größe am Handy</span><div class="seg" data-key="stick"><button data-v="small">Klein</button><button data-v="medium">Mittel</button><button data-v="large">Groß</button></div></div>
+          <div class="row"><span>Animationen</span><div class="seg" data-key="anim"><button data-v="lively">Lebendig (neu)</button><button data-v="classic">Klassisch</button></div></div>
           <div class="row"><span>Ton</span><div class="seg" data-key="sound"><button data-v="true">An</button><button data-v="false">Aus</button></div></div>
           <div class="actions">
             <button class="btn resume">WEITER</button>
@@ -216,7 +240,7 @@ export class Hud {
       </div>`);
     this.rotateEl = $(`<div class="screen hidden" id="rotate"><div class="rot-icon"></div><div class="subtitle">Bitte dreh dein Handy quer</div></div>`);
     this.dirsLayer = $(`<div class="dirs"></div>`);
-    document.body.append(this.labelsLayer, this.dirsLayer, this.hud, this.menu, this.over, this.settingsEl, this.lockerEl, this.rotateEl);
+    document.body.append(this.labelsLayer, this.dirsLayer, this.hud, this.menu, this.over, this.winEl, this.settingsEl, this.lockerEl, this.rotateEl);
     this.labelsLayer.append(this.ring);
     this.ringArc = this.ring.querySelector('.fg') as SVGCircleElement;
     this.ringArc.style.strokeDasharray = String(RING_C);
@@ -293,6 +317,8 @@ export class Hud {
     );
     this.over.querySelector('.again')!.addEventListener('click', () => { startAudio(); this.cb.play(); });
     this.over.querySelector('.tomenu')!.addEventListener('click', () => this.cb.menu());
+    this.winEl.querySelector('.again')!.addEventListener('click', () => { startAudio(); this.cb.play(); });
+    this.winEl.querySelector('.tomenu')!.addEventListener('click', () => this.cb.menu());
     this.e.gear.addEventListener('click', () => this.openSettings(true));
     this.menu.querySelectorAll<HTMLButtonElement>('.modeseg button').forEach((b) =>
       b.addEventListener('click', () => {
@@ -430,6 +456,7 @@ export class Hud {
   }
 
   private applySettings() {
+    ANIM.lively = this.settings.anim !== 'classic';
     const s = this.settings;
     this.settingsEl.querySelectorAll<HTMLElement>('.seg').forEach((seg) => {
       const cur = String((s as unknown as Record<string, unknown>)[seg.dataset.key!]);
@@ -462,6 +489,7 @@ export class Hud {
   }
 
   showMenu() {
+    this.hideWin();
     this.game = null;
     this.paused = false;
     this.hud.classList.add('hidden');
@@ -567,6 +595,7 @@ export class Hud {
   }
 
   startRound(game: Game) {
+    this.hideWin();
     this.game = game;
     this.wIconKey = '';
     this.lobbyPv?.stop();
@@ -852,8 +881,73 @@ export class Hud {
     setTimeout(() => el.remove(), 1100);
   }
 
+  private hideWin() {
+    this.frozen = false;
+    this.winEl.classList.add('hidden');
+    this.victory?.stop();
+    cancelAnimationFrame(this.confettiRaf);
+  }
+
+  /** Siegesbildschirm: umrahmtes Fenster über dem angehaltenen Spiel, Sieger tanzen ihr Emote auf dem Podest */
+  private showWin(r: GameResult) {
+    const g = this.game!;
+    this.frozen = true;
+    this.e.toast.classList.remove('show');
+    this.e.tip.classList.add('hidden');
+    this.e.specbar.classList.add('hidden');
+    const solo = g.mode === 'solo';
+    this.winEl.querySelector('.wb1')!.textContent = solo ? 'SIEG! #1' : 'TEAM-SIEG!';
+    this.winEl.querySelector('.wb2')!.textContent = solo ? 'Du hast als Letzter überlebt' : 'Euer Team hat gewonnen';
+    // Gewinner: du in der Mitte, Mitspieler daneben (Bots mit zufälligem freien Emote)
+    const basic = EMOTES.filter((e) => e.level <= 5).map((e) => e.id);
+    const mates = solo ? [] : g.teammates(g.player);
+    const team = [...mates.slice(0, Math.ceil(mates.length / 2)), g.player, ...mates.slice(Math.ceil(mates.length / 2))];
+    const chars = team.map((f) => ({
+      kind: f.look.char, color: f.color, outfit: f.look.outfit ?? 'none', seed: f.id * 7 + 3, name: f.isPlayer ? 'Du' : f.name,
+      emote: (f.isPlayer ? this.profile.emote : basic[(f.id * 7) % basic.length]) as EmoteId,
+    }));
+    if (!this.victory) this.victory = new Victory(this.winEl.querySelector('.win-cv') as HTMLCanvasElement);
+    this.winEl.classList.remove('hidden');
+    this.victory.set(chars);
+    this.victory.start();
+    const names = this.winEl.querySelector('.win-names')!;
+    names.innerHTML = chars.length > 1 ? chars.map((c) => `<span>${c.name} · ${EMOTES.find((e) => e.id === c.emote)?.name ?? ''}</span>`).join('') : '';
+    const s = Math.floor(r.time / 1000);
+    const rw = this.reward;
+    this.winEl.querySelector('.win-stats')!.innerHTML =
+      `<span>Abschüsse <b>${r.kills}</b></span><span>Überlebt <b>${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}</b></span><span>Schaden <b>${Math.round(g.stats.damage).toLocaleString('de-DE')}</b></span>` +
+      (rw ? `<span><b>+${rw.xp} XP</b></span>` : '');
+    this.winEl.querySelector('.win-reward')!.textContent = rw && rw.levelAfter > rw.levelBefore ? `Level ${rw.levelAfter} erreicht!` : '';
+    this.sfx.kill();
+    this.startConfetti();
+  }
+
+  private startConfetti() {
+    const cv = this.winEl.querySelector('.win-confetti') as HTMLCanvasElement;
+    const ctx = cv.getContext('2d')!;
+    const cols = ['#ffd23f', '#ff5a7a', '#4fc3ff', '#7be07b', '#c070ff', '#ffffff'];
+    const parts = Array.from({ length: 140 }, () => ({ x: Math.random(), y: -Math.random() * 1.2, vx: (Math.random() - 0.5) * 0.06, vy: 0.12 + Math.random() * 0.18, r: Math.random() * 6, vr: (Math.random() - 0.5) * 8, w: 6 + Math.random() * 6, c: cols[Math.floor(Math.random() * cols.length)] }));
+    let last = performance.now();
+    const loop = (now: number) => {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      const w = cv.clientWidth, h = cv.clientHeight;
+      if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+      ctx.clearRect(0, 0, w, h);
+      for (const p of parts) {
+        p.x += p.vx * dt; p.y += p.vy * dt; p.r += p.vr * dt;
+        if (p.y > 1.05) { p.y = -0.05; p.x = Math.random(); }
+        ctx.save(); ctx.translate(p.x * w, p.y * h); ctx.rotate(p.r);
+        ctx.fillStyle = p.c; ctx.fillRect(-p.w / 2, -2.5, p.w, 5 * Math.abs(Math.cos(p.r * 1.3)) + 1); ctx.restore();
+      }
+      this.confettiRaf = requestAnimationFrame(loop);
+    };
+    cancelAnimationFrame(this.confettiRaf);
+    this.confettiRaf = requestAnimationFrame(loop);
+  }
+
   private showOver(r: GameResult) {
     if (!this.game) return;
+    if (r.win) { this.showWin(r); return; }
     this.e.toast.classList.remove('show');
     this.e.tip.classList.add('hidden');
     this.e.specbar.classList.add('hidden');

@@ -458,3 +458,35 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
   .lockpanel { padding: 14px; gap: 10px; }
   .lockpanel .seg button { padding: 6px 8px; font-size: 12px; }
 }
+
+/* ---------- Siegesbildschirm: umrahmtes Fenster über dem angehaltenen Spiel ---------- */
+#win { background: radial-gradient(ellipse at center, rgba(5, 12, 24, 0.15), rgba(5, 12, 24, 0.6)); padding: 18px; }
+.win-frame { position: relative; width: min(1000px, 94vw); height: min(620px, 88vh); border-radius: 28px; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 35%, rgba(255, 228, 140, 0.55), rgba(110, 190, 240, 0.55) 45%, rgba(30, 70, 120, 0.85) 100%);
+  border: 5px solid #ffd23f; box-shadow: 0 0 0 4px rgba(122, 63, 0, 0.6), 0 20px 60px rgba(0, 0, 0, 0.55), inset 0 0 60px rgba(255, 210, 63, 0.25);
+  animation: winIn .45s cubic-bezier(.2, 1.4, .4, 1) both; backdrop-filter: blur(3px); }
+@keyframes winIn { from { transform: scale(.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.win-glow { position: absolute; left: 50%; top: -40px; width: 70%; height: 230px; transform: translateX(-50%); background: linear-gradient(180deg, rgba(255, 200, 60, .5), rgba(255, 200, 60, 0)); clip-path: polygon(0 0, 100% 0, 88% 100%, 12% 100%); pointer-events: none; }
+.win-cv, .win-confetti { position: absolute; inset: 0; width: 100%; height: 100%; }
+.win-confetti { pointer-events: none; }
+.win-banner { position: absolute; left: 0; right: 0; top: 14px; text-align: center; pointer-events: none; }
+.wb1 { font-size: clamp(44px, 8vw, 84px); font-weight: 900; color: var(--gold); -webkit-text-stroke: 3px #7a3f00; text-shadow: 0 6px 0 #b86b00, 0 12px 26px rgba(0, 0, 0, .45); line-height: 1; animation: wbPop 1.6s ease-in-out infinite; }
+@keyframes wbPop { 50% { transform: scale(1.04); } }
+.wb2 { display: inline-block; margin-top: 8px; padding: 5px 18px; border-radius: 999px; background: rgba(10, 20, 36, .6); font-size: 18px; }
+.win-names { position: absolute; left: 0; right: 0; bottom: 172px; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; pointer-events: none; }
+.win-names span { padding: 3px 12px; border-radius: 999px; background: rgba(10, 20, 36, .65); font-size: 14px; }
+.win-bottom { position: absolute; left: 0; right: 0; bottom: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.win-stats { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.win-stats span { padding: 6px 14px; border-radius: 12px; background: rgba(10, 20, 36, .7); font-size: 16px; }
+.win-stats b { color: var(--gold); }
+.win-reward { color: var(--gold); font-size: 15px; text-shadow: var(--shadow); min-height: 0; }
+.win-reward:empty { display: none; }
+#win .btn { font-size: 26px; padding: 10px 40px; }
+@media (max-height: 520px) {
+  .win-frame { height: 92vh; }
+  .wb1 { font-size: 40px; -webkit-text-stroke: 2px #7a3f00; }
+  .wb2 { display: none; }
+  .win-names { display: none; }
+  .win-stats span { font-size: 12px; padding: 4px 10px; }
+  #win .btn { font-size: 18px; padding: 7px 24px; border-bottom-width: 4px; }
+}

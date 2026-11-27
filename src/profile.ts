@@ -1,3 +1,4 @@
+import type { EmoteId } from './render/emotes';
 import { ChuteDesign, WHITE_CHUTE } from './chute';
 /** Spielerprofil: Erfahrung, Level, Skins, tägliche Aufgaben (im Browser gespeichert) */
 
@@ -51,6 +52,10 @@ export interface Profile {
   outfit: 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger';
   /** eigenes Fallschirm-Design */
   chuteDesign: ChuteDesign;
+  /** Sieges-Emote */
+  emote: EmoteId;
+  /** Waffenlackierung */
+  wrap: string;
   tutorialDone: boolean;
   daily: { date: string; tasks: Task[] };
 }
@@ -72,7 +77,7 @@ function newDaily(date: string): Profile['daily'] {
 }
 
 export function loadProfile(): Profile {
-  let p: Profile = { xp: 0, skin: 'gelb', char: 'man', chute: 'round', outfit: 'none', chuteDesign: { ...WHITE_CHUTE }, tutorialDone: false, daily: newDaily(today()) };
+  let p: Profile = { xp: 0, skin: 'gelb', char: 'man', chute: 'round', outfit: 'none', chuteDesign: { ...WHITE_CHUTE }, emote: 'jubel', wrap: 'none', tutorialDone: false, daily: newDaily(today()) };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) p = { ...p, ...JSON.parse(raw) };

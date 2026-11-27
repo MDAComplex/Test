@@ -51,7 +51,8 @@ function frame(now: number) {
   const dt = now - last;
   last = now;
   if (game) {
-    const stop = hud.paused || hud.blocked();
+    // Siegesbildschirm: Spiel bleibt stehen, im Hintergrund sieht man die angehaltene Szene
+    const stop = hud.paused || hud.blocked() || hud.frozen;
     if (!stop) {
       hud.applyInput(game, renderer);
       game.update(dt);

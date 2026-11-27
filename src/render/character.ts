@@ -25,6 +25,9 @@ export interface Rig {
 }
 
 export type CharKind = 'man' | 'woman' | PlushKind;
+
+/** Schalter für die lebendigeren Animationen (Einstellungen: „Lebendig“ / „Klassisch“) */
+export const ANIM = { lively: true };
 /** Outfit über der Grundfigur: 'none' = normale Kleidung in der gewählten Farbe */
 export type Outfit = 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger';
 export const OUTFITS: { id: Outfit; name: string }[] = [
@@ -525,6 +528,7 @@ export function animateRig(rig: Rig, s: AnimState) {
   shoulders(rig, sh * 0.045, -sh * 0.045, Math.max(0, -sh) * 0.02, Math.max(0, sh) * 0.02);
   rig.body.rotation.z = 0;
   rig.body.rotation.x = 0;
+  rig.body.scale.set(1, 1, 1);
   rig.legs.forEach((l) => (l.hip.rotation.x = 0));
   if (s.freefall) {
     // Bauchlage: Körper nach vorn gekippt, Arme und Beine gespreizt, flattert im Wind
@@ -570,18 +574,29 @@ export function animateRig(rig: Rig, s: AnimState) {
     // Knie beugt sich, wenn das Bein nach vorne schwingt und beim Abdrücken
     leg.knee.rotation.z = -(Math.max(0, Math.cos(p)) * 0.95 + 0.08) * amp;
   }
-  rig.body.position.y = Math.abs(Math.sin(phase)) * 0.06 * amp - 0.02 * amp;
+  const live = ANIM.lively;
+  rig.body.position.y = Math.abs(Math.sin(phase)) * (live ? 0.1 : 0.06) * amp - 0.02 * amp;
+  if (live) {
+    // Stauchen und Strecken im Schritt: beim Aufsetzen etwas breiter, oben etwas länger
+    const sq = (Math.abs(Math.sin(phase)) - 0.5) * 0.07 * amp;
+    rig.body.scale.set(1 - sq * 0.5, 1 + sq, 1 - sq * 0.5);
+  }
   // beim Zielen mit zweihändigen Waffen: Oberkörper seitlich (linke Schulter nach vorne)
   const blade = (s.twoHanded && s.weapon !== 'minigun' ? -0.45 : 0) * s.aim;
   // Oberkörper dreht nur leicht gegen die Beine, wiegt sich minimal zur Seite; Kopf bleibt ruhig
   // Becken dreht mit dem vorschwingenden Bein, Schultern leicht dagegen; kleine Gewichtsverlagerung zur Seite
   rig.pelvis.rotation.set(0, Math.sin(phase) * 0.12 * amp, 0);
   rig.body.position.z = Math.sin(phase) * 0.025 * amp;
-  const twist = -Math.sin(phase) * 0.07 * amp;
-  rig.torso.rotation.set(-Math.sin(phase) * 0.03 * amp, twist + blade, -0.05 * amp);
+  const twist = -Math.sin(phase) * (live ? 0.12 : 0.07) * amp;
+  rig.torso.rotation.set(-Math.sin(phase) * (live ? 0.06 : 0.03) * amp, twist + blade, -(live ? 0.09 : 0.05) * amp);
   rig.head.rotation.y -= blade + twist;
+  if (live) {
+    // Kopf nickt leicht verzögert mit (Nachschwingen), im Stand schaut er sich ein wenig um und verlagert das Gewicht
+    rig.head.rotation.z += Math.sin(phase * 2 - 0.7) * 0.07 * amp + Math.sin(s.time * 0.7) * 0.04 * (1 - amp);
+    rig.body.position.z += Math.sin(s.time * 1.1) * 0.02 * (1 - amp);
+  }
   // Atmen im Stand
-  rig.torso.position.y = (rig.torsoY ?? 1.0) + (1 - amp) * Math.sin(s.time * 2.2) * 0.012;
+  rig.torso.position.y = (rig.torsoY ?? 1.0) + (1 - amp) * Math.sin(s.time * 2.2) * (live ? 0.02 : 0.012);
 
   const two = s.twoHanded;
   const fists = s.weapon === 'fists';
@@ -589,8 +604,9 @@ export function animateRig(rig: Rig, s: AnimState) {
   const c = fists ? POSES.carryFists : s.weapon === 'rocket' ? POSES.carryRocket : s.weapon === 'minigun' ? POSES.carryMinigun : two ? POSES.carry2 : POSES.carry1;
   const k = s.aim;
   // lockerer Armschwung, leicht verzögert gegenüber den Beinen
-  const swingR = -Math.sin(phase + Math.PI - 0.25) * 0.4 * amp; // rechter Arm gegen rechtes Bein
-  const swingL = -Math.sin(phase - 0.25) * 0.4 * amp;
+  const swingK = live ? 0.56 : 0.4;
+  const swingR = -Math.sin(phase + Math.PI - 0.35) * swingK * amp; // rechter Arm gegen rechtes Bein (etwas verzögert)
+  const swingL = -Math.sin(phase - 0.35) * swingK * amp;
   const free = (i: 0 | 1) => (i === 0 ? swingR : swingL);
   const set = (i: 0 | 1, carry: [number, number, number], aim: [number, number, number], swingable: boolean) => {
     const arm = rig.arms[i];
@@ -658,6 +674,7 @@ export function animateRig(rig: Rig, s: AnimState) {
 
 /** niedergeschlagen: auf Händen und Knien krabbeln (diagonaler Gang) */
 export function poseCrawl(rig: Rig, t: number, moving: number) {
+  rig.body.scale.set(1, 1, 1);
   rig.gunPivot.visible = false;
   shoulders(rig);
   rig.pelvis.rotation.set(0, 0, 0);
@@ -726,6 +743,7 @@ export type DeathKind = 'back' | 'front' | 'left' | 'right' | 'down';
  * Wer niedergeschlagen kriecht, bricht ein und rollt leicht auf die Seite.
  */
 export function poseDeath(rig: Rig, snap: PoseSnap, kind: DeathKind, t: number, seed: number) {
+  rig.body.scale.set(1, 1, 1);
   rig.gunPivot.visible = false;
   shoulders(rig);
   const yaw = snap[1];

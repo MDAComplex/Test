@@ -7,7 +7,7 @@ import { CHUTE_Z, DROP_Z, FREE_BACK } from '../sim/game';
 import { buildGun } from './guns';
 import { LootKind, RAIL_R, FOUNTAIN_R } from '../mapgen';
 import { WHITE_CHUTE } from '../chute';
-import { buildCharacter, buildChute, animateRig, poseLying, poseCrawl, poseDeath, capturePose, makeToon, Rig, PoseSnap, DeathKind } from './character';
+import { ANIM, buildCharacter, buildChute, animateRig, poseLying, poseCrawl, poseDeath, capturePose, makeToon, Rig, PoseSnap, DeathKind } from './character';
 
 const W = WORLD * S;
 const WALL_H = 2.1;
@@ -70,6 +70,8 @@ interface FighterView {
   punchArm: 0 | 1;
   /** Öffnen des Fallschirms 0..1 */
   chuteT: number;
+  /** Landen: kurzes Stauchen (nur bei lebendigen Animationen) */
+  squash?: number;
   /** Haltung beim Tod und Art des Umfallens */
   deathSnap?: PoseSnap;
   deathKind?: DeathKind;
@@ -1569,12 +1571,15 @@ export class Renderer {
         case 'jump':
           if (e.f.isPlayer) this.snapCam = true;
           break;
-        case 'land':
+        case 'land': {
+          const lv = this.fighterViews.get(e.f);
+          if (lv) lv.squash = 1;
           for (let i = 0; i < 8; i++) {
             const a = (i / 8) * Math.PI * 2;
             this.puff(e.f.x * S, 0.3, e.f.y * S, this.m.dust, 0.35, 1.8, 0.7, Math.cos(a) * 3, 0.5, Math.sin(a) * 3);
           }
           break;
+        }
         case 'airdrop':
           this.addDrop(e.d);
           break;
@@ -1826,6 +1831,14 @@ export class Renderer {
     rig.legs.forEach((l) => { l.hip.rotation.x = 0; l.hip.rotation.y = 0; });
     v.punchT = Math.max(0, v.punchT - dt * 6);
     animateRig(rig, { punch: v.punchT, punchArm: v.punchArm, phase: v.walkT, amp: v.amp, aim: v.aimBlend, twoHanded: f.weapon.twoHanded, weapon: f.weapon.id, reload: v.reloadBlend, time: this.time + f.id, falling, freefall, freeK: clamp01((DROP_Z - f.z) / (DROP_Z - CHUTE_Z)) });
+    if (v.squash && v.squash > 0) {
+      // Landung: kurz stauchen und federnd zurück
+      v.squash = Math.max(0, v.squash - dt * 3.5);
+      if (ANIM.lively) {
+        const q = Math.sin(v.squash * Math.PI) * v.squash;
+        rig.body.scale.set(1 + q * 0.2, 1 - q * 0.28, 1 + q * 0.2);
+      }
+    }
 
     v.recoil = Math.max(0, v.recoil - dt * 9);
     rig.gunKick.position.x = -v.recoil * (f.weapon.id === 'shotgun' || f.weapon.id === 'sniper' || f.weapon.id === 'rocket' ? 0.22 : 0.1);

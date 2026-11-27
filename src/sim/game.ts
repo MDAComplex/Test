@@ -265,7 +265,7 @@ export class Game {
   result: GameResult | null = null;
   input = { mx: 0, my: 0, aim: null as number | null, firing: false, autoWeapon: false, fpp: false, jump: false, heal: false, reload: false, pickup: false, swap: false };
   /** Zähler für Aufgaben und Erfahrungspunkte */
-  stats = { chests: 0, airdrops: 0, shields: 0, heals: 0 };
+  stats = { chests: 0, airdrops: 0, shields: 0, heals: 0, damage: 0 };
   /** Kamera folgt nach dem Tod diesem Kämpfer */
   spectate: Fighter | null = null;
   nearbyWeapon: Loot | null = null;
@@ -1071,6 +1071,7 @@ export class Game {
       dmg -= a;
     }
     f.hp -= dmg;
+    if (attacker === this.player && f !== this.player) this.stats.damage += amount;
     if (attacker && attacker !== f) {
       this.fights.push({ x: (f.x + attacker.x) / 2, y: (f.y + attacker.y) / 2, t: this.time, a: attacker, v: f });
       if (this.fights.length > 40) this.fights.shift();
