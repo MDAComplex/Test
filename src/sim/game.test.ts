@@ -328,10 +328,12 @@ describe('Wiederbeleben im Team', () => {
     const team = g.fighters.filter((f) => f.team === 1);
     for (const f of g.fighters) if (f.team !== 1) { f.alive = false; f.x = 10; f.y = 10; }
     const [down, ...rest] = team;
-    const c = { x: 2000, y: 2000 };
+    // freier Platz (Dorfplatz neben dem Brunnen, nie in einem Haus)
+    const c = { x: g.map.town.x + 120, y: g.map.town.y };
     down.x = c.x; down.y = c.y; down.downed = true; down.downHp = 100;
     rest.forEach((m, i) => { m.x = c.x + 300 + i * 30; m.y = c.y + 200; m.hp = 100; });
-    for (let t = 0; t < 2500; t += 16) g.update(16);
+    // 4 s: Sicherungsposten sind angekommen, das Wiederbeleben (3,5 s) läuft noch
+    for (let t = 0; t < 4000; t += 16) g.update(16);
     const near = rest.filter((m) => Math.hypot(m.x - down.x, m.y - down.y) < 70);
     expect(near.length).toBe(1);
   });

@@ -45,7 +45,7 @@ export interface Profile {
   xp: number;
   skin: string;
   /** Figur und Fallschirm aus dem Spind */
-  char: 'man' | 'woman';
+  char: 'man' | 'woman' | 'jackal' | 'luchador';
   chute: 'round' | 'wing';
   /** Outfit (Skin-Modell) aus dem Spind */
   outfit: 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger';

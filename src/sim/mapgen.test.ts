@@ -1,4 +1,4 @@
-import { it, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { generateMap } from '../mapgen';
 it('erzeugt Fluss und Brücken', () => {
   for (const seed of [1, 2, 3, 4, 5]) {
@@ -19,4 +19,20 @@ it('Innenwände versperren keine Haustür', () => {
       }
     }
   }
+});
+
+describe('Dorfplatz', () => {
+  it('kein Haus, Teich oder Fluss auf dem Brunnenplatz', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const m = generateMap(seed);
+      const t = m.town;
+      for (const h of m.houses) {
+        // Abstand Platzmitte zum Hausrechteck
+        const dx = Math.max(0, Math.abs(t.x - h.x) - h.s / 2), dy = Math.max(0, Math.abs(t.y - h.y) - h.s / 2);
+        expect(Math.hypot(dx, dy)).toBeGreaterThan(150);
+      }
+      for (const p of m.ponds) expect(Math.hypot(p.x - t.x, p.y - t.y)).toBeGreaterThan(p.r + 150);
+      for (const w of m.river.water) expect(Math.hypot(w.x - t.x, w.y - t.y)).toBeGreaterThan(m.river.width / 2 + 100);
+    }
+  });
 });

@@ -28,6 +28,9 @@ export interface MapData {
 export const ROCK_SIZES = [28, 38, 48];
 /** Radius der unsichtbaren Geländer-Kollision an Brücken */
 export const RAIL_R = 12;
+/** Dorfplatz (frei von Häusern) und Brunnen (Kollision) */
+export const PLAZA_R = 215;
+export const FOUNTAIN_R = 46;
 
 export function randomLootKind(r: () => number): LootKind {
   // Verteilung: Munition 50 %, Waffen 22 %, Heilung 18 %, Schild 10 %
@@ -144,7 +147,11 @@ export function generateMap(seed: number): MapData {
   }
 
   // Dorf in der Kartenmitte-Region
-  const town: Area = { x: WORLD * (0.35 + r() * 0.3), y: WORLD * (0.35 + r() * 0.3), r: 700 };
+  // Dorfplatz mit Brunnen: nicht auf Fluss oder Teich; der Platz bleibt frei von Häusern
+  let town: Area = { x: WORLD * (0.35 + r() * 0.3), y: WORLD * (0.35 + r() * 0.3), r: 700 };
+  for (let i = 0; i < 80 && !fits(town.x, town.y, PLAZA_R, 20); i++) town = { x: WORLD * (0.3 + r() * 0.4), y: WORLD * (0.3 + r() * 0.4), r: 700 };
+  blocks.push({ x: town.x, y: town.y, r: PLAZA_R });
+  obstacles.push({ kind: 'water', x: town.x, y: town.y, r: FOUNTAIN_R, w: FOUNTAIN_R * 2, h: FOUNTAIN_R * 2 });
 
   const addHouse = (p: { x: number; y: number }, s: number, fenced: boolean) => {
     const house: House = { x: p.x, y: p.y, s, doors: [] };

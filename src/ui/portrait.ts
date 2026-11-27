@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { buildCharacter, makeToon, CharKind, Outfit } from '../render/character';
 import { buildGun } from '../render/guns';
+import { plushData } from '../render/plush';
 import type { WeaponId } from '../weapons';
 
 /** kleine Profilbilder (Kopf und Schultern) der Figuren, mit einem gemeinsamen Renderer */
@@ -41,7 +42,8 @@ export function portrait(kind: CharKind, color: number, seed: number, outfit: Ou
     const url = gl!.domElement.toDataURL('image/png');
     scene.remove(rig.body);
     rig.mats.forEach((m) => m.dispose());
-    cache.set(key, url);
+    // Plüsch-Figur noch nicht geladen: Ersatzbild nicht merken
+    if (!((kind === 'jackal' || kind === 'luchador') && !plushData(kind))) cache.set(key, url);
     return url;
   } catch {
     return '';

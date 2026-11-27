@@ -5,7 +5,7 @@ import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop, isContainer 
 import { WEAPONS, TIER_COLORS, WeaponId, parseWeapon } from '../weapons';
 import { CHUTE_Z, DROP_Z, FREE_BACK } from '../sim/game';
 import { buildGun } from './guns';
-import { LootKind, RAIL_R } from '../mapgen';
+import { LootKind, RAIL_R, FOUNTAIN_R } from '../mapgen';
 import { WHITE_CHUTE } from '../chute';
 import { buildCharacter, buildChute, animateRig, poseLying, poseCrawl, poseDeath, capturePose, makeToon, Rig, PoseSnap, DeathKind } from './character';
 
@@ -1035,7 +1035,7 @@ export class Renderer {
           break;
         case 'water':
           // Flusswasser wird unten aus den Fluss-Daten gezeichnet (inkl. unter den Brücken)
-          if (o.r !== game.map.river.width / 2 && o.r !== RAIL_R) waterParts.push({ x, z, r: o.r * S });
+          if (o.r !== game.map.river.width / 2 && o.r !== RAIL_R && o.r !== FOUNTAIN_R) waterParts.push({ x, z, r: o.r * S });
           break;
         case 'fence': {
           const horiz = o.w > o.h;

@@ -3,6 +3,7 @@ import { Game } from './sim/game';
 import { Renderer } from './render/renderer';
 import { Hud } from './ui/hud';
 import { generateMap } from './mapgen';
+import { loadPlush } from './render/plush';
 
 const app = document.getElementById('app')!;
 const renderer = new Renderer(app);
@@ -73,6 +74,8 @@ function frame(now: number) {
 
 showMenu();
 requestAnimationFrame(frame);
+// Plüsch-Figuren im Hintergrund laden, danach Vorschau und Profilbild aktualisieren
+loadPlush().then(() => hud.refreshLook());
 
 // Für Tests/Debugging im Browser erreichbar
 (window as unknown as { __zr: object }).__zr = { game: () => game, renderer };

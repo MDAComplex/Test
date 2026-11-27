@@ -156,7 +156,7 @@ export class Fighter {
   pickLoot: Loot | null = null;
   pickT = 0;
   /** Aussehen: Figur und Fallschirm */
-  look: { char: 'man' | 'woman'; chute: 'round' | 'wing'; outfit?: 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger'; design?: ChuteDesign } = { char: 'man', chute: 'round', outfit: 'none' };
+  look: { char: 'man' | 'woman' | 'jackal' | 'luchador'; chute: 'round' | 'wing'; outfit?: 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger'; design?: ChuteDesign } = { char: 'man', chute: 'round', outfit: 'none' };
   vx = 0;
   vy = 0;
   aiming = false;
@@ -301,7 +301,8 @@ export class Game {
     for (let i = 0; i < count - 1; i++) {
       const f = this.addFighter(names[i], false, BODY_COLORS[i % BODY_COLORS.length]);
       f.team = Math.floor((i + 1) / size);
-      f.look = { char: Math.random() < 0.5 ? 'man' : 'woman', chute: Math.random() < 0.5 ? 'round' : 'wing', outfit: BOT_OUTFIT() };
+      const cr = Math.random();
+      f.look = { char: cr < 0.06 ? 'jackal' : cr < 0.12 ? 'luchador' : cr < 0.56 ? 'man' : 'woman', chute: Math.random() < 0.5 ? 'round' : 'wing', outfit: BOT_OUTFIT() };
       f.strafe = Math.random() < 0.5 ? 1 : -1;
       const st = Math.random();
       f.style = st < 0.3 ? 'aggro' : st < 0.6 ? 'careful' : 'normal';

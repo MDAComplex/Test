@@ -1,3 +1,4 @@
+import { plushData, PlushKind, PLUSH_KINDS } from './plush';
 import * as THREE from 'three';
 import { ChuteDesign, WHITE_CHUTE } from '../chute';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
@@ -17,9 +18,13 @@ export interface Rig {
   gunKick: THREE.Group;
   shirtMat: THREE.MeshToonMaterial;
   mats: THREE.Material[];
+  /** Plüsch-Figuren haben andere Proportionen: Höhe des Oberkörpers, Waffen-Höhenversatz, Beinlänge relativ */
+  torsoY?: number;
+  gunDy?: number;
+  hipK?: number;
 }
 
-export type CharKind = 'man' | 'woman';
+export type CharKind = 'man' | 'woman' | PlushKind;
 /** Outfit über der Grundfigur: 'none' = normale Kleidung in der gewählten Farbe */
 export type Outfit = 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger';
 export const OUTFITS: { id: Outfit; name: string }[] = [
@@ -162,7 +167,13 @@ export function buildCharacter(opts: {
   toon: (c: number) => THREE.MeshToonMaterial;
   outfit?: Outfit;
 }): Rig {
-  const { kind, toon } = opts;
+  const { toon } = opts;
+  let kind = opts.kind;
+  if ((PLUSH_KINDS as string[]).includes(kind)) {
+    const pd = plushData(kind as PlushKind);
+    if (pd) return buildPlush(pd, toon);
+    kind = 'man'; // noch nicht geladen: vorerst normale Figur
+  }
   const outfit = opts.outfit ?? 'none';
   const astro = outfit === 'astronaut', skel = outfit === 'skeleton', office = outfit === 'office', jog = outfit === 'jogger';
   const NAVY = 0x252a44;
@@ -570,7 +581,7 @@ export function animateRig(rig: Rig, s: AnimState) {
   rig.torso.rotation.set(-Math.sin(phase) * 0.03 * amp, twist + blade, -0.05 * amp);
   rig.head.rotation.y -= blade + twist;
   // Atmen im Stand
-  rig.torso.position.y = 1.0 + (1 - amp) * Math.sin(s.time * 2.2) * 0.012;
+  rig.torso.position.y = (rig.torsoY ?? 1.0) + (1 - amp) * Math.sin(s.time * 2.2) * 0.012;
 
   const two = s.twoHanded;
   const fists = s.weapon === 'fists';
@@ -614,7 +625,7 @@ export function animateRig(rig: Rig, s: AnimState) {
     rig.arms[1].shoulder.rotation.z = swingL;
     rig.arms[1].elbow.rotation.z = 0.25 + 0.18 * amp + Math.max(0, swingL) * 1.5;
   }
-  rig.gunPivot.position.set(lerp(c.gun[0], a.gun[0], k), lerp(c.gun[1], a.gun[1], k) + rig.body.position.y, lerp(c.gun[2], a.gun[2], k));
+  rig.gunPivot.position.set(lerp(c.gun[0], a.gun[0], k), lerp(c.gun[1], a.gun[1], k) + rig.body.position.y + (rig.gunDy ?? 0), lerp(c.gun[2], a.gun[2], k));
   rig.gunPivot.rotation.set(0, lerp(c.gunRot[0], a.gunRot[0], k), lerp(c.gunRot[1], a.gunRot[1], k));
   // beim Tragen wippt und pendelt die Waffe im Schritt mit (Arme folgen über IK)
   const carryK = (1 - k) * amp;
@@ -654,7 +665,7 @@ export function poseCrawl(rig: Rig, t: number, moving: number) {
   const m = moving;
   const c = Math.sin(t), c2 = Math.sin(t + Math.PI);
   // Becken tief, Oberschenkel senkrecht, Unterschenkel liegen nach hinten auf dem Boden
-  rig.body.position.y = -0.42 + Math.abs(Math.sin(t)) * 0.03 * m;
+  rig.body.position.y = -0.42 * (rig.hipK ?? 1) + Math.abs(Math.sin(t)) * 0.03 * m;
   rig.legs[0].hip.rotation.set(0, 0, 0.12 + c * 0.28 * m);
   rig.legs[1].hip.rotation.set(0, 0, 0.12 + c2 * 0.28 * m);
   rig.legs[0].knee.rotation.z = -1.5 - c * 0.15 * m;
@@ -900,4 +911,55 @@ export function buildChute(kind: ChuteKind, design: ChuteDesign = WHITE_CHUTE, g
   disposables.push(lg);
   chute.add(new THREE.LineSegments(lg, lineMat));
   return { chute, disposables };
+}
+
+/** Skelett mit Plüsch-Teilen: gleiche Knochen-Struktur wie die normalen Figuren, nur andere Gelenk-Positionen */
+function buildPlush(pd: NonNullable<ReturnType<typeof plushData>>, toon: (c: number) => THREE.MeshToonMaterial): Rig {
+  const body = new THREE.Group();
+  const pelvis = new THREE.Group();
+  body.add(pelvis);
+  const legs = [pd.legZ, -pd.legZ].map((z) => {
+    const hip = new THREE.Bone();
+    hip.position.set(0, pd.hipY, z);
+    const knee = new THREE.Bone();
+    knee.position.y = -pd.hipY * 0.5;
+    hip.add(knee);
+    pelvis.add(hip);
+    return { hip, knee };
+  });
+  const torso = new THREE.Group();
+  torso.position.y = pd.torsoY;
+  body.add(torso);
+  const head = new THREE.Group();
+  head.position.y = pd.headY;
+  torso.add(head);
+  const arms = pd.shoulder.map((sh) => {
+    const shoulder = new THREE.Bone();
+    shoulder.position.set(sh.x, sh.y, sh.z);
+    shoulder.userData.rest = shoulder.position.clone();
+    const elbow = new THREE.Bone();
+    elbow.position.y = -UPPER;
+    shoulder.add(elbow);
+    torso.add(shoulder);
+    return { shoulder, elbow };
+  });
+  // Hauptfarbe (meiste Fläche) bekommt ein eigenes Material, damit sie bei Treffern aufblitzen kann
+  const area = new Map<string, number>();
+  for (const p of pd.parts) area.set(p.color.getHexString(), (area.get(p.color.getHexString()) ?? 0) + p.geo.getAttribute('position').count);
+  const mainHex = [...area.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  const shirtMat = toon(parseInt(mainHex, 16)).clone();
+  const target: Record<string, THREE.Object3D> = {
+    head, torso, pelvis, legR: legs[0].hip, legL: legs[1].hip, upR: arms[0].shoulder, upL: arms[1].shoulder, loR: arms[0].elbow, loL: arms[1].elbow,
+  };
+  for (const p of pd.parts) {
+    const hexs = p.color.getHexString();
+    const m = new THREE.Mesh(p.geo, hexs === mainHex ? shirtMat : toon(p.color.getHex()));
+    m.castShadow = true;
+    target[p.bone].add(m);
+  }
+  const gunPivot = new THREE.Group();
+  const gunKick = new THREE.Group();
+  gunPivot.add(gunKick);
+  body.add(gunPivot);
+  return { body, torso, pelvis, head, legs, arms, gunPivot, gunKick, shirtMat, mats: [shirtMat], torsoY: pd.torsoY, gunDy: pd.torsoY - 1.0, hipK: pd.hipY / 0.9 };
 }
