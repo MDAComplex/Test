@@ -21,6 +21,7 @@ function getMats(gradient: THREE.Texture) {
     gold: toon(0xffc93c),
     greenMain: toon(0x3fcf6a), greenMain2: toon(0x2fbf5c), greenDark: toon(0x1f8a43),
     healGlow: new THREE.MeshBasicMaterial({ color: 0xc8ffd8 }), healLiquid: new THREE.MeshBasicMaterial({ color: 0x5dff8a }),
+    shieldLiquid: new THREE.MeshBasicMaterial({ color: 0x6ad0ff }), techDark: toon(0x30343d), techScreen: toon(0x15181e),
     syringeGlass: new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: gradient, transparent: true, opacity: 0.5 }), shieldGlow: new THREE.MeshBasicMaterial({ color: 0xcfe8ff }),
   };
   return mats;
@@ -80,25 +81,37 @@ export function buildItem(kind: Kind, gradient: THREE.Texture): THREE.Group {
     cache.set(kind, g);
     return g.clone();
   }
-  // Design A: Hartschalen-Koffer – farbiges Unterteil, heller Deckel, dunkles Feld mit leuchtendem Symbol, Seitengriffe, Schnallen
-  const big = kind === 'bigmed', sc = big ? 1.25 : 1;
-  const col = kind === 'armor' ? { main: M.blue, dark: M.blueDark, glow: M.shieldGlow } : { main: big ? M.greenMain2 : M.greenMain, dark: M.greenDark, glow: M.healGlow };
-  const w = 0.8 * sc, d = 0.6 * sc, h = 0.42 * sc;
-  rb(col.main, w, h * 0.62, d, 0, h * 0.31, 0, 0.08);
-  rb(M.white, w * 1.02, h * 0.42, d * 1.02, 0, h * 0.78, 0, 0.09);
-  rb(col.dark, w * 1.04, 0.05, d * 1.04, 0, h * 0.6, 0, 0.02);
-  rb(col.dark, w * 0.56, 0.03, d * 0.6, 0, h * 1.0, 0, 0.05);
-  icon(kind === 'armor' ? 'shield' : 'cross', d * 0.42, col.glow, 0, h * 1.03, 0);
-  for (const sx of [-1, 1]) rb(M.dark, 0.06 * sc, 0.1 * sc, d * 0.5, sx * (w / 2 + 0.03 * sc), h * 0.45, 0, 0.03);
-  for (const sz of [-1, 1]) for (const sx of [-1, 1]) rb(M.metal, 0.09 * sc, 0.1 * sc, 0.04, sx * w * 0.32, h * 0.62, sz * (d / 2 + 0.01), 0.015);
-  // Symbol auch vorne und hinten, damit man es beim Drehen immer sieht
-  for (const sz of [-1, 1]) icon(kind === 'armor' ? 'shield' : 'cross', h * 0.36, col.glow, 0, h * 0.3, sz * (d / 2 + 0.02), true);
-  g.position.y = -0.2 * sc;
-  for (const [mat, geos] of parts) {
-    const mesh = new THREE.Mesh(mergeGeometries(geos)!, mat);
-    mesh.castShadow = mat !== M.coreGlow;
-    g.add(mesh);
+  // Tech-Koffer (großes Medikit V4 / Schildkoffer E): dunkles Unterteil, Leuchtstreifen, heller Deckel mit Symbol.
+  // Der Deckel ist ein eigenes Teil ('lid') mit Scharnier hinten, damit er beim Aufheben aufspringen kann.
+  const heal = kind === 'bigmed';
+  const glowM = heal ? M.healLiquid : M.shieldLiquid;
+  const w = 0.9, d = 0.62, h = 0.3;
+  rb(M.techDark, w, h, d, 0, h / 2, 0, 0.14);
+  rb(glowM, w + 0.02, 0.04, d + 0.02, 0, h - 0.04, 0, 0.02);
+  rb(M.techScreen, 0.22, 0.2, 0.02, 0, h * 0.5, d / 2 + 0.005, 0.05);
+  if (heal) icon('cross', 0.13, glowM, 0, h * 0.5, d / 2 + 0.02, true); else icon('shield', 0.13, glowM, 0, h * 0.5, d / 2 + 0.02, true);
+  if (heal) for (const x of [-0.3, 0.3]) rb(M.metal, 0.1, 0.14, 0.05, x, h, d / 2 + 0.01, 0.02);
+  // Inhalt (sieht man nur, wenn der Deckel offen ist)
+  rb(M.white, w - 0.1, 0.03, d - 0.1, 0, h + 0.005, 0, 0.02);
+  for (let i = 0; i < 4; i++) put(new THREE.CylinderGeometry(0.04, 0.04, 0.2, 10), glowM, -0.27 + i * 0.18, h + 0.05, 0.03, Math.PI / 2);
+  for (const [mat, geos] of parts) { const mesh = new THREE.Mesh(mergeGeometries(geos)!, mat); mesh.castShadow = true; g.add(mesh); }
+  parts.clear();
+  // Deckel: Drehpunkt an der Hinterkante
+  rb(M.white, w, 0.26, d, 0, 0.13, d / 2, 0.14);
+  if (heal) {
+    put(new THREE.TorusGeometry(0.16, 0.025, 8, 28), glowM, 0, 0.265, d / 2, Math.PI / 2);
+    icon('cross', 0.2, M.greenMain, 0, 0.265, d / 2);
+  } else {
+    rb(M.techScreen, 0.36, 0.03, 0.3, 0, 0.26, d / 2, 0.05);
+    icon('shield', 0.22, glowM, 0, 0.285, d / 2);
   }
+  const lid = new THREE.Group();
+  lid.name = 'lid';
+  lid.position.set(0, h + 0.01, -d / 2);
+  for (const [mat, geos] of parts) { const mesh = new THREE.Mesh(mergeGeometries(geos)!, mat); mesh.castShadow = true; lid.add(mesh); }
+  parts.clear();
+  g.add(lid);
+  g.position.y = -0.2;
   cache.set(kind, g);
   return g.clone();
 }
