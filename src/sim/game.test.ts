@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Game, segRect, Fighter } from './game';
 import { generateMap } from '../mapgen';
-import { WEAPONS } from '../weapons';
+import { WEAPONS, weaponOf } from '../weapons';
 
 /** Runde ohne Flugzeugphase: Spieler steht am Boden, alle Bots sind weg */
 function groundGame(seed = 1234) {
@@ -374,5 +374,20 @@ describe('Wasser neben Brücken', () => {
         if (!g.onBridge(p.x, p.y)) expect(minD).toBeGreaterThanOrEqual(rv.width / 2);
       }
     }
+  });
+});
+
+describe('Raketenwerfer', () => {
+  it('eigene Explosion trifft einen selbst', () => {
+    const g = new Game(generateMap(8));
+    const p = g.player;
+    for (const f of g.fighters) { f.phase = 'ground'; f.z = 0; if (!f.isPlayer) { f.alive = false; f.x = 10; f.y = 10; } }
+    g.time = 30000;
+    const o = g.obstacles.find((q) => q.kind === 'wall' && q.w > 120)!;
+    p.x = o.x; p.y = o.rect.y - 22; p.vx = p.vy = 0; p.armor = 0; p.hp = 100;
+    p.weapon = weaponOf('rocket', 4); p.mag = 1; p.ammo = 0;
+    g.input.aim = Math.PI / 2; g.input.firing = true;
+    for (let t = 0; t < 600; t += 16) g.update(16);
+    expect(p.hp).toBeLessThan(60);
   });
 });

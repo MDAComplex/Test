@@ -828,7 +828,9 @@ export class Game {
     f.lastShot = now;
     f.lastFiredAt = now;
     const extra = f.isPlayer ? 0 : 0.12;
-    const sx = f.x + Math.cos(f.aim) * 20, sy = f.y + Math.sin(f.aim) * 20;
+    // Raketen starten in der Körpermitte, damit sie an einer Wand direkt vor einem sicher explodieren
+    const mo = w.splash ? 4 : 20;
+    const sx = f.x + Math.cos(f.aim) * mo, sy = f.y + Math.sin(f.aim) * mo;
     for (let i = 0; i < w.pellets; i++) {
       const a = f.aim + (Math.random() - 0.5) * 2 * (w.spread + extra);
       this.bullets.push({
@@ -936,7 +938,8 @@ export class Game {
       if (d > r + FIGHTER_R) continue;
       if (!this.hasLOS(x, y, f.x, f.y) && d > 30) continue;
       const k = Math.max(0.25, 1 - d / (r + FIGHTER_R));
-      this.damage(f, b.dmg * k * (f === b.owner ? 0.5 : 1), b.owner, false, b.weapon);
+      // auch der Schütze selbst bekommt vollen Schaden, wenn er im Explosionsradius steht
+      this.damage(f, b.dmg * k, b.owner, false, b.weapon);
     }
   }
 
@@ -1002,8 +1005,9 @@ export class Game {
     f.hp = 0;
     f.target = null;
     f.diedAt = this.time;
+    const self = attacker === f;
     f.killedBy = attacker;
-    if (attacker) attacker.kills++;
+    if (attacker && !self) attacker.kills++;
     const drops: LootKind[] = [];
     if (f.weapon.id !== 'fists') drops.push(wKind(f.weapon.id, f.weapon.tier));
     if (f.ammo >= 15) drops.push('ammo');
@@ -1018,10 +1022,10 @@ export class Game {
     const alive = this.aliveCount();
     this.events.push({
       type: 'kill', f,
-      killer: attacker ? attacker.name : 'Zone',
+      killer: self ? 'Selbst' : attacker ? attacker.name : 'Zone',
       victim: f.name,
       weapon: attacker ? weapon : 'Zone',
-      mine: attacker === this.player,
+      mine: attacker === this.player && !self,
       me: f === this.player,
     });
     this.checkTeams();

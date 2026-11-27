@@ -733,7 +733,7 @@ export class Hud {
           break;
         case 'kill': {
           const color = ev.me ? '#ff6b6b' : ev.mine ? '#ffd23f' : '#ffffff';
-          const txt = ev.killer === 'Zone' ? `${ev.victim} von der Zone erwischt` : `${ev.killer} → ${ev.victim} (${ev.weapon})`;
+          const txt = ev.killer === 'Zone' ? `${ev.victim} von der Zone erwischt` : ev.killer === 'Selbst' ? `${ev.victim} von der eigenen Explosion erwischt` : `${ev.killer} → ${ev.victim} (${ev.weapon})`;
           this.feedLine(txt, color);
           if (ev.mine) { this.sfx.kill(); this.hitMarker(r, ev.f.x, ev.f.y, true); this.killNote(ev.victim); }
           break;
