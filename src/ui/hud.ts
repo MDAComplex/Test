@@ -9,6 +9,8 @@ import { WEAPONS, TIER_COLORS, WeaponId, parseWeapon, RARITY_NAMES } from '../we
 import { Preview } from './preview';
 import { portrait, gunIcon } from './portrait';
 import { Victory } from './victory';
+import { Locker } from './locker';
+import type { WrapId } from '../wraps';
 import { EMOTES, EmoteId } from '../render/emotes';
 import { ANIM } from '../render/character';
 import { CHUTE_COLORS, CHUTE_LOGOS } from '../chute';
@@ -70,6 +72,7 @@ export class Hud {
   private tut = { step: -1, t: 0 };
   private rotateEl: HTMLElement;
   private lockerEl: HTMLElement;
+  private lockerUi!: Locker;
   private preview: Preview | null = null;
   private lobbyPv: Preview | null = null;
   private winEl!: HTMLElement;
@@ -218,26 +221,8 @@ export class Hud {
         </div>
       </div>`);
     this.ring = $(`<div class="pring hidden"><svg viewBox="0 0 60 60" width="60" height="60"><circle cx="30" cy="30" r="26" class="bg"/><circle cx="30" cy="30" r="26" class="fg"/></svg></div>`);
-    this.lockerEl = $(`
-      <div class="screen hidden" id="locker">
-        <div class="panel lockpanel">
-          <h2>Spind</h2>
-          <div class="lockgrid">
-            <canvas class="pv" width="260" height="300" aria-label="Vorschau deiner Figur"></canvas>
-            <div class="lockopts">
-              <div class="row"><span>Figur</span><div class="seg" data-lock="char"><button data-v="man">Mann</button><button data-v="woman">Frau</button><button data-v="jackal">Schakal</button><button data-v="luchador">Luchador</button></div></div>
-              <div class="row"><span>Outfit</span><div class="seg" data-lock="outfit"><button data-v="none">Normal</button><button data-v="astronaut">Astronaut</button><button data-v="skeleton">Skelett</button><button data-v="office">Büro</button><button data-v="jogger">Jogger</button></div></div>
-              <div class="row"><span>Farbe</span><div class="skins" aria-label="Farbe deiner Figur"></div></div>
-              <div class="row"><span>Fallschirm</span><div class="seg" data-lock="chute"><button data-v="round">Rundkappe</button><button data-v="wing">Gleitschirm</button></div></div>
-              <div class="row"><span>Schirmfarbe</span><div class="swatches" data-cd="color"></div></div>
-              <div class="row"><span>Streifen</span><div class="swatches" data-cd="accent"></div></div>
-              <div class="row"><span>Logo</span><div class="seg logos">${CHUTE_LOGOS.map((l) => `<button data-logo="${l.id}">${l.name}</button>`).join('')}</div></div>
-              <div class="row"><label for="chute-text">Text auf dem Schirm</label><input id="chute-text" class="chutetext" maxlength="12" placeholder="z. B. dein Name" autocomplete="off"></div>
-            </div>
-          </div>
-          <div class="actions"><button class="btn closelocker">FERTIG</button></div>
-        </div>
-      </div>`);
+    this.lockerUi = new Locker(this.profile, () => this.closeLocker());
+    this.lockerEl = this.lockerUi.el;
     this.rotateEl = $(`<div class="screen hidden" id="rotate"><div class="rot-icon"></div><div class="subtitle">Bitte dreh dein Handy quer</div></div>`);
     this.dirsLayer = $(`<div class="dirs"></div>`);
     document.body.append(this.labelsLayer, this.dirsLayer, this.hud, this.menu, this.over, this.winEl, this.settingsEl, this.lockerEl, this.rotateEl);
@@ -285,36 +270,6 @@ export class Hud {
     this.menu.querySelector('.openhelp')!.addEventListener('click', () => this.menu.querySelector('.help')!.classList.remove('hidden'));
     this.menu.querySelector('.closehelp')!.addEventListener('click', () => this.menu.querySelector('.help')!.classList.add('hidden'));
     this.menu.querySelectorAll('.lb-slot').forEach((b) => b.addEventListener('click', () => this.notice('Online-Modus kommt bald: Dann kannst du hier Freunde einladen')));
-    this.lockerEl.querySelector('.closelocker')!.addEventListener('click', () => this.closeLocker());
-    // Fallschirm-Design: Farben, Logo, Text
-    this.lockerEl.querySelectorAll<HTMLElement>('.swatches').forEach((box) => {
-      const key = box.dataset.cd as 'color' | 'accent';
-      for (const c of CHUTE_COLORS) {
-        const b = document.createElement('button');
-        b.className = 'sw';
-        b.dataset.c = String(c);
-        b.style.setProperty('--c', '#' + c.toString(16).padStart(6, '0'));
-        b.setAttribute('aria-label', key === 'color' ? 'Schirmfarbe' : 'Streifenfarbe');
-        b.addEventListener('click', () => { this.profile.chuteDesign[key] = c; this.previewChute = true; saveProfile(this.profile); this.renderProfile(); });
-        box.append(b);
-      }
-    });
-    this.lockerEl.querySelectorAll<HTMLButtonElement>('.logos button').forEach((b) =>
-      b.addEventListener('click', () => { this.profile.chuteDesign.logo = b.dataset.logo as never; this.previewChute = true; saveProfile(this.profile); this.renderProfile(); }));
-    const txt = this.lockerEl.querySelector('.chutetext') as HTMLInputElement;
-    txt.addEventListener('input', () => { this.profile.chuteDesign.text = txt.value.slice(0, 12); this.previewChute = true; saveProfile(this.profile); this.renderProfile(); });
-    txt.addEventListener('keydown', (ev) => ev.stopPropagation());
-    this.lockerEl.querySelectorAll<HTMLElement>('[data-lock]').forEach((seg) =>
-      seg.querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
-        b.addEventListener('click', () => {
-          const key = seg.dataset.lock as 'char' | 'chute' | 'outfit';
-          (this.profile as unknown as Record<string, string>)[key] = b.dataset.v!;
-          this.previewChute = key === 'chute';
-          saveProfile(this.profile);
-          this.renderProfile();
-        }),
-      ),
-    );
     this.over.querySelector('.again')!.addEventListener('click', () => { startAudio(); this.cb.play(); });
     this.over.querySelector('.tomenu')!.addEventListener('click', () => this.cb.menu());
     this.winEl.querySelector('.again')!.addEventListener('click', () => { startAudio(); this.cb.play(); });
@@ -511,26 +466,21 @@ export class Hud {
   }
 
   /** nach dem Laden der Plüsch-Figuren Vorschau und Profilbild neu zeichnen */
-  refreshLook() { this.renderProfile(); }
+  refreshLook() { this.renderProfile(); this.lockerUi.refresh(); }
 
   get playerColor() { return skinColor(this.profile); }
-  get playerLook() { return { char: this.profile.char, chute: this.profile.chute, outfit: this.profile.outfit, design: { ...this.profile.chuteDesign } }; }
+  get playerLook() { return { char: this.profile.char, chute: this.profile.chute, outfit: this.profile.outfit, design: { ...this.profile.chuteDesign }, wrap: this.profile.wrap as WrapId }; }
 
   private openLocker() {
     this.menu.classList.add('hidden');
     this.lobbyPv?.stop();
-    this.lockerEl.classList.remove('hidden');
-    if (!this.preview) this.preview = new Preview(this.lockerEl.querySelector('.pv') as HTMLCanvasElement);
-    this.previewChute = false;
-    this.renderProfile();
-    this.preview.start();
+    this.lockerUi.open();
   }
 
   private closeLocker() {
-    this.lockerEl.classList.add('hidden');
+    this.lockerUi.close();
     this.menu.classList.remove('hidden');
     this.renderProfile();
-    this.preview?.stop();
     this.lobbyPv?.start();
   }
 
@@ -549,30 +499,7 @@ export class Hud {
     this.menu.querySelector('.lvlnum')!.textContent = `Level ${li.level}`;
     (this.menu.querySelector('.xpbar i') as HTMLElement).style.width = `${(li.into / li.need) * 100}%`;
     this.menu.querySelector('.xptext')!.textContent = `${li.into} / ${li.need} XP`;
-    const sk = this.lockerEl.querySelector('.skins')!;
-    sk.innerHTML = '';
-    for (const skin of SKINS) {
-      const locked = li.level < skin.level;
-      const b = document.createElement('button');
-      b.className = 'skin' + (pr.skin === skin.id ? ' on' : '') + (locked ? ' locked' : '');
-      b.style.setProperty('--c', hex(skin.color));
-      b.title = locked ? `${skin.name}: ab Level ${skin.level}` : skin.name;
-      b.setAttribute('aria-label', b.title);
-      b.innerHTML = locked ? `<small>${skin.level}</small>` : '';
-      if (!locked) b.addEventListener('click', () => { pr.skin = skin.id; this.previewChute = false; saveProfile(pr); this.renderProfile(); });
-      sk.append(b);
-    }
-    this.lockerEl.querySelectorAll<HTMLElement>('[data-lock]').forEach((seg) => {
-      const cur = (pr as unknown as Record<string, string>)[seg.dataset.lock!];
-      seg.querySelectorAll<HTMLElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.v === cur));
-    });
     const cd = pr.chuteDesign;
-    this.lockerEl.querySelectorAll<HTMLElement>('.swatches').forEach((box) =>
-      box.querySelectorAll<HTMLElement>('.sw').forEach((b) => b.classList.toggle('on', Number(b.dataset.c) === cd[box.dataset.cd as 'color' | 'accent'])));
-    this.lockerEl.querySelectorAll<HTMLElement>('.logos button').forEach((b) => b.classList.toggle('on', b.dataset.logo === cd.logo));
-    const ti = this.lockerEl.querySelector('.chutetext') as HTMLInputElement;
-    if (document.activeElement !== ti) ti.value = cd.text;
-    this.preview?.set(pr.char, skinColor(pr), pr.chute, this.previewChute, pr.outfit, cd);
     this.lobbyPv?.set(pr.char, skinColor(pr), pr.chute, false, pr.outfit, cd);
     (this.menu.querySelector('.lb-av') as HTMLImageElement).src = portrait(pr.char, skinColor(pr), 3, pr.outfit ?? 'none');
     const tl = this.menu.querySelector('.tasks')!;
@@ -1025,7 +952,7 @@ export class Hud {
       this.wIconKey = wkey;
       const img = this.hud.querySelector('.wicon') as HTMLImageElement;
       const fists = p.weapon.id === 'fists';
-      img.src = fists ? '' : gunIcon(p.weapon.id, p.weapon.tier);
+      img.src = fists ? '' : gunIcon(p.weapon.id, p.weapon.tier, p.look.wrap);
       img.alt = p.weapon.name;
       img.classList.toggle('hidden', fists);
       this.e.wname.textContent = fists ? p.weapon.name : '';

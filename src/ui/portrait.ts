@@ -3,6 +3,7 @@ import { buildCharacter, makeToon, CharKind, Outfit } from '../render/character'
 import { buildGun } from '../render/guns';
 import { plushData } from '../render/plush';
 import type { WeaponId } from '../weapons';
+import type { WrapId } from '../wraps';
 
 /** kleine Profilbilder (Kopf und Schultern) der Figuren, mit einem gemeinsamen Renderer */
 let gl: THREE.WebGLRenderer | null = null;
@@ -51,14 +52,14 @@ export function portrait(kind: CharKind, color: number, seed: number, outfit: Ou
 }
 
 /** Seitenansicht einer Waffe als Bild (für die Waffenanzeige unten) */
-export function gunIcon(id: WeaponId, tier: number): string {
-  const key = 'gun|' + id + '|' + tier;
+export function gunIcon(id: WeaponId, tier: number, wrap: WrapId = 'none'): string {
+  const key = 'gun|' + id + '|' + tier + '|' + wrap;
   const hit = cache.get(key);
   if (hit) return hit;
   if (id === 'fists') return '';
   try {
     if (!gl) setup();
-    const g = buildGun(id, tier, gradient);
+    const g = buildGun(id, tier, gradient, wrap);
     g.rotation.set(0.1, -0.12, 0);
     scene.add(g);
     g.updateMatrixWorld(true);

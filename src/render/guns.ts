@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TIER_COLORS, WeaponId } from '../weapons';
+import type { WrapId } from '../wraps';
 
 /**
  * Neue Waffenmodelle: abgerundete Teile, dunkler Comic-Umriss, Leuchtstreifen in Seltenheitsfarbe.
@@ -17,10 +18,52 @@ const outline = () => (outlineMat ??= new THREE.ShaderMaterial({
 }));
 
 type Mats = Record<string, THREE.Material>;
-const matCache = new Map<number, Mats>();
+const matCache = new Map<string, Mats>();
 
-function mats(tier: number, gradient: THREE.Texture): Mats {
-  const hit = matCache.get(tier);
+const WRAP_IDX: Record<string, number> = { jungle: 1, arctic: 2, desert: 3, carbon: 4, candy: 5, neon: 6, lava: 7, galaxy: 8 };
+/** Lack-Material: Muster im Modell-Raum (läuft sauber über alle Teile), Helligkeit je Teil bleibt erhalten */
+function wrapMat(gradient: THREE.Texture, wrap: WrapId, shade: number) {
+  const m = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: gradient });
+  const idx = WRAP_IDX[wrap] ?? 0;
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uWrap = { value: idx };
+    sh.uniforms.uShade = { value: shade };
+    sh.vertexShader = 'varying vec3 vWP;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = position;');
+    sh.fragmentShader = 'varying vec3 vWP;\nuniform float uWrap;\nuniform float uShade;\n' + WRAP_GLSL + sh.fragmentShader
+      .replace('#include <color_fragment>', '#include <color_fragment>\nvec3 wglow = vec3(0.0);\ndiffuseColor.rgb = wrapColor(vWP, uWrap, wglow) * (0.55 + 0.45 * uShade);')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += wglow;');
+  };
+  m.customProgramCacheKey = () => 'wrap' + idx;
+  return m;
+}
+
+const WRAP_GLSL = `
+float wh(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float wn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(wh(i), wh(i + vec3(1,0,0)), f.x), mix(wh(i + vec3(0,1,0)), wh(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(wh(i + vec3(0,0,1)), wh(i + vec3(1,0,1)), f.x), mix(wh(i + vec3(0,1,1)), wh(i + vec3(1,1,1)), f.x), f.y), f.z); }
+vec3 camo(vec3 p, vec3 a, vec3 b, vec3 c, vec3 d){ float n = wn(p * 7.0) * 0.65 + wn(p * 15.0) * 0.35; float m = wn(p * 9.0 + 3.1);
+  vec3 col = n < 0.42 ? a : n < 0.58 ? b : c; return m > 0.68 ? d : col; }
+vec3 wrapColor(vec3 p, float w, out vec3 glow){
+  glow = vec3(0.0);
+  if (w < 1.5) return camo(p, vec3(0.19,0.32,0.13), vec3(0.33,0.45,0.2), vec3(0.12,0.2,0.09), vec3(0.45,0.38,0.22));
+  if (w < 2.5) return camo(p, vec3(0.92,0.94,0.97), vec3(0.72,0.77,0.84), vec3(0.45,0.5,0.58), vec3(0.98,0.98,1.0));
+  if (w < 3.5) return camo(p, vec3(0.82,0.68,0.45), vec3(0.65,0.5,0.3), vec3(0.5,0.38,0.22), vec3(0.9,0.82,0.62));
+  if (w < 4.5) { vec2 q = floor((p.xy + p.zz) * 38.0); float k = mod(q.x + q.y, 2.0); return mix(vec3(0.07,0.075,0.085), vec3(0.17,0.18,0.2), k); }
+  if (w < 5.5) { float k = step(0.5, fract((p.x + p.y) * 9.0)); return mix(vec3(1.0,0.45,0.66), vec3(0.62,0.95,0.86), k); }
+  if (w < 6.5) { float l = abs(fract((p.x * 0.7 + p.y) * 6.0) - 0.5); float line = smoothstep(0.06, 0.0, l);
+    glow = mix(vec3(0.0,0.9,1.0), vec3(1.0,0.2,0.85), step(0.5, fract(p.x * 1.5))) * line; return vec3(0.06,0.06,0.09); }
+  if (w < 7.5) { float n = wn(p * 10.0); float crack = smoothstep(0.06, 0.0, abs(n - 0.5)); glow = vec3(1.0,0.38,0.05) * crack * 1.2; return vec3(0.12,0.08,0.07); }
+  float n = wn(p * 4.0); vec3 base = mix(vec3(0.12,0.05,0.3), vec3(0.05,0.18,0.42), n);
+  float st = step(0.985, wh(floor(p * 70.0))); glow = vec3(1.0) * st; return base + vec3(0.25,0.05,0.35) * wn(p * 9.0);
+}
+`;
+
+function mats(tier: number, gradient: THREE.Texture, wrap: WrapId = 'none'): Mats {
+  // goldene (legendäre) Waffen behalten ihr Gold
+  if (tier === 5) wrap = 'none';
+  const ck = tier + '|' + wrap;
+  const hit = matCache.get(ck);
   if (hit) return hit;
   const toon = (c: number) => new THREE.MeshToonMaterial({ color: c, gradientMap: gradient });
   const tc = TIER_COLORS[tier] ?? 0xbfc5cc;
@@ -39,17 +82,22 @@ function mats(tier: number, gradient: THREE.Texture): Mats {
     m = { ...m, gun: g2, steel: g1, light: g3, poly: g2, wood: g1, wood2: g2, olive: g1, olive2: g2, tan: g3, tier: g3, white: g3,
       tierGlow: new THREE.MeshBasicMaterial({ color: 0xfff3b0 }) };
   }
-  matCache.set(tier, m);
+  if (wrap !== 'none') {
+    // nur Lackflächen bekommen das Muster; Helligkeit je Teil bleibt (dunkles Gehäuse, heller Lauf)
+    const shades: Record<string, number> = { gun: 0.55, steel: 0.85, light: 1, poly: 0.45, olive: 0.8, olive2: 0.6, tan: 0.95, wood: 0.85, wood2: 0.6 };
+    for (const [k, sh] of Object.entries(shades)) m[k] = wrapMat(gradient, wrap, sh);
+  }
+  matCache.set(ck, m);
   return m;
 }
 
 const geoCache = new Map<string, THREE.Group>();
 
-export function buildGun(id: WeaponId, tier: number, gradient: THREE.Texture): THREE.Group {
-  const key = id + ':' + tier;
+export function buildGun(id: WeaponId, tier: number, gradient: THREE.Texture, wrap: WrapId = 'none'): THREE.Group {
+  const key = id + ':' + tier + ':' + (tier === 5 ? 'none' : wrap);
   const hit = geoCache.get(key);
   if (hit) return hit.clone();
-  const C = mats(tier, gradient);
+  const C = mats(tier, gradient, wrap);
   const parts: { geo: THREE.BufferGeometry; mat: THREE.Material; outline: boolean; spin: boolean }[] = [];
   let spinning = false;
   const tmp = new THREE.Object3D();

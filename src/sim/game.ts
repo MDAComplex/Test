@@ -4,6 +4,7 @@ import { MapData, LootKind, Obs, House } from '../mapgen';
 import { botNames, BODY_COLORS, PLAYER_COLOR } from '../names';
 import { recordResult } from '../storage';
 import type { ChuteDesign } from '../chute';
+import type { WrapId } from '../wraps';
 
 /** Bots tragen ab und zu ein Outfit, damit man die neuen Skins im Spiel sieht */
 const BOT_OUTFIT = () => {
@@ -156,7 +157,7 @@ export class Fighter {
   pickLoot: Loot | null = null;
   pickT = 0;
   /** Aussehen: Figur und Fallschirm */
-  look: { char: 'man' | 'woman' | 'jackal' | 'luchador'; chute: 'round' | 'wing'; outfit?: 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger'; design?: ChuteDesign } = { char: 'man', chute: 'round', outfit: 'none' };
+  look: { char: 'man' | 'woman' | 'jackal' | 'luchador'; chute: 'round' | 'wing'; outfit?: 'none' | 'astronaut' | 'skeleton' | 'office' | 'jogger'; design?: ChuteDesign; wrap?: WrapId } = { char: 'man', chute: 'round', outfit: 'none' };
   vx = 0;
   vy = 0;
   aiming = false;

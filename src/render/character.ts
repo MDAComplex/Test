@@ -844,15 +844,73 @@ function drawLogo(c: CanvasRenderingContext2D, logo: string, x: number, y: numbe
 }
 
 /** Schirmstoff: Bahnen in Haupt-/Streifenfarbe, Logo und Text */
+/** Grundmuster des Schirms (u = rundherum, v = von der Spitze zum Saum) */
+function drawPattern(c: CanvasRenderingContext2D, d: ChuteDesign, cells: number) {
+  const A = hexs(d.color), B = hexs(d.accent), W = 1024, H = 256;
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  c.fillStyle = A; c.fillRect(0, 0, W, H);
+  switch (d.pattern ?? 'bahnen') {
+    case 'bahnen':
+      for (let i = 0; i < cells; i++) { c.fillStyle = i % 2 === 0 ? A : B; c.fillRect((i / cells) * W, 0, W / cells + 1, H); }
+      break;
+    case 'uni':
+      c.fillStyle = B; c.fillRect(0, H - 46, W, 22);
+      break;
+    case 'ringe':
+      for (let k = 0; k < 4; k++) { c.fillStyle = B; c.fillRect(0, 30 + k * 56, W, 24); }
+      break;
+    case 'karo':
+      for (let i = 0; i < cells * 2; i++) for (let j = 0; j < 4; j++) if ((i + j) % 2) { c.fillStyle = B; c.fillRect((i / (cells * 2)) * W, j * 64, W / (cells * 2) + 1, 64); }
+      break;
+    case 'punkte':
+      c.fillStyle = B;
+      for (let j = 0; j < 4; j++) for (let i = 0; i < cells * 2; i++) { c.beginPath(); c.arc(((i + (j % 2) * 0.5) / (cells * 2)) * W, 34 + j * 60, 15, 0, Math.PI * 2); c.fill(); }
+      break;
+    case 'zickzack':
+      c.fillStyle = B;
+      for (const y0 of [70, 170]) {
+        c.beginPath(); c.moveTo(0, y0);
+        for (let i = 0; i <= cells * 3; i++) c.lineTo((i / (cells * 3)) * W, y0 + (i % 2 ? -26 : 26));
+        for (let i = cells * 3; i >= 0; i--) c.lineTo((i / (cells * 3)) * W, y0 + 26 + (i % 2 ? -26 : 26));
+        c.closePath(); c.fill();
+      }
+      break;
+    case 'verlauf': {
+      const gr = c.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, A); gr.addColorStop(1, B);
+      c.fillStyle = gr; c.fillRect(0, 0, W, H);
+      break;
+    }
+    case 'flammen':
+      c.fillStyle = B;
+      c.beginPath(); c.moveTo(0, H);
+      for (let i = 0; i <= cells * 2; i++) {
+        const x = (i / (cells * 2)) * W, tall = 90 + rnd() * 90;
+        c.quadraticCurveTo(x - W / (cells * 4), H - tall * 0.4, x, H - tall);
+        c.quadraticCurveTo(x + W / (cells * 8), H - tall * 0.5, x + W / (cells * 4), H - 30);
+      }
+      c.lineTo(W, H); c.closePath(); c.fill();
+      break;
+    case 'tarn':
+      for (let i = 0; i < 70; i++) {
+        c.fillStyle = i % 3 === 0 ? 'rgba(0,0,0,0.25)' : B;
+        const x = rnd() * W, y = rnd() * H, r = 18 + rnd() * 30;
+        c.beginPath(); c.ellipse(x, y, r * 1.6, r, rnd() * 3, 0, Math.PI * 2); c.fill();
+      }
+      break;
+    case 'sterne':
+      c.fillStyle = B;
+      for (let i = 0; i < 60; i++) { const x = rnd() * W, y = rnd() * H * 0.9, r = 3 + rnd() * 7; drawLogo(c, 'star', x, y, r, B); }
+      break;
+  }
+}
+
 function chuteTexture(d: ChuteDesign, cells: number, copies: number) {
   const cv = document.createElement('canvas');
   cv.width = 1024;
   cv.height = 256;
   const c = cv.getContext('2d')!;
-  for (let i = 0; i < cells; i++) {
-    c.fillStyle = hexs(i % 2 === 0 ? d.color : d.accent);
-    c.fillRect((i / cells) * 1024, 0, 1024 / cells + 1, 256);
-  }
+  drawPattern(c, d, cells);
   c.fillStyle = 'rgba(0,0,0,0.1)';
   c.fillRect(0, 232, 1024, 24);
   // Kontrastfarbe für Logo und Text

@@ -490,3 +490,76 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
   .win-stats span { font-size: 12px; padding: 4px 10px; }
   #win .btn { font-size: 18px; padding: 7px 24px; border-bottom-width: 4px; }
 }
+
+/* ---------- Spind (wie in einem echten Spiel) ---------- */
+#locker { padding: 0; display: block; background: radial-gradient(ellipse at 45% 40%, #2c5385 0%, #142640 55%, #0b1626 100%); text-align: left; overflow: hidden; }
+.lk { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 14px 18px 16px; gap: 10px; }
+.lk-head { display: flex; align-items: center; gap: 14px; }
+.lk-head b { font-size: 30px; letter-spacing: 1px; color: var(--gold); text-shadow: 0 3px 0 #7a3f00; }
+.lk-lvl { padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.12); font-size: 14px; }
+.lk-head .lk-done { margin-left: auto; font-size: 22px; padding: 8px 30px; }
+.lk-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 112px minmax(220px, 1fr) minmax(330px, 1.25fr); gap: 14px; }
+.lk-tabs { display: flex; flex-direction: column; gap: 8px; }
+.lk-tabs button { font: inherit; color: #cfe0f5; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border: 0; border-radius: 16px; background: rgba(255,255,255,.07); cursor: pointer; font-size: 13px; transition: background .15s, transform .1s; }
+.lk-tabs button svg { width: 28px; height: 28px; fill: currentColor; }
+.lk-tabs button:hover { background: rgba(255,255,255,.13); }
+.lk-tabs button.on { background: linear-gradient(180deg, #ffd23f, #ff9a2e); color: #3a2200; box-shadow: 0 4px 14px rgba(255,170,40,.35); }
+.lk-stage { position: relative; border-radius: 22px; background: radial-gradient(ellipse at 50% 70%, rgba(255,210,63,.25), rgba(255,255,255,.04) 60%); overflow: hidden; }
+.lk-stage::after { content: ''; position: absolute; left: 18%; right: 18%; bottom: 9%; height: 7%; border-radius: 50%; border: 3px solid rgba(255,225,120,.6); box-shadow: 0 0 20px rgba(255,210,63,.5); pointer-events: none; }
+.lk-stage .pv { position: absolute; inset: 0; width: 100%; height: 100%; }
+.lk-sel { position: absolute; left: 0; right: 0; bottom: 10px; display: flex; justify-content: center; align-items: center; gap: 8px; pointer-events: none; }
+.lk-sel-name { font-size: 20px; text-shadow: var(--shadow); }
+.lk-sel-r { font-size: 12px; padding: 2px 10px; border-radius: 999px; color: #111; }
+.lk-side { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.lk-title { font-size: 22px; }
+.lk-note { font-size: 13px; opacity: .8; }
+.lk-grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; align-content: start; padding: 2px 4px 8px 2px; touch-action: pan-y; }
+.lk-grid.wide { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.lk-card { font: inherit; color: #fff; position: relative; aspect-ratio: 0.82; border: 0; border-radius: 16px; cursor: pointer; padding: 0; overflow: hidden;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rc) 35%, #1b3152), #12223a 75%); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--rc) 70%, transparent); transition: transform .12s; }
+.lk-grid.wide .lk-card { aspect-ratio: 1.5; }
+.lk-card:hover { transform: translateY(-2px); }
+.lk-card img { position: absolute; inset: 0 0 22px; width: 100%; height: calc(100% - 22px); object-fit: contain; }
+.lk-card .lk-n { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 4px 5px; font-size: 12px; text-align: center; background: color-mix(in srgb, var(--rc) 55%, #0c1626); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lk-card.on { box-shadow: inset 0 0 0 3px #ffd23f, 0 0 16px rgba(255,210,63,.55); }
+.lk-check { position: absolute; right: 6px; top: 6px; width: 22px; height: 22px; border-radius: 50%; background: #ffd23f; color: #3a2200; font-size: 14px; display: grid; place-items: center; }
+.lk-card.locked { cursor: not-allowed; }
+.lk-card.locked img { filter: grayscale(1) brightness(.45); }
+.lk-lock { position: absolute; inset: 0 0 22px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; }
+.lk-lock svg { width: 22px; height: 22px; fill: #fff; }
+.lk-extra { display: flex; flex-direction: column; gap: 6px; }
+.lk-extra:empty { display: none; }
+.lk-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.lk-row > span, .lk-row > label { min-width: 84px; opacity: .85; }
+.lk-sw { display: flex; gap: 5px; flex-wrap: wrap; }
+.lk-sw button { width: 24px; height: 24px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); background: var(--c); cursor: pointer; }
+.lk-sw button.on { border-color: #ffd23f; box-shadow: 0 0 0 2px #ffd23f; }
+.lk-chips { display: flex; gap: 5px; flex-wrap: wrap; }
+.lk-chips button { font: inherit; font-size: 12px; color: #fff; padding: 4px 10px; border-radius: 999px; border: 0; background: rgba(255,255,255,.1); cursor: pointer; }
+.lk-chips button.on { background: #ffd23f; color: #3a2200; }
+.lk-row input { font: inherit; font-size: 14px; padding: 5px 10px; border-radius: 10px; border: 2px solid rgba(255,255,255,.25); background: rgba(0,0,0,.25); color: #fff; width: 170px; }
+@media (max-height: 520px) {
+  .lk { padding: 8px 10px; gap: 6px; }
+  .lk-head b { font-size: 22px; }
+  .lk-head .lk-done { font-size: 16px; padding: 5px 18px; }
+  .lk-body { grid-template-columns: 74px minmax(150px, .8fr) minmax(260px, 1.3fr); gap: 8px; }
+  .lk-tabs { gap: 4px; overflow-y: auto; }
+  .lk-tabs button { padding: 5px 4px; font-size: 10px; border-radius: 12px; }
+  .lk-tabs button svg { width: 20px; height: 20px; }
+  .lk-title { font-size: 16px; }
+  .lk-grid { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+  .lk-grid.wide { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+  .lk-sw button { width: 18px; height: 18px; }
+  .lk-row > span, .lk-row > label { min-width: 60px; }
+  .lk-sel-name { font-size: 14px; }
+}
+@media (orientation: portrait) {
+  .lk-body { grid-template-columns: 1fr; grid-template-rows: auto 34vh 1fr; }
+  .lk-tabs { flex-direction: row; overflow-x: auto; }
+  .lk-tabs button { flex: 0 0 76px; }
+}
+/* feste Zeilenhöhen statt aspect-ratio (verhindert überlappende Karten auf manchen Browsern) */
+.lk-grid { grid-auto-rows: 128px; }
+.lk-grid.wide { grid-auto-rows: 96px; }
+.lk-card, .lk-grid.wide .lk-card { aspect-ratio: auto; height: 100%; }
+@media (max-height: 520px) { .lk-grid { grid-auto-rows: 96px; } .lk-grid.wide { grid-auto-rows: 74px; } }

@@ -5,6 +5,7 @@ import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop, isContainer 
 import { WEAPONS, TIER_COLORS, WeaponId, parseWeapon } from '../weapons';
 import { CHUTE_Z, DROP_Z, FREE_BACK } from '../sim/game';
 import { buildGun } from './guns';
+import type { WrapId } from '../wraps';
 import { LootKind, RAIL_R, FOUNTAIN_R } from '../mapgen';
 import { WHITE_CHUTE } from '../chute';
 import { ANIM, buildCharacter, buildChute, animateRig, poseLying, poseCrawl, poseDeath, capturePose, makeToon, Rig, PoseSnap, DeathKind } from './character';
@@ -579,9 +580,9 @@ export class Renderer {
   // ---------- Modelle ----------
 
   /** Waffenmodell (siehe guns.ts), zeigt nach +X, Ursprung am Griff */
-  private makeGun(id: WeaponId, tier: number) {
+  private makeGun(id: WeaponId, tier: number, wrap: WrapId = 'none') {
     if (id === 'fists') return new THREE.Group();
-    return buildGun(id, tier, this.gradient);
+    return buildGun(id, tier, this.gradient, wrap);
   }
 
   private chuteTexture(color: number) {
@@ -634,7 +635,7 @@ export class Renderer {
     shadow.scale.setScalar(0.7);
     const lean = new THREE.Group();
     const rig = buildCharacter({ kind: f.look.char, shirt: f.color, seed: f.id * 7 + 3, gradient: this.gradient, toon: this.charToon, outfit: f.look.outfit });
-    rig.gunKick.add(this.makeGun(f.weapon.id, f.weapon.tier));
+    rig.gunKick.add(this.makeGun(f.weapon.id, f.weapon.tier, f.look.wrap));
     lean.add(rig.body);
     const { chute, disposables } = buildChute(f.look.chute, f.look.design ?? WHITE_CHUTE, this.gradient, this.m.line);
     this.perRound.push(...disposables, ...rig.mats);
@@ -1701,7 +1702,7 @@ export class Renderer {
     const rig = v.rig;
     if (v.weaponId !== f.weapon.id + f.weapon.tier) {
       rig.gunKick.clear();
-      rig.gunKick.add(this.makeGun(f.weapon.id, f.weapon.tier));
+      rig.gunKick.add(this.makeGun(f.weapon.id, f.weapon.tier, f.look.wrap));
       v.spin = rig.gunKick.getObjectByName('spin') ?? null;
       v.weaponId = f.weapon.id + f.weapon.tier;
     }
@@ -2216,7 +2217,7 @@ export class Renderer {
       }
       return g;
     }
-    const gun = this.makeGun(p.weapon.id, p.weapon.tier);
+    const gun = this.makeGun(p.weapon.id, p.weapon.tier, p.look.wrap);
     gun.scale.setScalar(0.3);
     gun.rotation.y = Math.PI / 2;
     // Griff (Waffen-Koordinaten ~ (0,-0.12,0)) an die rechte Hand

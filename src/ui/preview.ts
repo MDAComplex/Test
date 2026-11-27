@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { ChuteDesign, WHITE_CHUTE } from '../chute';
 import { buildCharacter, buildChute, animateRig, makeToon, CharKind, ChuteKind, Outfit } from '../render/character';
+import { animateEmote, EmoteId } from '../render/emotes';
+import { buildGun } from '../render/guns';
+import type { WeaponId } from '../weapons';
+import type { WrapId } from '../wraps';
+
+export interface PreviewExtra { emote?: EmoteId | null; gun?: { id: WeaponId; tier: number; wrap: WrapId } | null }
 
 /** kleine 3D-Vorschau der eigenen Figur im Spind (eigener Renderer, nur solange offen) */
 export class Preview {
@@ -34,7 +40,9 @@ export class Preview {
     if (!lobby) this.scene.add(ground);
   }
 
-  set(kind: CharKind, color: number, chute: ChuteKind, showChute: boolean, outfit: Outfit = 'none', design: ChuteDesign = WHITE_CHUTE) {
+  private extra: PreviewExtra = {};
+  set(kind: CharKind, color: number, chute: ChuteKind, showChute: boolean, outfit: Outfit = 'none', design: ChuteDesign = WHITE_CHUTE, extra: PreviewExtra = {}) {
+    this.extra = extra;
     this.disposables.forEach((d) => d.dispose());
     this.disposables = [];
     this.holder.clear();
@@ -47,6 +55,7 @@ export class Preview {
     this.chute.visible = showChute;
     this.disposables.push(...c.disposables);
     this.showChute = showChute;
+    if (extra.gun) this.rig.gunKick.add(buildGun(extra.gun.id, extra.gun.tier, this.gradient, extra.gun.wrap));
     this.resize();
   }
 
@@ -55,7 +64,7 @@ export class Preview {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     // mit Fallschirm weiter weg, damit alles ins Bild passt
-    const far = this.showChute ? 15 : this.lobby ? 6.4 : 7.2;
+    const far = this.showChute ? 15 : this.lobby ? 6.4 : 8.6;
     if (this.lobby) {
       // Lobby: frontal, leicht von unten (wirkt heldenhaft)
       this.camera.position.set(far, 1.35, 0.4);
@@ -74,7 +83,8 @@ export class Preview {
       this.holder.rotation.y = this.lobby ? Math.sin(this.t * 0.45) * 0.45 - 0.15 : this.t * 0.6;
       if (this.canvas.clientWidth && (this.canvas.width !== Math.round(this.canvas.clientWidth * this.renderer.getPixelRatio()))) this.resize();
       if (this.rig) {
-        animateRig(this.rig, { phase: this.t * 4, amp: 0, aim: 0, twoHanded: false, reload: 0, time: this.t, falling: this.showChute });
+        if (this.extra.emote && !this.showChute) animateEmote(this.rig, this.extra.emote, this.t);
+        else animateRig(this.rig, { phase: this.t * 4, amp: 0, aim: 0, twoHanded: !!this.extra.gun && this.extra.gun.id !== 'pistol', weapon: this.extra.gun?.id ?? 'fists', reload: 0, time: this.t, falling: this.showChute });
       }
       this.renderer.render(this.scene, this.camera);
       this.raf = requestAnimationFrame(loop);
