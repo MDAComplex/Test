@@ -2273,14 +2273,15 @@ export class Renderer {
     }
     const free = !spec && p.phase === 'fall' && p.z > CHUTE_Z;
     if (free) {
-      // Freifall: Kamera steht fast still über dem Landepunkt; die Figur kommt von unten (hinter der Kamera)
-      // ins Bild und fliegt in die Bildmitte, wo sich der Schirm öffnet
-      const u = clamp01((DROP_Z - p.z) / (DROP_Z - CHUTE_Z));
-      const back = FREE_BACK * S + 3, up = (DROP_Z - CHUTE_Z) * S + 16 - u * 7;
-      this.camTarget.set(p.landX * S, CHUTE_Z * S, p.landY * S);
-      this.pitch = Math.atan2(up, back);
-      this.camDist = Math.hypot(up, back);
-      this.camera.position.set(this.camTarget.x, this.camTarget.y + up, this.camTarget.z + back);
+      // Freifall: Kamera folgt der Figur weich von hinten oben (die Flugbahn bleibt gleich)
+      let kf = 1 - Math.exp(-dt * 5);
+      if (this.snapCam) { kf = 1; this.snapCam = false; }
+      this.camTarget.x = lerp(this.camTarget.x, p.x * S, kf);
+      this.camTarget.y = lerp(this.camTarget.y, p.z * S, kf);
+      this.camTarget.z = lerp(this.camTarget.z, p.y * S, kf);
+      this.pitch = lerp(this.pitch, (52 * Math.PI) / 180, kf);
+      this.camDist = lerp(this.camDist || 16, 16, kf);
+      this.camera.position.set(this.camTarget.x, this.camTarget.y + this.camDist * Math.sin(this.pitch), this.camTarget.z + this.camDist * Math.cos(this.pitch));
       this.camera.lookAt(this.camTarget);
       return;
     }
