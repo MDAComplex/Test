@@ -85,6 +85,24 @@ interface DropView { root: THREE.Group; chute: THREE.Group; smokeT: number; land
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
+/** Ring, der stufenlos per Shader gefüllt wird (im Uhrzeigersinn ab oben); kein Neubau der Geometrie pro Bild */
+function arcMaterial(color: number, opacity: number) {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { uProg: { value: 0 }, uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity } },
+    vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform float uProg; uniform vec3 uColor; uniform float uOpacity; varying vec2 vP;
+      void main(){
+        float a = atan(vP.x, vP.y); if (a < 0.0) a += 6.2831853;
+        float f = a / 6.2831853;
+        float edge = 0.004;
+        float k = 1.0 - smoothstep(uProg - edge, uProg + edge, f);
+        if (k <= 0.001) discard;
+        gl_FragColor = vec4(uColor, uOpacity * k);
+      }`,
+  });
+}
+
 interface Tod { name: string; sky: number; ground: number; hemi: number; sun: number; sunI: number; off: [number, number, number]; water: number }
 const TODS: Tod[] = [
   { name: 'Mittag', sky: 0xdff1ff, ground: 0x6f8f55, hemi: 1.5, sun: 0xfff3dc, sunI: 2.6, off: [-30, 70, 22], water: 0x3aa6dc },
@@ -168,9 +186,10 @@ export class Renderer {
   private doorLights: THREE.Mesh[] = [];
   private progMesh: THREE.Mesh | null = null;
   private progKey = '';
+  private progShown = 0;
   private progTrack: THREE.Mesh | null = null;
   private progTrackMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false });
-  private progMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
+  private progMat = arcMaterial(0xffffff, 0.55);
   private perRound: { dispose(): void }[] = [];
   private time = 0;
   private gradient: THREE.DataTexture;
@@ -817,7 +836,6 @@ export class Renderer {
     this.reloadMesh = null;
     this.reloadStep = -1;
     this.reviveMesh = null;
-    this.reviveStep = -1;
     this.progKey = '';
 
     const world = new THREE.Group();
@@ -1919,11 +1937,10 @@ export class Renderer {
     this.progTrack.visible = container;
     this.progTrack.position.set(target.x * S, 0.14, target.y * S);
     this.progTrack.scale.setScalar(target.r);
-    const steps = Math.max(1, Math.round(Math.min(1, target.t) * 64));
-    const key = `${steps}-${container}`;
+    const key = String(container);
     if (!this.progMesh || key !== this.progKey) {
       const inner = container ? 0.9 : 0.74;
-      const geo = new THREE.RingGeometry(inner, 1.04, 64, 1, Math.PI / 2, -(steps / 64) * Math.PI * 2);
+      const geo = new THREE.RingGeometry(inner, 1.04, 96, 1);
       if (this.progMesh) {
         this.progMesh.geometry.dispose();
         this.progMesh.geometry = geo;
@@ -1936,15 +1953,19 @@ export class Renderer {
     }
     if (this.progMesh.parent !== this.world) this.world!.add(this.progMesh);
     this.progMesh.visible = true;
-    this.progMat.color.setHex(target.color);
-    this.progMat.opacity = container ? 0.95 : 0.55;
+    // Anzeige läuft weich hinterher (gleicht ungleichmäßige Bildzeiten aus), springt aber nie zurück
+    const want = Math.min(1, target.t);
+    this.progShown = want < this.progShown - 0.05 ? want : lerp(this.progShown, want, 0.5);
+    this.progMat.uniforms.uProg.value = this.progShown;
+    this.progMat.uniforms.uColor.value.setHex(target.color);
+    this.progMat.uniforms.uOpacity.value = container ? 0.95 : 0.6;
     this.progMesh.position.set(target.x * S, 0.15, target.y * S);
     this.progMesh.scale.setScalar(target.r);
   }
 
   private reloadMesh: THREE.Mesh | null = null;
   private reloadStep = -1;
-  private reloadMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide });
+  private reloadMat = arcMaterial(0xffd23f, 0.85);
   private updateReloadRing(game: Game) {
     const p = game.player;
     if (!p.alive || !p.reloading || p.phase !== 'ground') {
@@ -1952,34 +1973,31 @@ export class Renderer {
       return;
     }
     const t = 1 - Math.max(0, p.reloadUntil - game.time) / p.weapon.reload;
-    const steps = Math.max(1, Math.round(t * 48));
+    const steps = 1;
     if (!this.reloadMesh || steps !== this.reloadStep) {
-      const geo = new THREE.RingGeometry(1.42, 1.56, 48, 1, Math.PI / 2, -(steps / 48) * Math.PI * 2);
-      if (this.reloadMesh) { this.reloadMesh.geometry.dispose(); this.reloadMesh.geometry = geo; }
-      else { this.reloadMesh = new THREE.Mesh(geo, this.reloadMat); this.reloadMesh.rotation.x = -Math.PI / 2; this.reloadMesh.renderOrder = 5; }
+      const geo = new THREE.RingGeometry(1.42, 1.56, 96, 1);
+      this.reloadMesh = new THREE.Mesh(geo, this.reloadMat); this.reloadMesh.rotation.x = -Math.PI / 2; this.reloadMesh.renderOrder = 5;
       this.reloadStep = steps;
     }
     if (this.reloadMesh.parent !== this.world) this.world!.add(this.reloadMesh);
     this.reloadMesh.visible = true;
+    this.reloadMat.uniforms.uProg.value = Math.min(1, t);
     this.reloadMesh.position.set(p.x * S, 0.15, p.y * S);
   }
 
   private reviveMesh: THREE.Mesh | null = null;
-  private reviveStep = -1;
-  private reviveMat = new THREE.MeshBasicMaterial({ color: 0x5dff7a, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide });
+  private reviveMat = arcMaterial(0x5dff7a, 0.9);
   private updateReviveRing(game: Game) {
     let target: Fighter | null = null;
     for (const f of game.fighters) {
       if (f.alive && f.downed && f.team === game.player.team && f.reviveT > 0 && (!target || f.reviveT > target.reviveT)) target = f;
     }
     if (!target) { if (this.reviveMesh) this.reviveMesh.visible = false; return; }
-    const steps = Math.max(1, Math.round(Math.min(1, target.reviveT / 3.5) * 48));
-    if (!this.reviveMesh || steps !== this.reviveStep) {
-      const geo = new THREE.RingGeometry(1.3, 1.5, 48, 1, Math.PI / 2, -(steps / 48) * Math.PI * 2);
-      if (this.reviveMesh) { this.reviveMesh.geometry.dispose(); this.reviveMesh.geometry = geo; }
-      else { this.reviveMesh = new THREE.Mesh(geo, this.reviveMat); this.reviveMesh.rotation.x = -Math.PI / 2; this.reviveMesh.renderOrder = 5; }
-      this.reviveStep = steps;
+    if (!this.reviveMesh) {
+      this.reviveMesh = new THREE.Mesh(new THREE.RingGeometry(1.3, 1.5, 96, 1), this.reviveMat);
+      this.reviveMesh.rotation.x = -Math.PI / 2; this.reviveMesh.renderOrder = 5;
     }
+    this.reviveMat.uniforms.uProg.value = Math.min(1, target.reviveT / 3.5);
     if (this.reviveMesh.parent !== this.world) this.world!.add(this.reviveMesh);
     this.reviveMesh.visible = true;
     this.reviveMesh.position.set(target.x * S, 0.15, target.y * S);

@@ -602,6 +602,38 @@ export class Game {
         }
       }
     });
+    this.keepOutOfRiver(f);
+  }
+
+  /** Brücke, auf deren Deck der Punkt liegt (zwischen den Geländern), sonst null */
+  onBridge(x: number, y: number) {
+    const rv = this.map.river, half = (rv.width + 150) / 2;
+    for (const b of rv.bridges) {
+      const ca = Math.cos(b.angle), sa = Math.sin(b.angle), dx = x - b.x, dy = y - b.y;
+      const along = dx * ca + dy * sa, across = -dx * sa + dy * ca;
+      if (Math.abs(along) < 60 && Math.abs(across) < half) return b;
+    }
+    return null;
+  }
+
+  /** exakte Wasserprüfung entlang der Flusslinie: wer im Fluss steht (und nicht auf einer Brücke), wird ans Ufer geschoben */
+  private keepOutOfRiver(f: Fighter) {
+    const rv = this.map.river, pts = rv.pts;
+    const half = rv.width / 2 + FIGHTER_R * 0.5;
+    let best = Infinity, nx = 0, ny = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const vx = b.x - a.x, vy = b.y - a.y, l2 = vx * vx + vy * vy || 1;
+      const t = clamp(((f.x - a.x) * vx + (f.y - a.y) * vy) / l2, 0, 1);
+      const px = a.x + vx * t, py = a.y + vy * t;
+      const d = Math.hypot(f.x - px, f.y - py);
+      if (d < best) { best = d; nx = px; ny = py; }
+    }
+    if (best >= half || this.onBridge(f.x, f.y)) return;
+    let dx = f.x - nx, dy = f.y - ny;
+    if (best < 0.001) { dx = 1; dy = 0; best = 1; }
+    f.x = nx + (dx / best) * half;
+    f.y = ny + (dy / best) * half;
   }
 
   private handlePlayer(now: number, dt: number) {

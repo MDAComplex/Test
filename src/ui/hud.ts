@@ -987,10 +987,11 @@ export class Hud {
       return true;
     });
 
+    // große Karte jedes Bild, damit Pfeil und Sturm flüssig laufen; Minikarte reicht 10x pro Sekunde
+    if (this.bigOpen) this.drawMini(game, this.bigCanvas, this.bigBase, 1536);
     if (now - this.lastMini > 100) {
       this.lastMini = now;
       this.drawMini(game);
-      if (this.bigOpen) this.drawMini(game, this.bigCanvas, this.bigBase, 1536);
     }
   }
 
@@ -1286,13 +1287,19 @@ export class Hud {
     g.fillStyle = big ? 'rgba(70,40,190,0.38)' : 'rgba(40,72,200,0.35)';
     g.fill('evenodd');
     if (big) {
-      // Schraffur außerhalb der Zone
+      // Sturm außerhalb der Zone: wandernde Schlieren und Wirbel, damit man die Bewegung sieht
       g.clip('evenodd');
-      g.strokeStyle = 'rgba(255,255,255,0.08)'; g.lineWidth = 3 * q;
-      for (let i = -N; i < N; i += 12 * q) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + N, N); g.stroke(); }
+      const off = ((now / 1000) * 18 * q) % (14 * q);
+      g.strokeStyle = 'rgba(210,190,255,0.13)'; g.lineWidth = 3 * q;
+      for (let i = -N; i < N + 14 * q; i += 14 * q) { g.beginPath(); g.moveTo(i + off, 0); g.lineTo(i + off + N, N); g.stroke(); }
+      g.strokeStyle = 'rgba(255,255,255,0.10)'; g.lineWidth = 2 * q;
+      for (let i = 0; i < 9; i++) {
+        const a = now / 2600 + i * 0.7, rr = zc.r * k + (18 + (i % 3) * 22) * q;
+        g.beginPath(); g.arc(zc.x * k, zc.y * k, rr, a, a + 0.9); g.stroke();
+      }
     }
     g.restore();
-    if (big) { g.save(); g.shadowColor = '#9fc2ff'; g.shadowBlur = 8 * q; }
+    if (big) { g.save(); g.shadowColor = '#b9a8ff'; g.shadowBlur = (8 + Math.sin(now / 250) * 4) * q; }
     g.strokeStyle = big ? '#b9a8ff' : '#7fb2ff'; g.lineWidth = (big ? 2.5 : 3) * q;
     g.beginPath(); g.arc(zc.x * k, zc.y * k, Math.max(0, zc.r * k), 0, 7); g.stroke();
     if (big) g.restore();

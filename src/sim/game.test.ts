@@ -350,3 +350,29 @@ describe('Countdown', () => {
     });
   }
 });
+
+describe('Wasser neben Brücken', () => {
+  it('vom Ufer neben der Brücke kommt man nicht ins Wasser', () => {
+    for (const seed of [31, 7, 99, 5]) {
+      const g = new Game(generateMap(seed));
+      const p = g.player;
+      for (const f of g.fighters) { f.phase = 'ground'; f.z = 0; if (!f.isPlayer) { f.alive = false; f.x = 10; f.y = 10; } }
+      g.time = 30000;
+      const rv = g.map.river;
+      for (const b of rv.bridges) for (const side of [-1, 1]) for (const off of [75, 100, 130]) {
+        // am Ufer neben der Brücke starten und quer in den Fluss laufen
+        const ca = Math.cos(b.angle), sa = Math.sin(b.angle);
+        const across = (rv.width / 2 + 40) * side;
+        p.x = b.x + ca * off - sa * across; p.y = b.y + sa * off + ca * across; p.vx = p.vy = 0;
+        g.input.mx = sa * side; g.input.my = -ca * side;
+        for (let t = 0; t < 1500; t += 16) g.update(16);
+        const minD = Math.min(...rv.pts.slice(0, -1).map((a, i) => {
+          const c = rv.pts[i + 1], vx = c.x - a.x, vy = c.y - a.y, l2 = vx * vx + vy * vy;
+          const t = Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / l2));
+          return Math.hypot(p.x - a.x - vx * t, p.y - a.y - vy * t);
+        }));
+        if (!g.onBridge(p.x, p.y)) expect(minD).toBeGreaterThanOrEqual(rv.width / 2);
+      }
+    }
+  });
+});
