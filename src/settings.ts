@@ -15,7 +15,7 @@ const defaults = (): Settings => ({ swap: false, quality: 'auto', stick: 'medium
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...defaults(), ...JSON.parse(raw) };
+    if (raw) return { ...defaults(), ...JSON.parse(raw), view: 'top' };
   } catch { /* Speicher nicht verfügbar */ }
   return defaults();
 }

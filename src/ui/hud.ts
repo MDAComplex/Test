@@ -79,7 +79,7 @@ export class Hud {
         <div class="zone"></div>
         <div class="warn hidden">Du bist außerhalb der Zone!</div>
         <canvas class="mini" width="320" height="320" aria-label="Karte (tippen für groß)"></canvas>
-        <div class="bigmap hidden"><canvas width="1024" height="1024" aria-label="Große Karte"></canvas><div class="bighint"></div></div>
+        <div class="bigmap hidden"><canvas width="1536" height="1536" aria-label="Große Karte"></canvas><div class="bighint"></div></div>
         <div class="mstats">
           <span class="ms" title="Noch am Leben"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="7" r="4.2" fill="currentColor"/><path d="M3.5 21c0-4.8 3.8-8 8.5-8s8.5 3.2 8.5 8z" fill="currentColor"/></svg><b class="alive"></b></span>
           <span class="ms" title="Deine Abschüsse"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><b class="kills"></b></span>
@@ -146,7 +146,7 @@ export class Hud {
           <h2>Einstellungen</h2>
           <div class="row"><span>Steuerung am Handy</span><div class="seg" data-key="swap">
             <button data-v="false">Links laufen · Rechts zielen</button><button data-v="true">Links zielen · Rechts laufen</button></div></div>
-          <div class="row"><span>Ansicht</span><div class="seg" data-key="view"><button data-v="top">Von oben</button><button data-v="fpp">Ich-Perspektive</button></div></div>
+          
           <div class="row"><span>Grafik</span><div class="seg" data-key="quality"><button data-v="auto">Automatisch</button><button data-v="high">Hoch</button><button data-v="low">Niedrig (flüssiger)</button></div></div>
           <div class="row"><span>Stick-Größe am Handy</span><div class="seg" data-key="stick"><button data-v="small">Klein</button><button data-v="medium">Mittel</button><button data-v="large">Groß</button></div></div>
           <div class="row"><span>Ton</span><div class="seg" data-key="sound"><button data-v="true">An</button><button data-v="false">Aus</button></div></div>
@@ -524,7 +524,7 @@ export class Hud {
     this.tut = { step: this.profile.tutorialDone ? -1 : 0, t: 0 };
     this.lastStepPos = { x: game.player.x, y: game.player.y };
     this.miniBase = this.buildMiniBase(game, 320);
-    this.bigBase = this.buildMiniBase(game, 1024);
+    this.bigBase = this.buildMiniBase(game, 1536);
     this.e.team.innerHTML = '';
     this.teamRows = [];
     // Profil: immer man selbst, dazu die Teamkameraden (Bild, Name, Leben und Schild)
@@ -738,7 +738,7 @@ export class Hud {
     this.bigOpen = on && !!this.game;
     this.e.bigmap.classList.toggle('hidden', !this.bigOpen);
     this.e.bighint.textContent = this.touch ? 'Tippen zum Schließen' : 'Tab loslassen zum Schließen';
-    if (this.bigOpen && this.game) this.drawMini(this.game, this.bigCanvas, this.bigBase, 1024);
+    if (this.bigOpen && this.game) this.drawMini(this.game, this.bigCanvas, this.bigBase, 1536);
   }
 
   private feedLine(txt: string, color: string) {
@@ -908,7 +908,7 @@ export class Hud {
     if (now - this.lastMini > 100) {
       this.lastMini = now;
       this.drawMini(game);
-      if (this.bigOpen) this.drawMini(game, this.bigCanvas, this.bigBase, 1024);
+      if (this.bigOpen) this.drawMini(game, this.bigCanvas, this.bigBase, 1536);
     }
   }
 
@@ -940,69 +940,185 @@ export class Hud {
 
   private buildMiniBase(game: Game, N = 320) {
     const q = N / 320;
+    const big = N > 400;
     const c = document.createElement('canvas');
     c.width = c.height = N;
     const g = c.getContext('2d')!;
     const k = N / WORLD;
-    g.fillStyle = '#ecd59a';
-    g.fillRect(0, 0, N, N);
-    g.fillStyle = '#86c95a';
+    let seed = 1234567;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    // Meer
+    if (big) {
+      const sea = g.createRadialGradient(N / 2, N / 2, N * 0.3, N / 2, N / 2, N * 0.75);
+      sea.addColorStop(0, '#3fb6e0'); sea.addColorStop(1, '#1d6fa8');
+      g.fillStyle = sea;
+      g.fillRect(0, 0, N, N);
+      g.strokeStyle = 'rgba(255,255,255,0.10)'; g.lineWidth = 1.4 * q;
+      for (let i = 0; i < 70; i++) {
+        const x = rnd() * N, y = rnd() * N, w = (6 + rnd() * 8) * q;
+        g.beginPath(); g.moveTo(x - w, y); g.quadraticCurveTo(x, y - 2.5 * q, x + w, y); g.stroke();
+      }
+      // Strand mit weichem Übergang ins Wasser
+      g.save();
+      g.shadowColor = 'rgba(160,235,255,0.9)'; g.shadowBlur = 10 * q;
+      g.fillStyle = '#f1dc9f';
+      g.beginPath(); g.roundRect(3 * q, 3 * q, N - 6 * q, N - 6 * q, 20 * q); g.fill();
+      g.restore();
+    } else {
+      g.fillStyle = '#ecd59a';
+      g.fillRect(0, 0, N, N);
+    }
+    // Gras
+    if (big) {
+      const gr = g.createLinearGradient(0, 0, N, N);
+      gr.addColorStop(0, '#93d264'); gr.addColorStop(1, '#74b84c');
+      g.fillStyle = gr;
+    } else g.fillStyle = '#86c95a';
     g.beginPath();
     g.roundRect(6 * q, 6 * q, N - 12 * q, N - 12 * q, 16 * q);
     g.fill();
-    g.fillStyle = 'rgba(70,140,50,0.55)';
+    if (big) {
+      g.save(); g.clip();
+      for (let i = 0; i < 900; i++) {
+        g.fillStyle = rnd() < 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(30,80,20,0.06)';
+        g.beginPath(); g.arc(rnd() * N, rnd() * N, (2 + rnd() * 5) * q, 0, 7); g.fill();
+      }
+      g.restore();
+    }
+    g.fillStyle = big ? 'rgba(52,120,40,0.45)' : 'rgba(70,140,50,0.55)';
     for (const f of game.map.forests) { g.beginPath(); g.arc(f.x * k, f.y * k, f.r * k, 0, 7); g.fill(); }
     g.fillStyle = '#e6c86e';
-    for (const f of game.map.fields) g.fillRect((f.x - f.w / 2) * k, (f.y - f.h / 2) * k, f.w * k, f.h * k);
-    g.fillStyle = '#4f9a3a';
-    for (const gf of game.map.grass) { g.beginPath(); g.arc(gf.x * k, gf.y * k, gf.r * k, 0, 7); g.fill(); }
+    for (const f of game.map.fields) {
+      g.fillRect((f.x - f.w / 2) * k, (f.y - f.h / 2) * k, f.w * k, f.h * k);
+      if (big) {
+        g.strokeStyle = 'rgba(160,120,40,0.35)'; g.lineWidth = 1 * q;
+        for (let x = f.x - f.w / 2 + 30; x < f.x + f.w / 2; x += 45) {
+          g.beginPath(); g.moveTo(x * k, (f.y - f.h / 2) * k); g.lineTo(x * k, (f.y + f.h / 2) * k); g.stroke();
+        }
+      }
+    }
     const rv = game.map.river;
-    g.strokeStyle = '#3aa6dc';
-    g.lineWidth = rv.width * k;
-    g.lineCap = 'round';
-    g.lineJoin = 'round';
-    g.beginPath();
-    rv.pts.forEach((pt, i) => (i ? g.lineTo(pt.x * k, pt.y * k) : g.moveTo(pt.x * k, pt.y * k)));
-    g.stroke();
-    g.fillStyle = '#b07c48';
+    const riverPath = () => { g.beginPath(); rv.pts.forEach((pt, i) => (i ? g.lineTo(pt.x * k, pt.y * k) : g.moveTo(pt.x * k, pt.y * k))); };
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    if (big) {
+      g.strokeStyle = '#d9c483'; g.lineWidth = rv.width * k + 5 * q; riverPath(); g.stroke();
+      g.strokeStyle = '#2f93cf'; g.lineWidth = rv.width * k; riverPath(); g.stroke();
+      g.strokeStyle = 'rgba(160,225,255,0.55)'; g.lineWidth = rv.width * k * 0.35; riverPath(); g.stroke();
+    } else {
+      g.strokeStyle = '#3aa6dc'; g.lineWidth = rv.width * k; riverPath(); g.stroke();
+    }
+    for (const p of game.map.ponds) {
+      if (big) { g.fillStyle = '#d9c483'; g.beginPath(); g.arc(p.x * k, p.y * k, p.r * k + 2.5 * q, 0, 7); g.fill(); }
+      g.fillStyle = big ? '#2f93cf' : '#3aa6dc'; g.beginPath(); g.arc(p.x * k, p.y * k, p.r * k, 0, 7); g.fill();
+      if (big) { g.fillStyle = 'rgba(160,225,255,0.4)'; g.beginPath(); g.arc(p.x * k - p.r * k * 0.25, p.y * k - p.r * k * 0.25, p.r * k * 0.45, 0, 7); g.fill(); }
+    }
     for (const b of rv.bridges) {
       g.save();
       g.translate(b.x * k, b.y * k);
       g.rotate(b.angle);
-      g.fillRect(-4 * q, -(rv.width + 150) * k / 2, 8 * q, (rv.width + 150) * k);
+      const L = (rv.width + 150) * k, W = (big ? 7 : 8) * q;
+      if (big) { g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(-W / 2 + 1.5 * q, -L / 2 + 1.5 * q, W, L); }
+      g.fillStyle = '#b07c48'; g.fillRect(-W / 2, -L / 2, W, L);
+      if (big) {
+        g.strokeStyle = '#7a5130'; g.lineWidth = 1 * q;
+        for (let y = -L / 2 + 3 * q; y < L / 2; y += 3 * q) { g.beginPath(); g.moveTo(-W / 2, y); g.lineTo(W / 2, y); g.stroke(); }
+      }
       g.restore();
     }
-    g.fillStyle = '#3aa6dc';
-    for (const p of game.map.ponds) { g.beginPath(); g.arc(p.x * k, p.y * k, p.r * k, 0, 7); g.fill(); }
     for (const o of game.map.obstacles) {
-      if (o.kind === 'rock') { g.fillStyle = '#9aa0a8'; g.beginPath(); g.arc(o.x * k, o.y * k, Math.max(1.5 * q, o.r * k), 0, 7); g.fill(); }
+      if (o.kind === 'rock') {
+        const r = Math.max(1.5 * q, o.r * k);
+        g.fillStyle = '#8e949c'; g.beginPath(); g.arc(o.x * k, o.y * k, r, 0, 7); g.fill();
+        if (big) { g.fillStyle = '#b9bec5'; g.beginPath(); g.arc(o.x * k - r * 0.3, o.y * k - r * 0.3, r * 0.5, 0, 7); g.fill(); }
+      } else if (big && (o.kind === 'tree' || o.kind === 'bush')) {
+        const r = Math.max(2.2 * q, o.r * k * (o.kind === 'tree' ? 2.6 : 1.1));
+        g.fillStyle = 'rgba(0,0,0,0.18)'; g.beginPath(); g.arc(o.x * k + r * 0.3, o.y * k + r * 0.3, r, 0, 7); g.fill();
+        g.fillStyle = o.kind === 'tree' ? '#2f7d33' : '#4f9f3c'; g.beginPath(); g.arc(o.x * k, o.y * k, r, 0, 7); g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.18)'; g.beginPath(); g.arc(o.x * k - r * 0.3, o.y * k - r * 0.3, r * 0.45, 0, 7); g.fill();
+      }
     }
     for (const h of game.houses) {
-      g.fillStyle = '#c0573e';
-      g.fillRect((h.x - h.s / 2) * k, (h.y - h.s / 2) * k, h.s * k, h.s * k);
+      const x = (h.x - h.s / 2) * k, y = (h.y - h.s / 2) * k, s = h.s * k;
+      if (big) {
+        g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(x + 3 * q, y + 3 * q, s, s);
+        g.fillStyle = '#d0644a'; g.fillRect(x, y, s, s);
+        // Dachfirst: zwei Dachhälften
+        g.fillStyle = '#a9452f'; g.fillRect(x, y + s / 2, s, s / 2);
+        g.strokeStyle = '#7a2e1f'; g.lineWidth = 1.5 * q; g.strokeRect(x, y, s, s);
+        g.strokeStyle = 'rgba(255,255,255,0.35)'; g.beginPath(); g.moveTo(x + 1 * q, y + s / 2); g.lineTo(x + s - 1 * q, y + s / 2); g.stroke();
+      } else {
+        g.fillStyle = '#c0573e';
+        g.fillRect(x, y, s, s);
+      }
+    }
+    if (big) {
+      // Planquadrate A-H / 1-8
+      const n = 8, step = N / n;
+      g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1 * q;
+      for (let i = 1; i < n; i++) {
+        g.beginPath(); g.moveTo(i * step, 0); g.lineTo(i * step, N); g.stroke();
+        g.beginPath(); g.moveTo(0, i * step); g.lineTo(N, i * step); g.stroke();
+      }
+      g.font = `900 ${11 * q}px Nunito, system-ui, sans-serif`;
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.lineWidth = 3 * q; g.strokeStyle = 'rgba(0,0,0,0.45)'; g.fillStyle = 'rgba(255,255,255,0.85)';
+      for (let i = 0; i < n; i++) {
+        const L = 'ABCDEFGH'[i];
+        g.strokeText(L, (i + 0.5) * step, 9 * q); g.fillText(L, (i + 0.5) * step, 9 * q);
+        g.strokeText(String(i + 1), 9 * q, (i + 0.5) * step); g.fillText(String(i + 1), 9 * q, (i + 0.5) * step);
+      }
     }
     return c;
+  }
+
+  /** Spieler-Pfeil (Navigationspfeil) mit weißem Rand und Schatten */
+  private arrow(g: CanvasRenderingContext2D, x: number, y: number, a: number, s: number, fill: string) {
+    g.save();
+    g.translate(x, y);
+    g.rotate(a + Math.PI / 2);
+    const path = () => {
+      g.beginPath();
+      g.moveTo(0, -s * 1.15);
+      g.lineTo(s * 0.8, s * 0.8);
+      g.lineTo(0, s * 0.38);
+      g.lineTo(-s * 0.8, s * 0.8);
+      g.closePath();
+    };
+    g.shadowColor = 'rgba(0,0,0,0.55)'; g.shadowBlur = s * 0.6; g.shadowOffsetY = s * 0.15;
+    path(); g.fillStyle = '#ffffff'; g.fill();
+    g.shadowColor = 'transparent';
+    g.lineJoin = 'round'; g.lineWidth = s * 0.32; g.strokeStyle = '#ffffff'; path(); g.stroke();
+    const grd = g.createLinearGradient(0, -s, 0, s);
+    grd.addColorStop(0, fill); grd.addColorStop(1, shade(fill));
+    path(); g.fillStyle = grd; g.fill();
+    g.restore();
   }
 
   private drawMini(game: Game, cv: HTMLCanvasElement = this.mini, base = this.miniBase, N = 320) {
     const g = cv.getContext('2d')!;
     const k = N / WORLD, q = N / 320;
+    const big = N > 400;
+    const now = performance.now();
     if (base) g.drawImage(base, 0, 0);
     for (const o of game.obstacles) {
       if (!isContainer(o) || o.opened) continue;
-      g.fillStyle = o.kind === 'crate' ? '#ffd54a' : o.kind === 'chest' ? '#ffc93c' : '#ff8a1e';
-      const s = (o.kind === 'crate' ? 3 : 5) * q;
+      const col = o.kind === 'crate' ? '#ffd54a' : o.kind === 'chest' ? '#ffc93c' : '#ff8a1e';
+      const s = (o.kind === 'crate' ? 3 : 5) * q * (big ? 0.8 : 1);
+      if (big) {
+        g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(o.x * k - s / 2 - 0.8 * q, o.y * k - s / 2 - 0.8 * q, s + 1.6 * q, s + 1.6 * q);
+      }
+      g.fillStyle = col;
       g.fillRect(o.x * k - s / 2, o.y * k - s / 2, s, s);
     }
     for (const d of game.airdrops) {
       if (d.obstacle) continue;
       g.strokeStyle = '#ff8a1e';
       g.lineWidth = 2 * q;
-      g.beginPath(); g.arc(d.x * k, d.y * k, (7 + Math.sin(performance.now() / 150) * 2) * q, 0, 7); g.stroke();
+      g.beginPath(); g.arc(d.x * k, d.y * k, (7 + Math.sin(now / 150) * 2) * q, 0, 7); g.stroke();
     }
     if (game.time < PLANE_TIME * 1.1) {
       const pl = game.plane;
-      g.strokeStyle = 'rgba(255,255,255,0.65)';
+      g.strokeStyle = 'rgba(255,255,255,0.75)';
       g.setLineDash([8 * q, 6 * q]);
       g.lineWidth = 2 * q;
       g.beginPath(); g.moveTo(pl.x1 * k, pl.y1 * k); g.lineTo(pl.x2 * k, pl.y2 * k); g.stroke();
@@ -1013,39 +1129,74 @@ export class Hud {
     g.beginPath();
     g.rect(0, 0, N, N);
     g.arc(zc.x * k, zc.y * k, Math.max(0, zc.r * k), 0, Math.PI * 2, true);
-    g.fillStyle = 'rgba(40,72,200,0.35)';
+    g.fillStyle = big ? 'rgba(70,40,190,0.38)' : 'rgba(40,72,200,0.35)';
     g.fill('evenodd');
+    if (big) {
+      // Schraffur außerhalb der Zone
+      g.clip('evenodd');
+      g.strokeStyle = 'rgba(255,255,255,0.08)'; g.lineWidth = 3 * q;
+      for (let i = -N; i < N; i += 12 * q) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + N, N); g.stroke(); }
+    }
     g.restore();
-    g.strokeStyle = '#7fb2ff'; g.lineWidth = 3 * q;
+    if (big) { g.save(); g.shadowColor = '#9fc2ff'; g.shadowBlur = 8 * q; }
+    g.strokeStyle = big ? '#b9a8ff' : '#7fb2ff'; g.lineWidth = (big ? 2.5 : 3) * q;
     g.beginPath(); g.arc(zc.x * k, zc.y * k, Math.max(0, zc.r * k), 0, 7); g.stroke();
+    if (big) g.restore();
     if (game.zoneState !== 'done' && zn.r > 0) {
-      g.strokeStyle = '#ffffff'; g.lineWidth = 2 * q;
+      g.strokeStyle = '#ffffff'; g.lineWidth = (big ? 1.6 : 2) * q;
+      if (big) g.setLineDash([6 * q, 4 * q]);
       g.beginPath(); g.arc(zn.x * k, zn.y * k, zn.r * k, 0, 7); g.stroke();
+      g.setLineDash([]);
     }
     const p = game.player;
+    if (big && p.alive && p.phase !== 'plane') {
+      // gestrichelte Linie zur nächsten Zone, wenn man draußen ist
+      if (game.zoneState !== 'done' && zn.r > 0 && Math.hypot(p.x - zn.x, p.y - zn.y) > zn.r) {
+        const a = Math.atan2(zn.y - p.y, zn.x - p.x);
+        const ex = zn.x - Math.cos(a) * zn.r, ey = zn.y - Math.sin(a) * zn.r;
+        g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 1.5 * q; g.setLineDash([3 * q, 3 * q]);
+        g.beginPath(); g.moveTo(p.x * k, p.y * k); g.lineTo(ex * k, ey * k); g.stroke(); g.setLineDash([]);
+      }
+    }
     if (game.mode !== 'solo') {
-      g.fillStyle = '#4aa8ff'; g.strokeStyle = '#000'; g.lineWidth = 2 * q;
       for (const m of game.teammates(p)) {
         if (!m.alive) continue;
         const pos = m.phase === 'plane' ? game.planePos() : m;
-        g.beginPath(); g.arc(pos.x * k, pos.y * k, 5 * q, 0, 7); g.fill(); g.stroke();
+        if (big && m.phase !== 'plane') {
+          this.arrow(g, pos.x * k, pos.y * k, m.aim, 5.5 * q, '#5ab4ff');
+        } else {
+          g.fillStyle = '#4aa8ff'; g.strokeStyle = '#000'; g.lineWidth = 2 * q;
+          g.beginPath(); g.arc(pos.x * k, pos.y * k, 5 * q, 0, 7); g.fill(); g.stroke();
+        }
       }
     }
     if (p.alive) {
       const pos = p.phase === 'plane' ? game.planePos() : p;
-      g.fillStyle = '#ffd23f'; g.strokeStyle = '#000'; g.lineWidth = 2 * q;
-      if (N > 400 && p.phase !== 'plane') {
-        // große Karte: Pfeil in Blickrichtung
-        const a = p.aim, r0 = 9 * q * 0.6;
-        g.beginPath();
-        g.moveTo(pos.x * k + Math.cos(a) * r0 * 1.8, pos.y * k + Math.sin(a) * r0 * 1.8);
-        g.lineTo(pos.x * k + Math.cos(a + 2.5) * r0, pos.y * k + Math.sin(a + 2.5) * r0);
-        g.lineTo(pos.x * k + Math.cos(a - 2.5) * r0, pos.y * k + Math.sin(a - 2.5) * r0);
-        g.closePath(); g.fill(); g.stroke();
+      if (big) {
+        const x = pos.x * k, y = pos.y * k;
+        if (p.phase !== 'plane') {
+          // Sichtkegel
+          const cone = g.createRadialGradient(x, y, 0, x, y, 34 * q);
+          cone.addColorStop(0, 'rgba(255,230,120,0.55)'); cone.addColorStop(1, 'rgba(255,230,120,0)');
+          g.fillStyle = cone;
+          g.beginPath(); g.moveTo(x, y); g.arc(x, y, 34 * q, p.aim - 0.5, p.aim + 0.5); g.closePath(); g.fill();
+        }
+        // pulsierender Ring
+        const t = (now % 1600) / 1600;
+        g.strokeStyle = `rgba(255,210,63,${0.8 * (1 - t)})`; g.lineWidth = 2 * q;
+        g.beginPath(); g.arc(x, y, (6 + t * 14) * q, 0, 7); g.stroke();
+        this.arrow(g, x, y, p.phase === 'plane' ? Math.atan2(game.plane.y2 - game.plane.y1, game.plane.x2 - game.plane.x1) : p.aim, 7 * q, '#ffd23f');
       } else {
+        g.fillStyle = '#ffd23f'; g.strokeStyle = '#000'; g.lineWidth = 2 * q;
         g.beginPath(); g.arc(pos.x * k, pos.y * k, 6 * q, 0, 7); g.fill(); g.stroke();
       }
     }
   }
 }
 
+/** Farbe etwas abdunkeln (für Verlauf im Pfeil) */
+function shade(hex: string) {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (v: number) => Math.round(v * 0.72);
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
