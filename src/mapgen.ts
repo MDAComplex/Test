@@ -133,6 +133,11 @@ export function generateMap(seed: number): MapData {
     }
   }
   for (const sp of samples) blocks.push({ x: sp.x, y: sp.y, r: RIVER_W / 2 + 40 });
+  // Zugänge zu den Brücken frei halten (kein Fels, Baum oder Fass vor dem Brückenende)
+  for (const b of bridges) {
+    const px = -Math.sin(b.angle), py = Math.cos(b.angle), half = (RIVER_W + 150) / 2;
+    for (const side of [-1, 1]) for (const d of [half, half + 90, half + 180]) blocks.push({ x: b.x + px * d * side, y: b.y + py * d * side, r: 95 });
+  }
   // alle Wasserstücke fürs Zeichnen (auch unter den Brücken)
   const river = { pts, width: RIVER_W, bridges, water: samples.map((sp) => ({ x: sp.x, y: sp.y })) };
 
@@ -231,6 +236,8 @@ export function generateMap(seed: number): MapData {
       const bx = p.x + side * (h + 34), by = p.y + (r() < 0.5 ? -1 : 1) * (90 + r() * Math.max(10, s * 0.3 - 90)) - 19;
       obstacles.push({ kind: 'barrel', x: bx, y: by, r: 17, w: 34, h: 34 });
       if (r() < 0.6) obstacles.push({ kind: 'barrel', x: bx, y: by + 38, r: 17, w: 34, h: 34 });
+      // Platz um die Fässer frei halten (kein Baum oder Fels direkt daneben)
+      blocks.push({ x: bx, y: by + 19, r: 80 });
     }
   };
 
@@ -295,11 +302,12 @@ export function generateMap(seed: number): MapData {
   const rocky = { x: r() * WORLD, y: r() * WORLD };
   const addRock = (rad: number, p: { x: number; y: number } | null) => {
     if (!p) return;
-    blocks.push({ x: p.x, y: p.y, r: rad });
+    // Platz um den Felsen frei halten, damit man zwischen Felsen, Bäumen und Fässern immer durchkommt
+    blocks.push({ x: p.x, y: p.y, r: rad + 30 });
     obstacles.push({ kind: 'rock', x: p.x, y: p.y, r: rad, w: rad * 2, h: rad * 2 });
   };
-  for (let i = 0; i < 16; i++) { const rad = ROCK_SIZES[Math.floor(r() * 3)]; addRock(rad, placeNear(rocky.x, rocky.y, 420, rad, 20)); }
-  for (let i = 0; i < 50; i++) { const rad = ROCK_SIZES[Math.floor(r() * 3)]; addRock(rad, place(rad)); }
+  for (let i = 0; i < 16; i++) { const rad = ROCK_SIZES[Math.floor(r() * 3)]; addRock(rad, placeNear(rocky.x, rocky.y, 480, rad + 30, 30)); }
+  for (let i = 0; i < 50; i++) { const rad = ROCK_SIZES[Math.floor(r() * 3)]; addRock(rad, place(rad + 30)); }
 
   for (let i = 0; i < 90; i++) {
     const f = forests[i % forests.length];
@@ -309,9 +317,9 @@ export function generateMap(seed: number): MapData {
     obstacles.push({ kind: 'bush', x: p.x, y: p.y, r: 42, w: 84, h: 84 });
   }
   for (let i = 0; i < 22; i++) {
-    const p = place(20, 20);
+    const p = place(50, 30);
     if (!p) continue;
-    blocks.push({ x: p.x, y: p.y, r: 20 });
+    blocks.push({ x: p.x, y: p.y, r: 50 });
     obstacles.push({ kind: 'barrel', x: p.x, y: p.y, r: 17, w: 34, h: 34 });
   }
   for (let i = 0; i < 120; i++) {

@@ -19,6 +19,8 @@ function getMats(gradient: THREE.Texture) {
     blue: toon(0x2f7fe8), blueDark: toon(0x1d4fa8), blueRim: toon(0xbfe3ff), core: new THREE.MeshBasicMaterial({ color: 0x7ff6ff }),
     coreGlow: new THREE.MeshBasicMaterial({ color: 0x9ff8ff, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }),
     gold: toon(0xffc93c),
+    greenMain: toon(0x3fcf6a), greenMain2: toon(0x2fbf5c), greenDark: toon(0x1f8a43),
+    healGlow: new THREE.MeshBasicMaterial({ color: 0xc8ffd8 }), shieldGlow: new THREE.MeshBasicMaterial({ color: 0xcfe8ff }),
   };
   return mats;
 }
@@ -46,49 +48,34 @@ export function buildItem(kind: Kind, gradient: THREE.Texture): THREE.Group {
   };
 
   const g = new THREE.Group();
-  if (kind === 'medkit') {
-    // kleine weiße Erste-Hilfe-Tasche: abgerundet, rote Banderole, rote Kreuze oben und auf allen Seiten
-    rb(M.white, 0.66, 0.42, 0.48, 0, 0, 0, 0.1);
-    rb(M.red, 0.68, 0.08, 0.5, 0, -0.1, 0, 0.035);
-    cross(M.redGlow, 0.32, 0.1, 0.04, 0, 0.215, 0, 'y');
-    for (const sx of [-1, 1]) cross(M.red, 0.22, 0.075, 0.035, sx * 0.335, 0.05, 0, 'x');
-    for (const sz of [-1, 1]) { rb(M.red, 0.075, 0.22, 0.035, 0, 0.05, sz * 0.245, 0.025); rb(M.red, 0.22, 0.075, 0.035, 0, 0.05, sz * 0.245, 0.025); }
-    for (const z of [-0.17, 0.17]) rb(M.metal, 0.08, 0.06, 0.05, 0.31, 0.16, z, 0.015);
-  } else if (kind === 'bigmed') {
-    // großer roter Notfallkoffer: dunkler Rand, Griff oben, weiße Kreuze in runden Feldern auf allen Seiten, Metallschnallen
-    rb(M.red, 0.98, 0.58, 0.62, 0, 0, 0, 0.12);
-    rb(M.redDark, 1.0, 0.09, 0.64, 0, 0.15, 0, 0.045);
-    for (const sx of [-1, 1]) {
-      cyl(M.white, 0.19, 0.04, sx * 0.495, -0.04, 0, 0, 0, Math.PI / 2, 28);
-      cross(M.redGlow, 0.24, 0.075, 0.04, sx * 0.515, -0.04, 0, 'x');
+  /** Symbol (Kreuz oder Schild) als flaches Relief auf der Oberseite */
+  const icon = (shape: 'cross' | 'shield', size: number, mat: THREE.Material, x: number, y: number, z: number, upright = false) => {
+    if (shape === 'cross') {
+      const t = size * 0.34, d = 0.035;
+      if (upright) { rb(mat, size, t, d, x, y, z, t * 0.3); rb(mat, t, size, d, x, y, z, t * 0.3); }
+      else { rb(mat, size, d, t, x, y, z, t * 0.3); rb(mat, t, d, size, x, y, z, t * 0.3); }
+    } else {
+      const sh = new THREE.Shape();
+      sh.moveTo(-0.5, 0.45); sh.quadraticCurveTo(0, 0.6, 0.5, 0.45); sh.lineTo(0.5, 0.05); sh.quadraticCurveTo(0.45, -0.38, 0, -0.6); sh.quadraticCurveTo(-0.45, -0.38, -0.5, 0.05); sh.closePath();
+      const e = new THREE.ExtrudeGeometry(sh, { depth: 0.03, bevelEnabled: true, bevelThickness: 0.01, bevelSize: 0.01, bevelSegments: 2, curveSegments: 12 });
+      if (upright) e.scale(size, size, 1); else { e.rotateX(-Math.PI / 2); e.scale(size, 1, size); }
+      put(e, mat, x, y, z);
     }
-    for (const sz of [-1, 1]) {
-      cyl(M.white, 0.17, 0.04, 0, -0.04, sz * 0.315, Math.PI / 2, 0, 0, 28);
-      rb(M.redGlow, 0.075, 0.22, 0.04, 0, -0.04, sz * 0.335, 0.025); rb(M.redGlow, 0.22, 0.075, 0.04, 0, -0.04, sz * 0.335, 0.025);
-    }
-    for (const x of [-0.3, 0.3]) for (const z of [-0.33, 0.33]) rb(M.metal, 0.1, 0.14, 0.04, x, 0.13, z, 0.015);
-    for (const x of [-0.16, 0.16]) cyl(M.dark, 0.028, 0.14, x, 0.36, 0, 0, 0, 0, 10);
-    rb(M.dark, 0.38, 0.06, 0.08, 0, 0.44, 0, 0.028);
-    put(new THREE.SphereGeometry(0.035, 12, 8), M.green, 0.36, 0.3, 0.22);
-  } else {
-    // Schild: gewölbtes blaues Wappen mit hellem Rand, Mittelgrat, leuchtendem Kern und kleinen Nieten
-    const shape = new THREE.Shape();
-    shape.moveTo(-0.5, 0.48); shape.quadraticCurveTo(0, 0.64, 0.5, 0.48);
-    shape.lineTo(0.5, 0.06); shape.quadraticCurveTo(0.46, -0.38, 0, -0.64); shape.quadraticCurveTo(-0.46, -0.38, -0.5, 0.06); shape.closePath();
-    const ext = (s: number, depth: number, bevel: number) => {
-      const e = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 3, curveSegments: 14 });
-      e.translate(0, 0, -depth / 2); e.scale(s, s, 1); return e;
-    };
-    put(ext(0.92, 0.1, 0.04), M.blueRim, 0, 0, -0.02);
-    put(ext(0.78, 0.12, 0.035), M.blue, 0, 0, 0.01);
-    // dunkle untere Hälfte für Tiefe
-    const half = ext(0.74, 0.02, 0.01); half.translate(0, 0, 0.08);
-    put(half, M.blueDark, 0, -0.18, 0, 0, 0, 0);
-    rb(M.blueRim, 0.08, 0.86, 0.06, 0, 0.0, 0.1, 0.03);
-    put(new THREE.OctahedronGeometry(0.15, 0), M.core, 0, 0.06, 0.15, 0, 0, Math.PI / 4);
-    put(new THREE.SphereGeometry(0.24, 16, 10), M.coreGlow, 0, 0.06, 0.13);
-    for (const [x, y] of [[-0.34, 0.34], [0.34, 0.34], [-0.3, -0.12], [0.3, -0.12]]) put(new THREE.SphereGeometry(0.035, 10, 8), M.gold, x, y, 0.1);
-  }
+  };
+  // Design A: Hartschalen-Koffer – farbiges Unterteil, heller Deckel, dunkles Feld mit leuchtendem Symbol, Seitengriffe, Schnallen
+  const big = kind === 'bigmed', sc = big ? 1.25 : 1;
+  const col = kind === 'armor' ? { main: M.blue, dark: M.blueDark, glow: M.shieldGlow } : { main: big ? M.greenMain2 : M.greenMain, dark: M.greenDark, glow: M.healGlow };
+  const w = 0.8 * sc, d = 0.6 * sc, h = 0.42 * sc;
+  rb(col.main, w, h * 0.62, d, 0, h * 0.31, 0, 0.08);
+  rb(M.white, w * 1.02, h * 0.42, d * 1.02, 0, h * 0.78, 0, 0.09);
+  rb(col.dark, w * 1.04, 0.05, d * 1.04, 0, h * 0.6, 0, 0.02);
+  rb(col.dark, w * 0.56, 0.03, d * 0.6, 0, h * 1.0, 0, 0.05);
+  icon(kind === 'armor' ? 'shield' : 'cross', d * 0.42, col.glow, 0, h * 1.03, 0);
+  for (const sx of [-1, 1]) rb(M.dark, 0.06 * sc, 0.1 * sc, d * 0.5, sx * (w / 2 + 0.03 * sc), h * 0.45, 0, 0.03);
+  for (const sz of [-1, 1]) for (const sx of [-1, 1]) rb(M.metal, 0.09 * sc, 0.1 * sc, 0.04, sx * w * 0.32, h * 0.62, sz * (d / 2 + 0.01), 0.015);
+  // Symbol auch vorne und hinten, damit man es beim Drehen immer sieht
+  for (const sz of [-1, 1]) icon(kind === 'armor' ? 'shield' : 'cross', h * 0.36, col.glow, 0, h * 0.3, sz * (d / 2 + 0.02), true);
+  g.position.y = -0.2 * sc;
   for (const [mat, geos] of parts) {
     const mesh = new THREE.Mesh(mergeGeometries(geos)!, mat);
     mesh.castShadow = mat !== M.coreGlow;

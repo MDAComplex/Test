@@ -708,8 +708,6 @@ export class Renderer {
     } else if (l.kind === 'armor' || l.kind === 'medkit' || l.kind === 'bigmed') {
       // neue Modelle: Schild mit Leuchtkern, weiße Erste-Hilfe-Tasche, roter Notfallkoffer
       const it = buildItem(l.kind, this.gradient);
-      if (l.kind === 'armor') { it.scale.setScalar(1.05); it.position.y = 0.05; }
-      else if (l.kind === 'bigmed') it.scale.setScalar(1.05);
       item.add(it);
     }
     root.add(item);

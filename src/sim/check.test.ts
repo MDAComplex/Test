@@ -138,3 +138,31 @@ describe('Beute am Ufer', () => {
     if (pd) { const l2 = g.spawnLoot(pd.x, pd.y, 'ammo'); expect(inWater(g.map, l2.x, l2.y)).toBe(false); }
   });
 });
+
+describe('Durchgänge', () => {
+  const maps = SEEDS.map((s) => generateMap(s));
+  it('zwischen Felsen, Bäumen und Fässern passt immer eine Figur durch', () => {
+    let tight = 0;
+    for (const m of maps) {
+      const solid = m.obstacles.filter((o) => o.kind === 'rock' || o.kind === 'tree' || o.kind === 'barrel');
+      for (let i = 0; i < solid.length; i++) for (let j = i + 1; j < solid.length; j++) {
+        const a = solid[i], b = solid[j];
+        const gap = Math.hypot(a.x - b.x, a.y - b.y) - a.r - b.r;
+        // direkt aneinanderstehende Fass-Paare zählen als ein Block
+        if (a.kind === 'barrel' && b.kind === 'barrel' && gap < 10) continue;
+        if (gap > -1 && gap < 2 * 18 + 6) tight++;
+      }
+    }
+    expect(tight).toBe(0);
+  });
+  it('vor beiden Brückenenden ist frei', () => {
+    for (const m of maps) for (const b of m.river.bridges) {
+      const px = -Math.sin(b.angle), py = Math.cos(b.angle), half = (m.river.width + 150) / 2;
+      for (const side of [-1, 1]) for (const d of [half + 20, half + 100, half + 180]) {
+        const x = b.x + px * d * side, y = b.y + py * d * side;
+        const hit = m.obstacles.some((o) => (o.kind === 'rock' || o.kind === 'tree' || o.kind === 'barrel') && Math.hypot(o.x - x, o.y - y) < o.r + 40);
+        expect(hit).toBe(false);
+      }
+    }
+  });
+});
