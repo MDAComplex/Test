@@ -1072,13 +1072,13 @@ export class Hud {
       // Schatten am Boden
       g.fillStyle = 'rgba(0,0,0,0.35)';
       g.beginPath(); g.ellipse(x, y, s * 0.55, s * 0.25, 0, 0, 7); g.fill();
-      // Pfeil nach unten in der Spielerfarbe, leicht hüpfend
-      const bob = Math.sin(now / 260 + pn.x) * 2 * q;
-      this.arrow(g, x, y - s * 1.5 + bob, Math.PI / 2, s, pn.color);
+      // Standort-Nadel in der Spielerfarbe (Tropfenform, Spitze auf dem Punkt), leicht hüpfend
+      const bob = Math.sin(now / 260 + pn.x) * 1.5 * q;
+      this.pin(g, x, y + bob * 0.3 - 0.5 * q, s * 1.05, pn.color, bob);
       g.font = `900 ${(pn.me ? 10 : 8) * q}px Nunito, system-ui, sans-serif`;
       g.textAlign = 'center'; g.textBaseline = 'bottom';
       g.lineWidth = 3 * q; g.strokeStyle = 'rgba(0,0,0,0.7)'; g.fillStyle = '#fff';
-      g.strokeText(pn.name, x, y - s * 2.8 + bob); g.fillText(pn.name, x, y - s * 2.8 + bob);
+      g.strokeText(pn.name, x, y - s * 2.45 + bob); g.fillText(pn.name, x, y - s * 2.45 + bob);
     }
     // Teamliste neben dem Countdown
     const tl = this.e.dropsel.querySelector('.ds-team')!;
@@ -1219,6 +1219,31 @@ export class Hud {
       }
     }
     return c;
+  }
+
+  /** Standort-Nadel: Kopf mit weißem Punkt, Spitze zeigt auf (x, y) */
+  private pin(g: CanvasRenderingContext2D, x: number, y: number, s: number, fill: string, bob: number) {
+    const r = s * 0.62, cy = y - s * 1.55 + bob;
+    const path = () => {
+      g.beginPath();
+      g.moveTo(x, y);
+      g.bezierCurveTo(x - r * 0.35, y - s * 0.55, x - r, cy + r * 0.55, x - r, cy);
+      g.arc(x, cy, r, Math.PI, 0);
+      g.bezierCurveTo(x + r, cy + r * 0.55, x + r * 0.35, y - s * 0.55, x, y);
+      g.closePath();
+    };
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.5)'; g.shadowBlur = s * 0.4; g.shadowOffsetY = s * 0.1;
+    path(); g.fillStyle = '#fff'; g.fill();
+    g.restore();
+    g.save();
+    g.lineJoin = 'round'; g.lineWidth = s * 0.28; g.strokeStyle = '#fff'; path(); g.stroke();
+    const grd = g.createLinearGradient(0, cy - r, 0, y);
+    grd.addColorStop(0, fill); grd.addColorStop(1, shade(fill));
+    path(); g.fillStyle = grd; g.fill();
+    g.fillStyle = '#fff';
+    g.beginPath(); g.arc(x, cy, r * 0.42, 0, Math.PI * 2); g.fill();
+    g.restore();
   }
 
   /** Spieler-Pfeil (Navigationspfeil) mit weißem Rand und Schatten */
