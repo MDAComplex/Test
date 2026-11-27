@@ -508,8 +508,8 @@ export class Game {
         const spot = f.isPlayer ? this.dropPick! : { x: f.landX, y: f.landY };
         f.landX = spot.x; f.landY = spot.y;
         f.phase = 'fall';
-        // Bots springen etwas tiefer ab, damit sie im Freifall nicht direkt vor der Kamera schweben
-        f.z = f.isPlayer ? PLANE_Z : PLANE_Z - 180 - Math.random() * 160;
+        // alle springen gleich (Spieler und Bots), damit es später auch online identisch läuft
+        f.z = PLANE_Z;
         f.x = clamp(spot.x, 60, WORLD - 60);
         f.y = clamp(spot.y, 60, WORLD - 60);
         f.vx = f.vy = 0;
@@ -1081,11 +1081,31 @@ export class Game {
       }
       // niedergeschlagenen Teamkameraden wiederbeleben, wenn kein Gegner in Sicht
       const hurt = mates.find((x) => x.downed && Math.hypot(x.x - f.x, x.y - f.y) < 900);
-      if (hurt && !t) {
-        const d = Math.hypot(hurt.x - f.x, hurt.y - f.y);
-        f.moveX = d > 30 ? (hurt.x - f.x) / d : 0;
-        f.moveY = d > 30 ? (hurt.y - f.y) / d : 0;
-        return;
+      if (hurt) {
+        // nur EINER belebt wieder (der nächste Bot), die anderen sichern mit Abstand und Feuerschutz
+        const standing = mates.filter((x) => !x.downed && !x.isPlayer);
+        standing.push(f);
+        const reviver = standing.sort((a, b) => Math.hypot(a.x - hurt.x, a.y - hurt.y) - Math.hypot(b.x - hurt.x, b.y - hurt.y))[0];
+        const threat = hurt.downedBy && hurt.downedBy.alive ? hurt.downedBy : t;
+        if (reviver === f && (!t || Math.hypot(t.x - f.x, t.y - f.y) > 450)) {
+          const d = Math.hypot(hurt.x - f.x, hurt.y - f.y);
+          f.moveX = d > 30 ? (hurt.x - f.x) / d : 0;
+          f.moveY = d > 30 ? (hurt.y - f.y) / d : 0;
+          return;
+        }
+        if (!t) {
+          // Sicherungsposition: verteilt um den Verletzten, Richtung Gefahr, nicht alle auf einem Fleck
+          const base = threat ? Math.atan2(threat.y - hurt.y, threat.x - hurt.x) : (f.id * 2.4) % (Math.PI * 2);
+          const slot = ((f.id % 3) - 1) * 0.9;
+          const gx = hurt.x + Math.cos(base + slot) * 200, gy = hurt.y + Math.sin(base + slot) * 200;
+          const d = Math.hypot(gx - f.x, gy - f.y);
+          f.moveX = d > 25 ? (gx - f.x) / d : 0;
+          f.moveY = d > 25 ? (gy - f.y) / d : 0;
+          if (threat) f.aim = rotateTo(f.aim, Math.atan2(threat.y - f.y, threat.x - f.x), 0.25);
+          else if (d <= 25) f.aim = rotateTo(f.aim, base + slot, 0.2);
+          return;
+        }
+        // mit Ziel: normal kämpfen (Feuerschutz), aber den Verletzten nicht zu weit zurücklassen
       }
     }
 

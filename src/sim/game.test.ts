@@ -324,3 +324,20 @@ describe('Absprung', () => {
     expect(Math.hypot(g.player.x - 1200, g.player.y - 2600)).toBeLessThan(250);
   });
 });
+
+describe('Wiederbeleben im Team', () => {
+  it('nur einer belebt, die anderen sichern mit Abstand', () => {
+    const g = new Game(generateMap(12), undefined, 'squad');
+    for (const f of g.fighters) { f.phase = 'ground'; f.z = 0; }
+    g.time = 30000;
+    const team = g.fighters.filter((f) => f.team === 1);
+    for (const f of g.fighters) if (f.team !== 1) { f.alive = false; f.x = 10; f.y = 10; }
+    const [down, ...rest] = team;
+    const c = { x: 2000, y: 2000 };
+    down.x = c.x; down.y = c.y; down.downed = true; down.downHp = 100;
+    rest.forEach((m, i) => { m.x = c.x + 300 + i * 30; m.y = c.y + 200; m.hp = 100; });
+    for (let t = 0; t < 2500; t += 16) g.update(16);
+    const near = rest.filter((m) => Math.hypot(m.x - down.x, m.y - down.y) < 70);
+    expect(near.length).toBe(1);
+  });
+});

@@ -7,7 +7,7 @@ import { CHUTE_Z } from '../sim/game';
 import { buildGun } from './guns';
 import { LootKind, RAIL_R } from '../mapgen';
 import { WHITE_CHUTE } from '../chute';
-import { buildCharacter, buildChute, animateRig, poseLying, poseCrawl, makeToon, Rig } from './character';
+import { buildCharacter, buildChute, animateRig, poseLying, poseCrawl, poseDeath, makeToon, Rig } from './character';
 
 const W = WORLD * S;
 const WALL_H = 2.1;
@@ -802,6 +802,8 @@ export class Renderer {
     this.bulletPools.clear();
     this.particles = [];
     this.puffs = [];
+    this.streaks.forEach((st) => st.mat.dispose());
+    this.streaks = [];
     this.timed = [];
     this.canopies = [];
     this.bushes = [];
@@ -1328,6 +1330,58 @@ export class Renderer {
     return Math.abs(x * S - this.camTarget.x) < m && Math.abs(y * S - this.camTarget.z) < m;
   }
 
+  /** Freifall: Windstreifen ziehen nach oben an der Figur vorbei, Kondensspuren an Händen und Füßen */
+  private streaks: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; ox: number; oz: number; y: number; sp: number }[] = [];
+  private trailT = 0;
+  private updateFreefallFx(game: Game, dt: number) {
+    const p = game.player;
+    const on = p.alive && p.phase === 'fall' && p.z > CHUTE_Z;
+    if (on && !this.streaks.length) {
+      for (let i = 0; i < 26; i++) {
+        const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false });
+        const mesh = new THREE.Mesh(this.g.box, mat);
+        this.world!.add(mesh);
+        this.streaks.push({ mesh, mat, ox: 0, oz: 0, y: 0, sp: 0 });
+      }
+      for (const st of this.streaks) this.respawnStreak(st, true);
+    }
+    for (const st of this.streaks) {
+      st.mesh.visible = on;
+      if (!on) continue;
+      st.y += st.sp * dt;
+      if (st.y > 7) this.respawnStreak(st, false);
+      const k = Math.min(1, (7 - st.y) / 3) * Math.min(1, (st.y + 7) / 3);
+      st.mat.opacity = 0.55 * k;
+      st.mesh.position.set(p.x * S + st.ox, p.z * S + st.y, p.y * S + st.oz);
+    }
+    if (on) {
+      this.trailT -= dt;
+      if (this.trailT <= 0) {
+        this.trailT = 0.035;
+        const v = this.fighterViews.get(p);
+        if (v) {
+          const yaw = -v.rig.body.rotation.y;
+          const c = Math.cos(yaw), sn = Math.sin(yaw);
+          // Hände (seitlich vorn) und Füße (hinten) im Bauchlage-Körper, grob aus der Pose
+          for (const [fw, side] of [[1.6, 1.1], [1.6, -1.1], [-0.9, 0.35], [-0.9, -0.35]]) {
+            const wx = p.x * S + c * fw - sn * side, wz = p.y * S + sn * fw + c * side;
+            this.puff(wx, p.z * S + 0.9, wz, this.m.contrail, 0.06, 0.15, 0.22, 0, 12, 0);
+          }
+        }
+      }
+    }
+  }
+
+  private respawnStreak(st: { ox: number; oz: number; y: number; sp: number; mesh: THREE.Mesh }, any: boolean) {
+    const a = Math.random() * Math.PI * 2, r = 1.6 + Math.random() * 5;
+    st.ox = Math.cos(a) * r;
+    st.oz = Math.sin(a) * r;
+    st.y = any ? -7 + Math.random() * 14 : -7 - Math.random() * 2;
+    st.sp = 26 + Math.random() * 18;
+    const len = 1.2 + Math.random() * 2.2;
+    st.mesh.scale.set(0.04, len, 0.04);
+  }
+
   private puff(x: number, y: number, z: number, mat: THREE.Material, size: number, grow: number, life: number, vx = 0, vy = 0, vz = 0) {
     let p = this.puffs.find((q) => q.life <= 0 && q.mesh.material === mat);
     if (!p) {
@@ -1547,6 +1601,7 @@ export class Renderer {
     const playerHouse = p.alive && p.phase === 'ground' ? game.houseAt(p.x, p.y) : -1;
 
     for (const f of game.fighters) this.updateFighter(f, game, dt, playerHouse);
+    this.updateFreefallFx(game, dt);
 
     this.playerRing.visible = p.alive && p.phase === 'ground' && !this.fpp.on;
     this.playerRing.position.set(p.x * S, 0.13, p.y * S);
@@ -1627,14 +1682,11 @@ export class Renderer {
     if (!f.alive) {
       // umfallen (0,45 s), liegen bleiben, dann im Boden versinken (gesamt ~2,8 s)
       if (v.root.visible) {
+        // war schon niedergeschlagen (liegt): Umfallen überspringen
+        if (v.deadT === 0 && v.kneel > 0.5) v.deadT = 0.85;
         v.deadT += dt;
-        const fall = Math.min(1, v.deadT / 0.45);
-        const ease = fall < 1 ? 1 - Math.pow(1 - fall, 3) : 1;
-        const bounce = fall >= 1 ? Math.max(0, Math.sin((v.deadT - 0.45) * 18) * 0.06 * Math.max(0, 1 - (v.deadT - 0.45) * 4)) : 0;
-        rig.body.rotation.z = ease * (Math.PI / 2) - bounce;
-        rig.body.position.y = 0;
         v.lean.rotation.set(0, 0, 0);
-        poseLying(rig, 0, false);
+        poseDeath(rig, v.deadT);
         v.chute.visible = false;
         if (v.deadT > 2.2) {
           const sink = Math.min(1, (v.deadT - 2.2) / 0.6);
@@ -1648,6 +1700,10 @@ export class Renderer {
     const house = f.phase === 'ground' ? game.houseAt(f.x, f.y) : -1;
     const inOtherHouse = !f.isPlayer && house !== -1 && house !== playerHouse;
     v.root.visible = f.phase !== 'plane' && !f.hidden && !inOtherHouse && !(f.isPlayer && this.fpp.on);
+    // im eigenen Freifall: andere Springer direkt vor der Kamera ausblenden
+    const me = game.player;
+    if (v.root.visible && !f.isPlayer && me.phase === 'fall' && me.z > CHUTE_Z && f.phase === 'fall'
+      && this.camera.position.distanceTo(new THREE.Vector3(f.x * S, f.z * S, f.y * S)) < 13) v.root.visible = false;
     v.root.position.set(f.x * S, f.z * S, f.y * S);
     const speed = Math.hypot(f.vx, f.vy);
     const falling = f.phase === 'fall';
@@ -1666,12 +1722,19 @@ export class Renderer {
       rig.head.rotation.y = falling ? 0 : -Math.max(-0.75, Math.min(0.75, d));
     }
     v.chute.visible = falling && !freefall;
-    v.chuteT = v.chute.visible ? Math.min(1, v.chuteT + dt / 0.45) : 0;
+    const opening = v.chute.visible && v.chuteT < 1;
+    if (v.chute.visible && v.chuteT === 0) {
+      // Öffnen: kleine Stoff-Wolke über dem Kopf
+      for (let i = 0; i < 6; i++) this.puff(f.x * S + (Math.random() - 0.5) * 2, f.z * S + 3.2, f.y * S + (Math.random() - 0.5) * 2, this.m.contrail, 0.5, 1.6, 0.6, (Math.random() - 0.5) * 2, 1.5, (Math.random() - 0.5) * 2);
+    }
+    v.chuteT = v.chute.visible ? Math.min(1, v.chuteT + dt / 0.7) : 0;
     if (v.chute.visible) {
-      // Aufgehen: schnell aufblähen mit kleinem Überschwingen
-      const o = v.chuteT, e = 1 - Math.pow(1 - o, 3);
-      const over = 1 + Math.sin(o * Math.PI) * 0.12;
-      v.chute.scale.set(lerp(0.15, 1, e) * over, lerp(0.05, 1, e), lerp(0.15, 1, e) * over);
+      // Aufgehen: Leinen strecken sich (schmal und lang), dann bläht sich die Kappe mit Überschwingen auf
+      const o = v.chuteT;
+      const stretch = Math.min(1, o / 0.35), bloom = Math.max(0, (o - 0.2) / 0.8);
+      const e = 1 - Math.pow(1 - bloom, 3);
+      const over = 1 + Math.sin(bloom * Math.PI) * 0.14;
+      v.chute.scale.set(lerp(0.12, 1, e) * over, lerp(0.25, 1, stretch), lerp(0.12, 1, e) * over);
     }
     if (falling) {
       // Schirm dreht mit der Figur und kippt in die Lenkrichtung
@@ -1696,7 +1759,9 @@ export class Renderer {
     // in Laufrichtung lehnen (am Fallschirm deutlich stärker)
     const lk = falling ? 0.0011 : 0.0005;
     v.lean.rotation.x = lerp(v.lean.rotation.x, f.vy * lk, 0.12);
+    // Ruck beim Öffnen: Körper pendelt kurz unter dem Schirm nach
     v.lean.rotation.z = lerp(v.lean.rotation.z, -f.vx * lk, 0.12);
+    if (opening) v.lean.rotation.z += Math.sin(v.chuteT * Math.PI * 3) * (1 - v.chuteT) * 0.035;
 
     // niedergeschlagen: auf den Bauch fallen und langsam kriechen
     rig.body.rotation.z = lerp(rig.body.rotation.z, 0, 1 - Math.exp(-dt * 8));
@@ -2203,10 +2268,11 @@ export class Renderer {
   renderMenu(dtMs: number) {
     const dt = dtMs / 1000;
     this.time += dt;
-    const a = this.time * 0.05;
+    // Lobby-Hintergrund: langsamer Kameraflug über die Insel, leicht schräg mit Horizont-Gefühl
+    const a = this.time * 0.035;
     this.camTarget.set(W / 2, 0, W / 2);
-    this.camera.position.set(W / 2 + Math.cos(a) * 60, 42, W / 2 + Math.sin(a) * 60);
-    this.camera.lookAt(W / 2, 0, W / 2);
+    this.camera.position.set(W / 2 + Math.cos(a) * 78, 30 + Math.sin(this.time * 0.11) * 4, W / 2 + Math.sin(a) * 78);
+    this.camera.lookAt(W / 2 + Math.cos(a + 0.6) * 20, 0, W / 2 + Math.sin(a + 0.6) * 20);
     const sc = this.sun.shadow.camera;
     sc.left = sc.bottom = -80;
     sc.right = sc.top = 80;

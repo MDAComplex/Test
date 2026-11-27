@@ -67,6 +67,7 @@ export class Hud {
   private rotateEl: HTMLElement;
   private lockerEl: HTMLElement;
   private preview: Preview | null = null;
+  private lobbyPv: Preview | null = null;
   private dropCanvas!: HTMLCanvasElement;
   private lastTick = -1;
   private previewChute = false;
@@ -123,23 +124,42 @@ export class Hud {
         <div class="joy aim hidden"><i></i></div>
       </div>`);
     this.menu = $(`
-      <div class="screen" id="menu">
-        <div class="title">ZONE RUSH</div>
-        <div class="subtitle msub"></div>
-        <div class="seg modeseg" role="radiogroup" aria-label="Spielmodus">
-          <button data-mode="solo">Solo</button><button data-mode="duo">Duo</button><button data-mode="squad">Squad</button>
+      <div class="screen lobby" id="menu">
+        <div class="lb-vignette"></div>
+        <div class="lb-top">
+          <div class="lb-prof">
+            <img class="lb-av" alt="">
+            <div class="lvl"><span class="lvlnum"></span><div class="xpbar"><i></i></div><small class="xptext"></small></div>
+          </div>
+          <div class="lb-logo"><div class="title">ZONE RUSH</div><div class="subtitle msub"></div></div>
+          <div class="lb-actions">
+            <button class="lb-icon openlocker" aria-label="Spind"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M12 2a4 4 0 0 1 4 4h3l2 5-3 1v10H6V12l-3-1 2-5h3a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2h4a2 2 0 0 0-2-2z"/></svg><span>Spind</span></button>
+            <button class="lb-icon opensettings" aria-label="Einstellungen"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.4 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.9c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg><span>Einstellungen</span></button>
+            <button class="lb-icon openhelp" aria-label="Steuerung"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M3 7h18a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm2 3v4h2v-4zm4 0v4h2v-4zm4 0v4h2v-4zm4 0v4h2v-4z"/></svg><span>Steuerung</span></button>
+          </div>
         </div>
-        <button class="btn pulse play">SPIELEN</button>
-        <div class="menurow"><button class="btn secondary openlocker">SPIND</button><button class="btn secondary opensettings">EINSTELLUNGEN</button></div>
-        <div class="prof">
-          <div class="lvl"><span class="lvlnum"></span><div class="xpbar"><i></i></div><small class="xptext"></small></div>
-          <div class="daily"><b>Tägliche Aufgaben</b><div class="tasks"></div></div>
+        <div class="lb-stage">
+          <button class="lb-slot" aria-label="Freund einladen"><b>+</b><small>Einladen</small></button>
+          <div class="lb-me"><div class="lb-podium"></div><canvas class="lb-pv" aria-label="Deine Figur"></canvas><div class="lb-name">Du</div></div>
+          <button class="lb-slot" aria-label="Freund einladen"><b>+</b><small>Einladen</small></button>
         </div>
-        <div class="stats"></div>
-        <div class="help">
-          <b>PC:</b> WASD laufen  •  Maus zielen  •  Linksklick schießen  •  auf Gegenstände stellen zum Aufheben  •  Q Waffe wechseln  •  R nachladen<br>
-          <b>Handy:</b> linker Stick laufen  •  rechter Stick zielen und schießen (in den Einstellungen tauschbar)<br>
+        <div class="lb-bottom">
+          <div class="lb-left">
+            <div class="daily"><b>Tägliche Aufgaben</b><div class="tasks"></div></div>
+            <div class="stats"></div>
+          </div>
+          <div class="lb-play">
+            <div class="seg modeseg" role="radiogroup" aria-label="Spielmodus">
+              <button data-mode="solo">Solo</button><button data-mode="duo">Duo</button><button data-mode="squad">Squad</button>
+            </div>
+            <button class="btn pulse play">SPIELEN</button>
+          </div>
+        </div>
+        <div class="help hidden">
+          <b>PC:</b> WASD laufen  •  Maus zielen  •  Linksklick schießen  •  auf Gegenstände stellen zum Aufheben  •  Q Waffe wechseln  •  R nachladen  •  Tab große Karte<br>
+          <b>Handy:</b> linker Stick laufen  •  rechter Stick zielen und schießen (in den Einstellungen tauschbar)  •  Minikarte antippen<br>
           Wähle deinen Landepunkt, öffne Kisten, Truhen und Versorgungspakete und bleib in der Zone
+          <button class="btn secondary closehelp">OK</button>
         </div>
         <div class="hint portrait hidden">Tipp: Halte dein Handy quer, dann siehst du mehr vom Spielfeld</div>
       </div>`);
@@ -234,6 +254,9 @@ export class Hud {
     this.menu.querySelector('.play')!.addEventListener('click', () => { startAudio(); this.cb.play(); });
     this.menu.querySelector('.opensettings')!.addEventListener('click', () => this.openSettings(false));
     this.menu.querySelector('.openlocker')!.addEventListener('click', () => this.openLocker());
+    this.menu.querySelector('.openhelp')!.addEventListener('click', () => this.menu.querySelector('.help')!.classList.remove('hidden'));
+    this.menu.querySelector('.closehelp')!.addEventListener('click', () => this.menu.querySelector('.help')!.classList.add('hidden'));
+    this.menu.querySelectorAll('.lb-slot').forEach((b) => b.addEventListener('click', () => this.notice('Online-Modus kommt bald: Dann kannst du hier Freunde einladen')));
     this.lockerEl.querySelector('.closelocker')!.addEventListener('click', () => this.closeLocker());
     // Fallschirm-Design: Farben, Logo, Text
     this.lockerEl.querySelectorAll<HTMLElement>('.swatches').forEach((box) => {
@@ -448,8 +471,10 @@ export class Hud {
       : 'Noch keine Runde gespielt';
     this.menu.querySelector('.portrait')!.classList.toggle('hidden', window.innerWidth > window.innerHeight);
     this.e.specbar.classList.add('hidden');
+    if (!this.lobbyPv) this.lobbyPv = new Preview(this.menu.querySelector('.lb-pv') as HTMLCanvasElement, true);
     this.renderProfile();
     this.renderMode();
+    this.lobbyPv.start();
     this.sfx.menuMusic(true);
   }
 
@@ -458,6 +483,7 @@ export class Hud {
 
   private openLocker() {
     this.menu.classList.add('hidden');
+    this.lobbyPv?.stop();
     this.lockerEl.classList.remove('hidden');
     if (!this.preview) this.preview = new Preview(this.lockerEl.querySelector('.pv') as HTMLCanvasElement);
     this.previewChute = false;
@@ -470,15 +496,16 @@ export class Hud {
     this.menu.classList.remove('hidden');
     this.renderProfile();
     this.preview?.stop();
+    this.lobbyPv?.start();
   }
 
   private renderMode() {
     const m = this.settings.mode;
     this.menu.querySelectorAll<HTMLElement>('.modeseg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
     this.menu.querySelector('.msub')!.textContent =
-      m === 'solo' ? `3D Battle Royale  •  ${FIGHTER_COUNT} Kämpfer  •  Nur einer überlebt`
-      : m === 'duo' ? '3D Battle Royale  •  12 Teams à 2  •  Das letzte Team gewinnt'
-      : '3D Battle Royale  •  6 Teams à 4  •  Das letzte Team gewinnt';
+      m === 'solo' ? `${FIGHTER_COUNT} Kämpfer  •  Nur einer überlebt`
+      : m === 'duo' ? '12 Teams à 2  •  Das letzte Team gewinnt'
+      : '6 Teams à 4  •  Das letzte Team gewinnt';
   }
 
   private renderProfile() {
@@ -511,6 +538,8 @@ export class Hud {
     const ti = this.lockerEl.querySelector('.chutetext') as HTMLInputElement;
     if (document.activeElement !== ti) ti.value = cd.text;
     this.preview?.set(pr.char, skinColor(pr), pr.chute, this.previewChute, pr.outfit, cd);
+    this.lobbyPv?.set(pr.char, skinColor(pr), pr.chute, false, pr.outfit, cd);
+    (this.menu.querySelector('.lb-av') as HTMLImageElement).src = portrait(pr.char, skinColor(pr), 3, pr.outfit ?? 'none');
     const tl = this.menu.querySelector('.tasks')!;
     tl.innerHTML = '';
     for (const t of pr.daily.tasks) {
@@ -532,6 +561,7 @@ export class Hud {
 
   startRound(game: Game) {
     this.game = game;
+    this.lobbyPv?.stop();
     this.paused = false;
     this.menu.classList.add('hidden');
     this.over.classList.add('hidden');
@@ -686,6 +716,8 @@ export class Hud {
             this.sfx.dropWhoosh();
             // weißer Blitz, dann blendet er weich aus
             const wf = this.e.whiteflash;
+            wf.style.opacity = '';
+            (this.e.dropsel.querySelector('.ds-map') as HTMLElement).style.transform = '';
             wf.classList.remove('fade');
             wf.classList.add('on');
             void wf.offsetWidth;
@@ -979,6 +1011,21 @@ export class Hud {
     fg.style.strokeDasharray = `${C}`;
     fg.style.strokeDashoffset = `${C * (1 - left / (PLANE_TIME / 1000))}`;
     this.e.dropsel.classList.toggle('urgent', sec <= 5);
+    // Übergang: in den letzten 0,7 s zoomt die Karte auf den Landepunkt und es wird weiß
+    const map = this.e.dropsel.querySelector('.ds-map') as HTMLElement;
+    const tr = Math.max(0, Math.min(1, (0.7 - left) / 0.7));
+    const pick = game.dropPick;
+    if (tr > 0) {
+      const ox = pick ? (pick.x / WORLD) * 100 : 50, oy = pick ? (pick.y / WORLD) * 100 : 50;
+      map.style.transformOrigin = `${ox}% ${oy}%`;
+      map.style.transform = `scale(${1 + tr * tr * 2.6})`;
+      this.e.whiteflash.style.opacity = String(tr * tr);
+      (this.e.dropsel.querySelector('.ds-side') as HTMLElement).style.opacity = String(1 - tr * 2);
+    } else if (map.style.transform) {
+      (this.e.dropsel.querySelector('.ds-side') as HTMLElement).style.opacity = '';
+      map.style.transform = '';
+      this.e.whiteflash.style.opacity = '';
+    }
     if (sec !== this.lastTick) { this.lastTick = sec; if (sec <= 5 && sec > 0) this.sfx.tick(sec <= 3); }
     this.e.dropsel.querySelector('.ds-hint')!.textContent = game.dropPick
       ? 'Landepunkt gesetzt. Du kannst ihn noch ändern'

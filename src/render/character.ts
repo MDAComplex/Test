@@ -524,8 +524,8 @@ export function animateRig(rig: Rig, s: AnimState) {
     rig.legs[1].hip.rotation.set(-0.38 - fl2, 0, -0.15);
     rig.legs.forEach((l) => (l.knee.rotation.z = -0.7));
     const ty = rig.torso.position.y;
-    reach(rig.arms[0], new THREE.Vector3(0.12, 0.62 - ty + 0.9 + fl, 0.72), 1);
-    reach(rig.arms[1], new THREE.Vector3(0.12, 0.62 - ty + 0.9 - fl, -0.72), -1);
+    reach(rig.arms[0], new THREE.Vector3(0.18, 0.62 - ty + 1.12 + fl, 0.95), 1);
+    reach(rig.arms[1], new THREE.Vector3(0.18, 0.62 - ty + 1.12 - fl, -0.95), -1);
     rig.gunPivot.visible = false;
     return;
   }
@@ -668,6 +668,42 @@ export function poseCrawl(rig: Rig, t: number, moving: number) {
 }
 
 /** liegende Pose (tot) */
+/**
+ * Sterben: erst knicken die Knie ein und der Oberkörper sackt nach vorn (0–0,22 s),
+ * dann kippt der Körper mit zunehmender Geschwindigkeit nach hinten um (bis 0,72 s),
+ * prallt kurz auf und bleibt entspannt liegen.
+ */
+export function poseDeath(rig: Rig, t: number) {
+  const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+  const A = 0.25, B = 0.85;
+  const a = Math.min(1, t / A);
+  const ea = 1 - Math.pow(1 - a, 2);
+  const b = Math.max(0, Math.min(1, (t - A) / (B - A)));
+  const eb = b * b; // wie Schwerkraft: wird schneller
+  shoulders(rig);
+  rig.pelvis.rotation.set(0, 0, 0);
+  rig.gunPivot.visible = false;
+  rig.body.position.z = 0;
+  // Einknicken
+  const knee = lerp(-0.95 * ea, -0.35, eb);
+  const hip = lerp(0.55 * ea, 0.15, eb);
+  rig.legs[0].hip.rotation.set(0, 0, hip);
+  rig.legs[1].hip.rotation.set(0, 0, hip * 0.8);
+  rig.legs.forEach((l, i) => (l.knee.rotation.z = knee * (i ? 0.9 : 1)));
+  rig.torso.rotation.set(0, 0, lerp(-0.3 * ea, 0.05, eb));
+  rig.head.rotation.set(0, 0, lerp(-0.35 * ea, 0.15, eb));
+  // Arme: erst schlaff, beim Umkippen fliegen sie nach oben, danach liegen sie locker
+  const flail = Math.sin(b * Math.PI) * 0.6;
+  rig.arms[0].shoulder.rotation.set(flail * 0.4, 0, lerp(0.25 * ea, 2.3, eb) + flail);
+  rig.arms[1].shoulder.rotation.set(-flail * 0.4, 0, lerp(0.2 * ea, 2.1, eb) + flail * 0.8);
+  rig.arms.forEach((ar) => { ar.elbow.rotation.set(0, 0, lerp(0.45, 0.6, eb)); });
+  // Umkippen nach hinten; beim Aufprall kurz nachfedern
+  const impact = Math.max(0, t - B);
+  const bounce = impact > 0 ? Math.sin(impact * 20) * 0.07 * Math.exp(-impact * 7) : 0;
+  rig.body.rotation.z = eb * (Math.PI / 2) - Math.abs(bounce);
+  rig.body.position.y = lerp(-0.28 * ea, 0, eb);
+}
+
 export function poseLying(rig: Rig, t: number, crawl: boolean) {
   shoulders(rig);
   rig.pelvis.rotation.set(0, 0, 0);

@@ -17,7 +17,7 @@ export class Preview {
   private raf = 0;
   private t = 0;
 
-  constructor(private canvas: HTMLCanvasElement) {
+  constructor(private canvas: HTMLCanvasElement, private lobby = false) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.gradient = new THREE.DataTexture(new Uint8Array([120, 190, 255]), 3, 1, THREE.RedFormat);
@@ -31,7 +31,7 @@ export class Preview {
     const ground = new THREE.Mesh(new THREE.CircleGeometry(1.6, 40), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }));
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = 0.01;
-    this.scene.add(ground);
+    if (!lobby) this.scene.add(ground);
   }
 
   set(kind: CharKind, color: number, chute: ChuteKind, showChute: boolean, outfit: Outfit = 'none', design: ChuteDesign = WHITE_CHUTE) {
@@ -55,16 +55,24 @@ export class Preview {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     // mit Fallschirm weiter weg, damit alles ins Bild passt
-    const far = this.showChute ? 15 : 7.2;
-    this.camera.position.set(far * 0.75, this.showChute ? 4.2 : 1.9, far * 0.65);
-    this.camera.lookAt(0, this.showChute ? 2.9 : 1.15, 0);
+    const far = this.showChute ? 15 : this.lobby ? 6.4 : 7.2;
+    if (this.lobby) {
+      // Lobby: frontal, leicht von unten (wirkt heldenhaft)
+      this.camera.position.set(far, 1.35, 0.4);
+      this.camera.lookAt(0, 1.12, 0);
+    } else {
+      this.camera.position.set(far * 0.75, this.showChute ? 4.2 : 1.9, far * 0.65);
+      this.camera.lookAt(0, this.showChute ? 2.9 : 1.15, 0);
+    }
     this.camera.updateProjectionMatrix();
   }
 
   start() {
     const loop = () => {
       this.t += 1 / 60;
-      this.holder.rotation.y = this.t * 0.6;
+      // Lobby: steht und dreht sich nur leicht hin und her, sonst langsam rundherum
+      this.holder.rotation.y = this.lobby ? Math.sin(this.t * 0.45) * 0.45 - 0.15 : this.t * 0.6;
+      if (this.canvas.clientWidth && (this.canvas.width !== Math.round(this.canvas.clientWidth * this.renderer.getPixelRatio()))) this.resize();
       if (this.rig) {
         animateRig(this.rig, { phase: this.t * 4, amp: 0, aim: 0, twoHanded: false, reload: 0, time: this.t, falling: this.showChute });
       }
