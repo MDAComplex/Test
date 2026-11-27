@@ -1063,27 +1063,22 @@ export class Hud {
     for (const m of team) if (m.alive) pins.push({ x: m.landX, y: m.landY, color: hex(m.color), name: m.name, me: false });
     if (game.dropPick) pins.push({ x: game.dropPick.x, y: game.dropPick.y, color: hex(game.player.color), name: 'Du', me: true });
     for (const pn of pins) {
-      const x = pn.x * k, y = pn.y * k, s = (pn.me ? 7 : 5.5) * q;
+      const x = pn.x * k, y = pn.y * k, s = (pn.me ? 9 : 7) * q;
       if (pn.me) {
         const t = (now % 1400) / 1400;
         g.strokeStyle = `rgba(255,255,255,${0.9 * (1 - t)})`; g.lineWidth = 2 * q;
         g.beginPath(); g.ellipse(x, y, (4 + t * 16) * q, (2 + t * 8) * q, 0, 0, 7); g.stroke();
       }
-      // Zielkreuz in der Spielerfarbe: Ring mit vier Strichen und Mittelpunkt
-      const r = s * 0.95, col = pn.color;
-      for (const [w, c] of [[4.2 * q, 'rgba(0,0,0,0.75)'], [2.2 * q, col]] as [number, string][]) {
-        g.strokeStyle = c; g.lineWidth = w; g.lineCap = 'round';
-        g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke();
-        g.beginPath();
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { g.moveTo(x + dx * r * 0.45, y + dy * r * 0.45); g.lineTo(x + dx * r * 1.45, y + dy * r * 1.45); }
-        g.stroke();
-      }
-      g.fillStyle = col; g.strokeStyle = 'rgba(0,0,0,0.75)'; g.lineWidth = 1.5 * q;
-      g.beginPath(); g.arc(x, y, 1.6 * q, 0, Math.PI * 2); g.fill(); g.stroke();
-      g.font = `900 ${(pn.me ? 9 : 7.5) * q}px Nunito, system-ui, sans-serif`;
+      // Schatten am Boden
+      g.fillStyle = 'rgba(0,0,0,0.35)';
+      g.beginPath(); g.ellipse(x, y, s * 0.55, s * 0.25, 0, 0, 7); g.fill();
+      // Pfeil nach unten in der Spielerfarbe, leicht hüpfend
+      const bob = Math.sin(now / 260 + pn.x) * 2 * q;
+      this.arrow(g, x, y - s * 1.5 + bob, Math.PI / 2, s, pn.color);
+      g.font = `900 ${(pn.me ? 10 : 8) * q}px Nunito, system-ui, sans-serif`;
       g.textAlign = 'center'; g.textBaseline = 'bottom';
       g.lineWidth = 3 * q; g.strokeStyle = 'rgba(0,0,0,0.7)'; g.fillStyle = '#fff';
-      g.strokeText(pn.name, x, y - r * 1.65); g.fillText(pn.name, x, y - r * 1.65);
+      g.strokeText(pn.name, x, y - s * 2.8 + bob); g.fillText(pn.name, x, y - s * 2.8 + bob);
     }
     // Teamliste neben dem Countdown
     const tl = this.e.dropsel.querySelector('.ds-team')!;
