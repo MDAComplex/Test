@@ -81,20 +81,15 @@ describe('Waffen', () => {
     step(g, 400);
     expect(p.mag).toBeLessThan(WEAPONS.minigun.mag);
   });
-  it('zweiter Waffenplatz: alte Waffe wird gemerkt und getauscht', () => {
+  it('nur eine Waffe: beim Aufheben fällt die alte auf den Boden', () => {
     const { g, p } = groundGame();
     expect(p.weapon.id).toBe('fists');
-    // erste Waffe ersetzt die Fäuste
     g.tryPickup(p, g.spawnLoot(p.x, p.y, 'w:rifle:3'), true);
     expect(p.weapon.id).toBe('rifle');
-    expect(p.backup).toBeNull();
-    // zweite Waffe: alte wandert in den zweiten Platz
     g.tryPickup(p, g.spawnLoot(p.x, p.y, 'w:smg:2'), true);
     expect(p.weapon.id).toBe('smg');
-    expect(p.backup?.w.id).toBe('rifle');
-    g.swapWeapon(p);
-    expect(p.weapon.id).toBe('rifle');
-    expect(p.backup?.w.id).toBe('smg');
+    expect(p.backup).toBeNull();
+    expect(g.loot.some((l) => !l.taken && l.kind === 'w:rifle:3')).toBe(true);
   });
 });
 

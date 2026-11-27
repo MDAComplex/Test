@@ -7,7 +7,7 @@ import { Settings, loadSettings, saveSettings } from '../settings';
 import { Sfx } from '../sfx';
 import { WEAPONS, TIER_COLORS, WeaponId, parseWeapon, RARITY_NAMES } from '../weapons';
 import { Preview } from './preview';
-import { portrait } from './portrait';
+import { portrait, gunIcon } from './portrait';
 import { CHUTE_COLORS, CHUTE_LOGOS } from '../chute';
 import { Profile, loadProfile, saveProfile, levelInfo, SKINS, skinColor, taskText, awardRound, RoundReward } from '../profile';
 
@@ -16,6 +16,7 @@ const $ = <T extends HTMLElement>(html: string) => {
   d.innerHTML = html.trim();
   return d.firstElementChild as T;
 };
+const HIT_MARKS = false as boolean;
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
 interface Stick { active: boolean; id: number; bx: number; by: number; x: number; y: number; el: HTMLElement }
@@ -70,6 +71,7 @@ export class Hud {
   private lobbyPv: Preview | null = null;
   private dropCanvas!: HTMLCanvasElement;
   private lastTick = -1;
+  private wIconKey = '';
   private previewChute = false;
   private dirsLayer: HTMLElement;
   private stickMax = 55;
@@ -95,7 +97,7 @@ export class Hud {
         <button class="pickcard hidden"><span class="pc-icon"></span><span class="pc-text"><b class="pc-name"></b><small class="pc-stats"></small></span><span class="pc-key">E</span></button>
         <div class="killnote hidden"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span class="kn-name"></span></div>
         <div class="bottom">
-          <div class="wrow"><span class="wname"></span><span class="ammo"></span></div>
+          <div class="wrow"><span class="wslot"><img class="wicon" alt=""><span class="wname"></span></span><span class="ammo"></span></div>
           <button class="altslot hidden"><span class="altname"></span><small class="altkey">Q</small></button>
           <div class="bar ar"><i></i></div>
           <div class="bar hp"><i></i><span></span></div>
@@ -561,6 +563,7 @@ export class Hud {
 
   startRound(game: Game) {
     this.game = game;
+    this.wIconKey = '';
     this.lobbyPv?.stop();
     this.paused = false;
     this.menu.classList.add('hidden');
@@ -781,6 +784,11 @@ export class Hud {
 
   /** kleines Kreuz an der Trefferstelle; rot und größer beim Abschuss */
   private hitMarker(r: Renderer, x: number, y: number, kill: boolean) {
+    // Treffer-Kreuze sind auf Wunsch abgeschaltet (Treffer hört man am Ton)
+    if (HIT_MARKS) this.drawHitMark(r, x, y, kill);
+  }
+
+  private drawHitMark(r: Renderer, x: number, y: number, kill: boolean) {
     const s = r.project(x, y, 1.2);
     if (!s.on) return;
     const el = document.createElement('div');
@@ -887,7 +895,7 @@ export class Hud {
     if (p.reloading && !this.wasReloading) this.sfx.reload();
     this.wasReloading = p.reloading;
     // zweiter Waffenplatz
-    this.e.altslot.classList.toggle('hidden', !p.backup || !p.alive);
+    this.e.altslot.classList.add('hidden');
     if (p.backup) {
       this.e.altname.textContent = p.backup.w.name;
       this.e.altname.style.color = hex(TIER_COLORS[p.backup.w.tier]);
@@ -912,8 +920,19 @@ export class Hud {
     this.e.zone.textContent = zi.text;
     this.e.zone.classList.toggle('urgent', zi.urgent);
     this.e.warn.classList.toggle('hidden', !game.playerOutside());
-    this.e.wname.textContent = p.weapon.name;
-    this.e.wname.style.color = hex(TIER_COLORS[p.weapon.tier]);
+    // Waffe als Bild in Seltenheitsfarbe; Fäuste als Text
+    const wkey = p.weapon.id + p.weapon.tier;
+    if (wkey !== this.wIconKey) {
+      this.wIconKey = wkey;
+      const img = this.hud.querySelector('.wicon') as HTMLImageElement;
+      const fists = p.weapon.id === 'fists';
+      img.src = fists ? '' : gunIcon(p.weapon.id, p.weapon.tier);
+      img.alt = p.weapon.name;
+      img.classList.toggle('hidden', fists);
+      this.e.wname.textContent = fists ? p.weapon.name : '';
+      (this.hud.querySelector('.wslot') as HTMLElement).style.setProperty('--tc', hex(TIER_COLORS[p.weapon.tier]));
+      this.hud.querySelector('.wslot')!.classList.toggle('gun', !fists);
+    }
     this.e.ammo.textContent = p.weapon.id === 'fists' ? 'Nahkampf' : p.reloading ? 'Lädt…' : `${p.mag} / ${p.ammo}`;
     this.e.hpBar.style.width = `${Math.max(0, p.hp)}%`;
     this.e.hpBar.style.background = p.hp > 50 ? '' : p.hp > 25 ? '#ffcc00' : '#ff3b30';

@@ -72,7 +72,13 @@ export type GameEvent =
 export type Phase = 'plane' | 'fall' | 'ground';
 /** Höhe, auf der sich der Fallschirm öffnet (darüber: Freifall ohne Lenken) */
 export const CHUTE_Z = 230;
-const FREEFALL_SPEED = (PLANE_Z - CHUTE_Z) / 1.8;
+/** Absprunghöhe: höher als früher, damit der Freifall länger und realistischer wirkt */
+export const DROP_Z = 1250;
+const FREEFALL_TIME = 2.9;
+const FREEFALL_SPEED = (DROP_Z - CHUTE_Z) / FREEFALL_TIME;
+/** im Freifall: leicht nach vorne (im Bild nach oben) treiben und seitlich hin und her schwanken */
+const FREE_FWD = 85;
+const FREE_SWAY = 32;
 const CHUTE_SPEED = CHUTE_Z / 4.2;
 export type Mode = 'solo' | 'duo' | 'squad';
 export const TEAM_SIZE: Record<Mode, number> = { solo: 1, duo: 2, squad: 4 };
@@ -508,15 +514,25 @@ export class Game {
         const spot = f.isPlayer ? this.dropPick! : { x: f.landX, y: f.landY };
         f.landX = spot.x; f.landY = spot.y;
         f.phase = 'fall';
-        // alle springen gleich (Spieler und Bots), damit es später auch online identisch läuft
-        f.z = PLANE_Z;
+        // alle springen gleich (Spieler und Bots), damit es später auch online identisch läuft;
+        // Start etwas hinter dem Punkt, weil man im Freifall nach vorne treibt
+        f.z = DROP_Z;
+        f.jumpAt = now;
         f.x = clamp(spot.x, 60, WORLD - 60);
-        f.y = clamp(spot.y, 60, WORLD - 60);
+        f.y = clamp(spot.y + FREE_FWD * FREEFALL_TIME, 60, WORLD - 60);
         f.vx = f.vy = 0;
         this.events.push({ type: 'jump', f });
       } else if (f.phase === 'fall') {
         const free = f.z > CHUTE_Z;
         f.z -= (free ? FREEFALL_SPEED : CHUTE_SPEED) * dt;
+        if (free) {
+          // Luftwiderstand: nach vorne gleiten, seitlich pendeln (Ableitung einer Sinus-Schwingung)
+          const ft = (now - f.jumpAt) / 1000;
+          f.vy = -FREE_FWD;
+          f.vx = Math.cos(ft * 2.1 + f.id) * FREE_SWAY * 2.1 * 0.5;
+          f.x += f.vx * dt;
+          f.y += f.vy * dt;
+        }
         if (free && f.z <= CHUTE_Z) this.events.push({ type: 'chute', f });
         // tief über einem Haus: vom Dach seitlich abrutschen, damit niemand ins Haus fällt
         if (f.z < 120) this.pushOutOfHouse(f);
@@ -637,6 +653,8 @@ export class Game {
 
   /** Weiches Beschleunigen/Abbremsen statt sofortiger Richtungswechsel */
   private drive(f: Fighter, dx: number, dy: number, speed: number, dt: number) {
+    // Freifall: Bewegung kommt allein aus updateDrop (Gleiten und Pendeln)
+    if (f.phase === 'fall' && f.z > CHUTE_Z) return;
     const active = dx !== 0 || dy !== 0;
     // scharfer Richtungswechsel kostet bis zu 10 % Tempo
     const cur = Math.hypot(f.vx, f.vy), want = Math.hypot(dx, dy);
@@ -1527,16 +1545,13 @@ export class Game {
     } else {
       const w = parseWeapon(k);
       if (!manual && (f.isPlayer || weaponScore(w) <= weaponScore(f.weapon) + 0.01)) return false;
-      const old = f.weapon, oldMag = f.mag;
+      const old = f.weapon;
       f.weapon = w;
       f.mag = w.mag;
       f.reloading = false;
       this.events.push({ type: 'weapon', f });
       if (old.id === 'fists') {
         // erste Waffe: Fäuste werden einfach ersetzt
-      } else if (f.isPlayer && !f.backup) {
-        // zweiter Platz frei: alte Waffe wandert dorthin
-        f.backup = { w: old, mag: oldMag };
       } else if (old.id !== 'pistol' || manual) {
         this.spawnLoot(l.x + 8, l.y + 8, wKind(old.id, old.tier));
       }

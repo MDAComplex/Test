@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { buildCharacter, makeToon, CharKind, Outfit } from '../render/character';
+import { buildGun } from '../render/guns';
+import type { WeaponId } from '../weapons';
 
 /** kleine Profilbilder (Kopf und Schultern) der Figuren, mit einem gemeinsamen Renderer */
 let gl: THREE.WebGLRenderer | null = null;
@@ -39,6 +41,40 @@ export function portrait(kind: CharKind, color: number, seed: number, outfit: Ou
     const url = gl!.domElement.toDataURL('image/png');
     scene.remove(rig.body);
     rig.mats.forEach((m) => m.dispose());
+    cache.set(key, url);
+    return url;
+  } catch {
+    return '';
+  }
+}
+
+/** Seitenansicht einer Waffe als Bild (für die Waffenanzeige unten) */
+export function gunIcon(id: WeaponId, tier: number): string {
+  const key = 'gun|' + id + '|' + tier;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  if (id === 'fists') return '';
+  try {
+    if (!gl) setup();
+    const g = buildGun(id, tier, gradient);
+    g.rotation.set(0.1, -0.12, 0);
+    scene.add(g);
+    g.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(g);
+    const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+    gl!.setSize(192, 96, false);
+    cam.aspect = 2;
+    const fit = Math.max(size.x / 2, size.y) * 1.0;
+    const dist = fit / (2 * Math.tan((cam.fov * Math.PI) / 360));
+    cam.position.set(c.x, c.y + 0.05, c.z + dist + size.z / 2);
+    cam.lookAt(c);
+    cam.updateProjectionMatrix();
+    gl!.render(scene, cam);
+    const url = gl!.domElement.toDataURL('image/png');
+    scene.remove(g);
+    gl!.setSize(96, 96, false);
+    cam.aspect = 1;
+    cam.updateProjectionMatrix();
     cache.set(key, url);
     return url;
   } catch {

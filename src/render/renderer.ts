@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { S, WORLD, PLANE_Z, PLANE_TIME } from '../config';
 import { Game, Fighter, GameEvent, Loot, Bullet, Obstacle, Airdrop, isContainer } from '../sim/game';
 import { WEAPONS, TIER_COLORS, WeaponId, parseWeapon } from '../weapons';
-import { CHUTE_Z } from '../sim/game';
+import { CHUTE_Z, DROP_Z } from '../sim/game';
 import { buildGun } from './guns';
 import { LootKind, RAIL_R } from '../mapgen';
 import { WHITE_CHUTE } from '../chute';
@@ -1766,9 +1766,10 @@ export class Renderer {
 
     // in Laufrichtung lehnen (am Fallschirm deutlich stärker)
     const lk = falling ? 0.0011 : 0.0005;
-    v.lean.rotation.x = lerp(v.lean.rotation.x, f.vy * lk, 0.12);
+    // Freifall: beim seitlichen Pendeln in die Kurve rollen
+    v.lean.rotation.x = lerp(v.lean.rotation.x, freefall ? 0 : f.vy * lk, 0.12);
+    v.lean.rotation.z = lerp(v.lean.rotation.z, -f.vx * (freefall ? 0.008 : lk), 0.12);
     // Ruck beim Öffnen: Körper pendelt kurz unter dem Schirm nach
-    v.lean.rotation.z = lerp(v.lean.rotation.z, -f.vx * lk, 0.12);
     if (opening) v.lean.rotation.z += Math.sin(v.chuteT * Math.PI * 3) * (1 - v.chuteT) * 0.035;
 
     // niedergeschlagen: auf den Bauch fallen und langsam kriechen
@@ -2232,7 +2233,7 @@ export class Renderer {
       tx = spec.x * S;
       tz = spec.y * S;
       ty = spec.z * S * 0.4;
-      zoom = 1 + Math.min(1, spec.z / PLANE_Z) * 0.8;
+      zoom = 1 + Math.min(1, spec.z / DROP_Z) * 0.8;
     } else if (p.phase === 'plane') {
       // Auswahlphase: Blick über die ganze Insel
       tx = W / 2;
@@ -2249,7 +2250,7 @@ export class Renderer {
       tx = p.x * S;
       tz = p.y * S;
       ty = p.z * S * 0.4;
-      zoom = 1 + Math.min(1, p.z / PLANE_Z) * 0.8;
+      zoom = 1 + Math.min(1, p.z / DROP_Z) * 0.8;
       // beim Zielen etwas in Blickrichtung vorausschauen
       if (game.input.aim !== null && p.phase === 'ground') {
         const look = Math.min(6, p.weapon.range * S * 0.18);
@@ -2264,7 +2265,7 @@ export class Renderer {
     this.camTarget.x = lerp(this.camTarget.x, tx, k);
     this.camTarget.y = lerp(this.camTarget.y, ty, k);
     this.camTarget.z = lerp(this.camTarget.z, tz, k);
-    const air = p.phase === 'plane' ? 1 : Math.min(1, p.z / PLANE_Z);
+    const air = p.phase === 'plane' ? 1 : Math.min(1, p.z / DROP_Z);
     this.pitch = lerp(this.pitch, free ? FREE_PITCH : lerp(PITCH, PITCH_AIR, air), k);
     const dist = this.baseDist * zoom;
     this.shake = Math.max(0, this.shake - dt * 3);
