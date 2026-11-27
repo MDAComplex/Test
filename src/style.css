@@ -437,3 +437,24 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
 .wslot.gun { padding: 2px 10px; border-radius: 10px; background: linear-gradient(90deg, color-mix(in srgb, var(--tc) 45%, transparent), transparent); border-left: 4px solid var(--tc); }
 .wicon { height: 40px; width: 84px; object-fit: contain; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
 @media (max-height: 520px) { .wicon { height: 26px; width: 52px; } }
+
+/* Ergebnis-Bildschirm: passt auch auf niedrige Handy-Bildschirme */
+#over { justify-content: safe center; overflow-y: auto; background: radial-gradient(ellipse at center, rgba(8, 18, 32, 0.55), rgba(5, 12, 24, 0.85)); }
+#over .obtns { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center; }
+@media (max-height: 520px) {
+  #over { gap: 8px; padding-block: 10px; }
+  #over .big { font-size: 40px; }
+  #over .subtitle { font-size: 14px; }
+  #over .reward { padding: 6px 14px; font-size: 12px; }
+  #over .btn { font-size: 20px; padding: 8px 26px; border-bottom-width: 4px; }
+}
+
+/* Fenster (Spind, Einstellungen, Ergebnis) auf kleinen Bildschirmen scrollbar, auch per Wischen */
+#locker, #settings, #over { overflow-y: auto; justify-content: safe center; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+@media (max-height: 520px) {
+  #settings .panel { padding: 14px; gap: 10px; }
+  #settings .row { gap: 4px; font-size: 12px; }
+  #settings .seg button { padding: 6px 8px; font-size: 12px; }
+  .lockpanel { padding: 14px; gap: 10px; }
+  .lockpanel .seg button { padding: 6px 8px; font-size: 12px; }
+}

@@ -171,9 +171,11 @@ export class Hud {
         <div class="subtitle osub"></div>
         <div class="subtitle ostats"></div>
         <div class="reward"></div>
-        <button class="btn again">NOCHMAL</button>
-        <button class="btn secondary watch">ZUSCHAUEN</button>
-        <button class="btn secondary tomenu">MENÜ</button>
+        <div class="obtns">
+          <button class="btn again">NOCHMAL</button>
+          <button class="btn secondary watch">ZUSCHAUEN</button>
+          <button class="btn secondary tomenu">MENÜ</button>
+        </div>
       </div>`);
     this.settingsEl = $(`
       <div class="screen hidden" id="settings">

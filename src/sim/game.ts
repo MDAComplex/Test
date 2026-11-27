@@ -448,7 +448,9 @@ export class Game {
   }
 
   spawnLoot(x: number, y: number, kind: LootKind, announce = true, from?: { x: number; y: number }) {
-    const l: Loot = { id: this.ids++, kind, x: clamp(x, 40, WORLD - 40), y: clamp(y, 40, WORLD - 40), taken: false, from };
+    // nie ins Wasser fallen lassen (z. B. Beute eines Spielers, der am Ufer besiegt wurde)
+    const dry = this.dryPoint(clamp(x, 40, WORLD - 40), clamp(y, 40, WORLD - 40));
+    const l: Loot = { id: this.ids++, kind, x: dry.x, y: dry.y, taken: false, from };
     this.loot.push(l);
     if (announce) this.events.push({ type: 'loot', loot: l });
     return l;
@@ -641,6 +643,31 @@ export class Game {
       }
     });
     this.keepOutOfRiver(f);
+  }
+
+  /** liegt der Punkt im Fluss (nicht auf einer Brücke) oder in einem Teich? */
+  private wet(x: number, y: number, pad = 0) {
+    const rv = this.map.river, pts = rv.pts;
+    if (!this.onBridge(x, y)) {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1], vx = b.x - a.x, vy = b.y - a.y, l2 = vx * vx + vy * vy || 1;
+        const t = clamp(((x - a.x) * vx + (y - a.y) * vy) / l2, 0, 1);
+        if (Math.hypot(x - a.x - vx * t, y - a.y - vy * t) < rv.width / 2 + pad) return true;
+      }
+    }
+    return this.map.ponds.some((pd) => Math.hypot(pd.x - x, pd.y - y) < pd.r + pad);
+  }
+
+  /** Punkt an Land: liegt er im Wasser, wird der nächste trockene Punkt gesucht */
+  private dryPoint(x: number, y: number) {
+    if (!this.wet(x, y, 12)) return { x, y };
+    for (let r = 20; r < 700; r += 20) {
+      for (let a = 0; a < Math.PI * 2; a += Math.PI / 12) {
+        const px = clamp(x + Math.cos(a) * r, 60, WORLD - 60), py = clamp(y + Math.sin(a) * r, 60, WORLD - 60);
+        if (!this.wet(px, py, 20)) return { x: px, y: py };
+      }
+    }
+    return { x, y };
   }
 
   /** Brücke, auf deren Deck der Punkt liegt (zwischen den Geländern), sonst null */
