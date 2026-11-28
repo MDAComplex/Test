@@ -1338,8 +1338,8 @@ export class Hud {
     for (const o of game.obstacles) {
       // Truhen werden nicht angezeigt (weder Ort noch ob offen), nur gelandete Versorgungspakete
       if (!isContainer(o) || o.opened || o.kind !== 'airdrop') continue;
-      const col = o.kind === 'crate' ? '#ffd54a' : o.kind === 'chest' ? '#ffc93c' : '#ff8a1e';
-      const s = (o.kind === 'crate' ? 3 : 5) * q * (big ? 0.8 : 1);
+      const col = '#ff8a1e';
+      const s = 5 * q * (big ? 0.8 : 1);
       if (big) {
         g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(o.x * k - s / 2 - 0.8 * q, o.y * k - s / 2 - 0.8 * q, s + 1.6 * q, s + 1.6 * q);
       }
