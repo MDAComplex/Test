@@ -283,8 +283,9 @@ export function buildProps(map: MapData, ctx: PropCtx) {
         const { g } = group(p.x, p.y, a);
         const tail = sub(g, 0, 9.5, 0); tail.gb.box(K.metal, 2.6, 0.08, 0.08, -1.3, 0, 0); tail.gb.box(K.red, 0.06, 1.0, 1.2, -2.6, 0.1, 0);
         const fan = sub(g, 0.4, 9.5, 0);
-        for (let i = 0; i < 12; i++) { const ang = i / 12 * Math.PI * 2; fan.gb.box(i % 3 ? K.white : K.red, 0.04, 1.3, 0.34, 0, Math.cos(ang) * 0.85, Math.sin(ang) * 0.85, ang, 0, 0); }
-        fan.gb.cyl(K.dark, 0.18, 0.3, 0, 0, 0, 8, 0, 0, Math.PI / 2);
+        // Flügel beginnen außerhalb der Nabe und sind leicht versetzt (kein Flackern durch Überlappung)
+        for (let i = 0; i < 12; i++) { const ang = i / 12 * Math.PI * 2; fan.gb.box(i % 3 ? K.white : K.red, 0.04, 1.05, 0.3, (i % 2) * 0.03, Math.cos(ang) * 1.0, Math.sin(ang) * 1.0, ang, 0, 0); }
+        fan.gb.cyl(K.dark, 0.42, 0.34, 0.02, 0, 0, 12, 0, 0, Math.PI / 2);
         ctx.anims.push((_, dt) => { fan.g.rotation.x += dt * 2.2; g.rotation.y = -a + Math.sin(performance.now() * 0.0003) * 0.3; });
         break;
       }
