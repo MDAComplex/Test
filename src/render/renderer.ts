@@ -162,6 +162,7 @@ export class Renderer {
   private shake = 0;
 
   private fighterViews = new Map<Fighter, FighterView>();
+  private flyMode = false;
   private lootViews = new Map<number, LootView>();
   private crateViews = new Map<number, CrateView>();
   private dropViews = new Map<number, DropView>();
@@ -2242,12 +2243,7 @@ export class Renderer {
       }
     };
     // weit entfernte Bäume nicht zeichnen (große Karte: spart viele Draw-Calls)
-    const cx = this.camTarget.x / S, cy = this.camTarget.y, cz = this.camTarget.z / S;
-    const far2 = (1500 + cy * 40) ** 2;
-    for (const c of this.canopies) {
-      const vis = (c.x - cx) ** 2 + (c.y - cz) ** 2 < far2;
-      if (c.meshes[0].visible !== vis) for (const m of c.meshes) m.visible = vis;
-    }
+    this.cullTrees(this.camTarget.x / S, this.camTarget.z / S, 1500 + this.camTarget.y * 40);
     fade(this.canopies, 1.0);
     fade(this.bushes, 1.0);
     // Büsche wackeln, wenn jemand hindurchläuft
@@ -2281,6 +2277,62 @@ export class Renderer {
       h.wallMat.depthWrite = wallA >= 1;
       h.wallMat.needsUpdate = true;
     });
+  }
+
+  private cullTrees(cx: number, cz: number, far: number) {
+    const far2 = far * far;
+    for (const c of this.canopies) {
+      const vis = (c.x - cx) ** 2 + (c.y - cz) ** 2 < far2;
+      if (c.meshes[0].visible !== vis) for (const m of c.meshes) m.visible = vis;
+    }
+  }
+
+  /** Admin-Freiflug: Kamera frei im Raum (No-Clip), keine Runde, keine Figuren */
+  renderFly(dtMs: number, pos: THREE.Vector3, yaw: number, pitch: number) {
+    const dt = Math.min(dtMs, 50) / 1000;
+    this.time += dt;
+    if (!this.flyMode) {
+      this.flyMode = true;
+      this.camera.fov = 72; this.camera.near = 0.05; this.camera.far = 900; this.camera.updateProjectionMatrix();
+      this.scene.background = new THREE.Color(0x9fd4f2);
+      this.scene.fog = new THREE.Fog(0x9fd4f2, 160, 420);
+      for (const v of this.fighterViews.values()) v.root.visible = false;
+      for (const v of this.dropViews.values()) v.root.visible = false;
+      if (this.fppView) this.fppView.visible = false;
+      // keine Zone im Freiflug (sonst ist alles als 'außerhalb' getönt)
+      if (this.zoneMat) { this.zoneMat.uniforms.uR.value = 1e5; this.zoneMat.uniforms.uNR.value = 0; }
+      if (this.zoneWall) this.zoneWall.visible = false;
+    }
+    // Schattenbereich wächst mit der Höhe, damit von oben keine Kante zu sehen ist
+    const area = Math.min(300, 60 + pos.y * 1.3);
+    const sc = this.sun.shadow.camera;
+    if (sc.right !== area) { sc.left = sc.bottom = -area; sc.right = sc.top = area; sc.updateProjectionMatrix(); }
+    this.camera.position.copy(pos);
+    const cp = Math.cos(pitch);
+    this.camera.lookAt(pos.x + Math.cos(yaw) * cp, pos.y + Math.sin(pitch), pos.z + Math.sin(yaw) * cp);
+    // Schatten und Baum-Sichtweite um den Punkt vor der Kamera
+    const ahead = Math.min(pos.y > 60 ? 0 : 40, 8 + pos.y * 0.6);
+    this.camTarget.set(pos.x + Math.cos(yaw) * ahead, 0, pos.z + Math.sin(yaw) * ahead);
+    this.cullTrees(pos.x / S, pos.z / S, 4200 + pos.y * 60);
+    this.updateSun();
+    if (this.waterMat) this.waterMat.uniforms.uT.value = this.time;
+    if (this.foamMat) this.foamMat.uniforms.uT.value = this.time;
+    this.windTime.value = this.time;
+    if (this.plane) this.plane.visible = false;
+    if (this.playerRing) this.playerRing.visible = false;
+    if (this.aimLine) this.aimLine.visible = false;
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Freiflug beenden: Kamera wieder wie in der Lobby */
+  endFly() {
+    if (!this.flyMode) return;
+    this.flyMode = false;
+    this.fppMode = false;
+    if (this.zoneWall) this.zoneWall.visible = true;
+    this.camera.fov = 40; this.camera.near = 0.5; this.camera.far = 800; this.camera.updateProjectionMatrix();
+    this.scene.background = null;
+    this.scene.fog = null;
   }
 
   private updateSun() {

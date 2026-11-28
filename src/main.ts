@@ -4,10 +4,13 @@ import { Renderer } from './render/renderer';
 import { Hud } from './ui/hud';
 import { generateMap } from './mapgen';
 import { loadPlush } from './render/plush';
+import { Admin } from './ui/admin';
+import type { MapData } from './mapgen';
 
 const app = document.getElementById('app')!;
 const renderer = new Renderer(app);
 let game: Game | null = null;
+let menuMap: MapData | null = null;
 
 const hud = new Hud({
   play: () => startRound(),
@@ -17,11 +20,15 @@ const hud = new Hud({
 
 function showMenu() {
   game = null;
-  renderer.build(new Game(generateMap(Math.floor(Math.random() * 1e9))));
+  const g = new Game(generateMap(Math.floor(Math.random() * 1e9)));
+  menuMap = g.map;
+  renderer.build(g);
   hud.showMenu();
 }
 
 function startRound() {
+  if (admin.flying) admin.stop();
+  renderer.endFly();
   game = new Game(generateMap(Math.floor(Math.random() * 1e9)), hud.playerColor, hud.settings.mode, hud.playerLook);
   // Tageszeit zufällig: Mittag, Abendrot oder Morgen
   renderer.build(game, Math.floor(Math.random() * 3));
@@ -29,6 +36,9 @@ function startRound() {
   renderer.resetShadowArea();
   hud.startRound(game);
 }
+
+// Admin-Freiflug: nutzt die schon aufgebaute Lobby-Welt (feste Karte), keine Ladezeit
+const admin = new Admin(() => menuMap, () => renderer.renderer.domElement, () => hud.hideMenu(), () => { renderer.endFly(); hud.showMenu(); });
 
 window.addEventListener('resize', () => renderer.resize());
 
@@ -67,6 +77,9 @@ function frame(now: number) {
     renderer.render(game, stop ? 0 : dt);
     hud.handle(events, game, renderer);
     hud.update(game, renderer);
+  } else if (admin.flying) {
+    const c = admin.update(dt);
+    renderer.renderFly(dt, c.pos, c.yaw, c.pitch);
   } else {
     renderer.renderMenu(dt);
   }

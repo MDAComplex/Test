@@ -447,6 +447,12 @@ export class Hud {
     this.settingsEl.classList.add('hidden');
   }
 
+  /** Lobby ausblenden (Admin-Freiflug) */
+  hideMenu() {
+    this.menu.classList.add('hidden');
+    this.lobbyPv?.stop();
+  }
+
   showMenu() {
     this.hideWin();
     this.game = null;

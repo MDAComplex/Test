@@ -571,3 +571,29 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #16261a; tou
 .placebanner.show { animation: placeIn 2.6s ease-out forwards; }
 @keyframes placeIn { 0% { opacity: 0; transform: translateX(-50%) translateY(8px); } 12%, 75% { opacity: 1; transform: translateX(-50%) translateY(0); } 100% { opacity: 0; transform: translateX(-50%) translateY(-6px); } }
 @media (max-height: 520px) { .placebanner { top: 60px; } .placebanner b { font-size: 22px; } }
+
+/* Admin */
+.adm-open { color: #ffd23f; }
+.adm-toast { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); z-index: 99; padding: 8px 16px; border-radius: 12px; background: rgba(10, 20, 36, .85); color: #fff; font-weight: 800; max-width: calc(100vw - 32px); text-align: center; }
+.adm-panel { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(5, 12, 24, .55); }
+.adm-panel.hidden, .adm-fly-ui.hidden, .adm-tp.hidden, .adm-open.hidden { display: none; }
+.adm-box { width: min(420px, calc(100vw - 32px)); padding: 22px; border-radius: 20px; background: #13233a; color: #fff; text-align: center; box-shadow: 0 20px 50px rgba(0, 0, 0, .5); }
+.adm-box h2 { margin: 0 0 14px; color: #ffd23f; }
+.adm-box p { margin: 10px 0 16px; opacity: .8; font-size: 14px; }
+.adm-box .btn { width: 100%; }
+.adm-fly-ui { position: fixed; inset: 0; z-index: 50; color: #fff; user-select: none; touch-action: none; cursor: crosshair; }
+.adm-info { position: absolute; left: 16px; top: 14px; padding: 8px 14px; border-radius: 12px; background: rgba(10, 20, 36, .7); display: flex; flex-direction: column; gap: 2px; max-width: calc(100vw - 32px); }
+.adm-info b { font-size: 20px; color: #ffd23f; }
+.adm-info span { font-size: 13px; opacity: .9; }
+.adm-help { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); padding: 6px 14px; border-radius: 999px; background: rgba(10, 20, 36, .6); font-size: 13px; white-space: nowrap; }
+.adm-top { position: absolute; right: 16px; top: 14px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.adm-b { font: inherit; font-weight: 800; font-size: 14px; color: #fff; padding: 8px 14px; border: 0; border-radius: 12px; background: rgba(20, 36, 60, .85); cursor: pointer; }
+.adm-b:hover { background: #2a4a78; }
+.adm-exit { background: #b8393d; }
+.adm-tp { position: absolute; right: 16px; top: 62px; bottom: 60px; width: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 14px; background: rgba(10, 20, 36, .7); }
+.adm-tp .adm-b { text-align: left; }
+.adm-cross { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px rgba(0, 0, 0, .35); }
+.adm-touch { display: none; position: absolute; left: 16px; bottom: 56px; gap: 8px; flex-wrap: wrap; width: 180px; }
+.adm-t { width: 84px; height: 56px; border: 0; border-radius: 14px; background: rgba(20, 36, 60, .8); color: #fff; font: inherit; font-weight: 900; font-size: 18px; }
+@media (pointer: coarse) { .adm-touch { display: flex; } .adm-help { display: none; } }
+@media (max-width: 900px) { .adm-help { white-space: normal; width: calc(100vw - 32px); text-align: center; border-radius: 12px; } }
