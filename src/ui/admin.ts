@@ -181,7 +181,7 @@ export class Admin {
     this.tp.classList.toggle('hidden');
   }
 
-  private goto(x: number, y: number, h: number, yaw: number, pitch: number) {
+  goto(x: number, y: number, h: number, yaw: number, pitch: number) {
     this.pos.set(x * S, h, y * S);
     this.yaw = yaw;
     this.pitch = pitch;

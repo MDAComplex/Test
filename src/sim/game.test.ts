@@ -273,7 +273,7 @@ describe('Fluss', () => {
     g.time = 30000;
     const rv = g.map.river;
     // Startpunkt neben dem Fluss, weit weg von Brücken, dann quer zum Fluss laufen
-    const pts = rv.water.filter((w) => w.x > 300 && w.y > 300 && w.x < 3700 && w.y < 3700 && rv.bridges.every((b) => Math.hypot(b.x - w.x, b.y - w.y) > 400));
+    const pts = rv.water.filter((w, i) => i > 20 && i < rv.water.length - 40 && rv.bridges.every((b) => Math.hypot(b.x - w.x, b.y - w.y) > 600) && g.isFree(w.x + 160, w.y, 30) && g.isFree(w.x - 160, w.y, 30));
     const w = pts[Math.floor(pts.length / 2)];
     const i = rv.water.indexOf(w), nb = rv.water[i + 1];
     const ang = Math.atan2(nb.y - w.y, nb.x - w.x) + Math.PI / 2;

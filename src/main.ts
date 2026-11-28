@@ -92,4 +92,4 @@ requestAnimationFrame(frame);
 loadPlush().then(() => hud.refreshLook());
 
 // Für Tests/Debugging im Browser erreichbar
-(window as unknown as { __zr: object }).__zr = { game: () => game, renderer };
+(window as unknown as { __zr: object }).__zr = { game: () => game, renderer, admin, menuMap: () => menuMap };

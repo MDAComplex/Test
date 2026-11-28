@@ -26,7 +26,7 @@ function onBridge(m: MapData, x: number, y: number) {
   });
 }
 const inWater = (m: MapData, x: number, y: number, pad = 0) =>
-  (riverDist(m, x, y) < m.river.width / 2 + pad && !onBridge(m, x, y)) || m.ponds.some((p) => Math.hypot(p.x - x, p.y - y) < p.r + pad);
+  (riverDist(m, x, y) < m.river.width / 2 + pad && !onBridge(m, x, y)) || m.ponds.some((p) => !p.ice && Math.hypot(p.x - x, p.y - y) < p.r + pad);
 const rectGap = (h: { x: number; y: number; s: number }, x: number, y: number) =>
   Math.hypot(Math.max(0, Math.abs(x - h.x) - h.s / 2), Math.max(0, Math.abs(y - h.y) - h.s / 2));
 
@@ -119,7 +119,7 @@ describe('Runden-Check (alle Modi)', () => {
             if (inWater(g.map, f.x, f.y, -12)) errors++;
             if (g.obstacles.some((o) => o.kind === 'wall' && f.x > o.rect.x + 4 && f.x < o.rect.x + o.rect.w - 4 && f.y > o.rect.y + 4 && f.y < o.rect.y + o.rect.h - 4)) errors++;
           }
-          if (g.loot.length > 600) errors++;
+          if (g.loot.length > 1100) errors++;
         }
         console.log(`${mode} seed ${seed}: Runde vorbei nach ${Math.round(t / 1000)} s, Fehler: ${errors}`);
         expect(errors).toBe(0);

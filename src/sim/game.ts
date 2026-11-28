@@ -1,6 +1,6 @@
 import { WORLD, FIGHTER_COUNT, FIGHTER_R, PLAYER_SPEED, BOT_SPEED, PLANE_Z, FALL_SPEED, PLANE_TIME } from '../config';
 import { WEAPONS, WeaponId, WeaponDef, parseWeapon, wKind, weaponScore, rollRarity, CHEST_RARITY, CRATE_RARITY, RARITY_NAMES } from '../weapons';
-import { MapData, LootKind, Obs, House, isLand, ISLAND, landRadius } from '../mapgen';
+import { MapData, LootKind, Obs, House, isLand, ISLAND, clampToLand, landRadius } from '../mapgen';
 import { botNames, BODY_COLORS, PLAYER_COLOR } from '../names';
 import { recordResult } from '../storage';
 import type { ChuteDesign } from '../chute';
@@ -21,6 +21,8 @@ export interface Obstacle {
   x: number; y: number; r: number; w: number; h: number;
   /** nur 'box': Farbe und Höhe */
   c?: number; tall?: number;
+  /** unsichtbar (Modell aus den Requisiten), goldene Truhe */
+  hide?: boolean; gold?: boolean;
   rect: Rect;
   circle: boolean;
   /** blockiert Schüsse und Sicht */
@@ -363,7 +365,7 @@ export class Game {
       rect = { x: o.x - o.w / 2, y: o.y - o.h / 2, w: o.w, h: o.h };
     }
     const blocks = o.kind !== 'water' && o.kind !== 'fence';
-    const ob: Obstacle = { id: this.ids++, kind: o.kind, x: o.x, y: o.y, r: o.r, w: o.w, h: o.h, c: o.c, tall: o.tall, rect, circle, blocks, stamp: 0, opened: false, taken: false, progress: 0 };
+    const ob: Obstacle = { id: this.ids++, kind: o.kind, x: o.x, y: o.y, r: o.r, w: o.w, h: o.h, c: o.c, tall: o.tall, hide: o.hide, gold: o.gold, rect, circle, blocks, stamp: 0, opened: false, taken: false, progress: 0 };
     this.obstacles.push(ob);
     const c0 = clamp(Math.floor(rect.x / CELL), 0, GRID - 1), c1 = clamp(Math.floor((rect.x + rect.w) / CELL), 0, GRID - 1);
     const r0 = clamp(Math.floor(rect.y / CELL), 0, GRID - 1), r1 = clamp(Math.floor((rect.y + rect.h) / CELL), 0, GRID - 1);
@@ -411,9 +413,8 @@ export class Game {
 
   /** an der Küste: niemand läuft ins Meer */
   private keepOnLand(f: Fighter) {
-    const dx = f.x - ISLAND.x, dy = f.y - ISLAND.y, d = Math.hypot(dx, dy) || 1;
-    const lim = landRadius(Math.atan2(dy, dx)) - 70;
-    if (d > lim) { f.x = ISLAND.x + (dx / d) * lim; f.y = ISLAND.y + (dy / d) * lim; }
+    const c = clampToLand(f.x, f.y, 70);
+    if (c) { f.x = c.x; f.y = c.y; }
   }
 
   isFree(x: number, y: number, pad = 28) {
@@ -1811,6 +1812,9 @@ export class Game {
     let kinds: LootKind[];
     if (o.kind === 'airdrop') {
       kinds = [wKind(w < 0.5 ? 'minigun' : 'rocket', Math.random() < 0.15 ? 5 : 4), 'armor', 'bigmed', 'ammo'];
+    } else if (o.kind === 'chest' && o.gold) {
+      // goldene Truhe (Rathaus, Tempel): legendäre Waffe, großes Schild, großes Medikit
+      kinds = [wKind(w < 0.3 ? 'rifle' : w < 0.55 ? 'shotgun' : w < 0.8 ? 'smg' : 'sniper', 5), 'armor', 'bigmed', 'ammo6'];
     } else if (o.kind === 'chest') {
       kinds = [wKind(w < 0.28 ? 'smg' : w < 0.5 ? 'shotgun' : w < 0.85 ? 'rifle' : 'sniper', rollRarity(Math.random, CHEST_RARITY)), 'ammo', pickExtra()];
       if (Math.random() < 0.4) kinds.push(pickExtra());

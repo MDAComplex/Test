@@ -1,5 +1,5 @@
 import { WORLD, FIGHTER_COUNT, PLANE_TIME } from '../config';
-import { coastPolygon, BEACH_W } from '../mapgen';
+import { coastPolygon, BEACH_W, ISLETS, PIERS } from '../mapgen';
 import { CHUTE_Z } from '../sim/game';
 import { Game, Fighter, GameEvent, GameResult, lootLabel, isContainer } from '../sim/game';
 import { Renderer } from '../render/renderer';
@@ -1160,6 +1160,10 @@ export class Hud {
     g.fillStyle = '#8c6f52'; poly(coast, 3 * q); g.fill();
     g.save(); g.shadowColor = 'rgba(160,235,255,0.9)'; g.shadowBlur = 8 * q; g.fillStyle = '#f1dc9f'; poly(coast); g.fill(); g.restore();
     g.fillStyle = '#86c95a'; poly(inner); g.fill();
+    // Leuchtturm-Insel und Stege
+    for (const i of ISLETS) { g.fillStyle = '#f1dc9f'; g.beginPath(); g.arc(i.x * k, i.y * k, i.r * k, 0, 7); g.fill(); g.fillStyle = '#86c95a'; g.beginPath(); g.arc(i.x * k, i.y * k, (i.r - 80) * k, 0, 7); g.fill(); }
+    g.lineCap = 'butt';
+    for (const pr of PIERS) { g.strokeStyle = '#a8763f'; g.lineWidth = Math.max(1.5 * q, pr.w * k); g.beginPath(); g.moveTo(pr.x1 * k, pr.y1 * k); g.lineTo(pr.x2 * k, pr.y2 * k); g.stroke(); }
     g.save(); poly(coast); g.clip();
     const RC: Record<string, string> = { snow: '#eef4fb', desert: '#e8c088', grove: '#a6dc78', beach: '#f1dc9f', farm: '#9ccd5e', industry: '#b9bcc2', forest: '#5d9f43', city: '#cfd4da' };
     for (const rg of map.regions) {
@@ -1173,9 +1177,14 @@ export class Hud {
     for (const f of map.fields) g.fillRect((f.x - f.w / 2) * k, (f.y - f.h / 2) * k, f.w * k, f.h * k);
     // Straßen
     g.lineCap = 'round'; g.lineJoin = 'round';
+    for (const rd of map.roads) {
+      if (!rd.dirt || (!big && rd.w < 70)) continue;
+      g.strokeStyle = '#c9a46a'; g.lineWidth = Math.max(1 * q, rd.w * k);
+      g.beginPath(); rd.pts.forEach((p, i) => (i ? g.lineTo(p.x * k, p.y * k) : g.moveTo(p.x * k, p.y * k))); g.stroke();
+    }
     for (const [col, extra] of [['#5f6670', 1.6], ['#9aa1ab', 0]] as [string, number][]) {
       g.strokeStyle = col;
-      for (const rd of map.roads) { g.lineWidth = Math.max(1.2 * q, rd.w * k) + extra * q; g.beginPath(); rd.pts.forEach((p, i) => (i ? g.lineTo(p.x * k, p.y * k) : g.moveTo(p.x * k, p.y * k))); g.stroke(); }
+      for (const rd of map.roads.filter((r) => !r.dirt)) { g.lineWidth = Math.max(1.2 * q, rd.w * k) + extra * q; g.beginPath(); rd.pts.forEach((p, i) => (i ? g.lineTo(p.x * k, p.y * k) : g.moveTo(p.x * k, p.y * k))); g.stroke(); }
       g.lineWidth = Math.max(1.4 * q, map.ring.w * k) + extra * q; g.beginPath(); g.arc(map.ring.x * k, map.ring.y * k, map.ring.r * k, 0, 7); g.stroke();
     }
     const rv = map.river;
@@ -1208,7 +1217,9 @@ export class Hud {
     }
     for (const o of game.map.obstacles) {
       if (o.kind === 'rock') {
+        if (o.hide && o.r < 100) continue;
         const r = Math.max(1.5 * q, o.r * k);
+        if (o.hide) { g.fillStyle = '#c8673e'; g.beginPath(); g.arc(o.x * k, o.y * k, r, 0, 7); g.fill(); continue; }
         g.fillStyle = '#8e949c'; g.beginPath(); g.arc(o.x * k, o.y * k, r, 0, 7); g.fill();
         if (big) { g.fillStyle = '#b9bec5'; g.beginPath(); g.arc(o.x * k - r * 0.3, o.y * k - r * 0.3, r * 0.5, 0, 7); g.fill(); }
       } else if (big && (o.kind === 'tree' || o.kind === 'bush')) {
@@ -1252,11 +1263,17 @@ export class Hud {
     }
     // Ortsnamen (große Karte)
     if (big) {
+      const placed: { x: number; y: number; w: number; h: number }[] = [];
       for (const p of map.pois) {
-        const x = p.x * k, y = p.y * k;
+        if (!p.big) continue;
+        const x = p.x * k;
+        let y = p.y * k;
         g.font = `900 ${(p.big ? 8.5 : 6.5) * q}px Nunito, system-ui, sans-serif`;
         g.textAlign = 'center'; g.textBaseline = 'middle';
         const w = g.measureText(p.name).width + 8 * q, h = (p.big ? 12 : 10) * q;
+        // nicht überlappen: bei Bedarf nach unten schieben
+        for (let t = 0; t < 8 && placed.some((o) => Math.abs(o.x - x) < (o.w + w) / 2 + 2 * q && Math.abs(o.y - y) < (o.h + h) / 2 + 2 * q); t++) y += h + 2 * q;
+        placed.push({ x, y, w, h });
         g.fillStyle = 'rgba(10,20,36,0.72)'; g.beginPath(); g.roundRect(x - w / 2, y - h / 2, w, h, h / 2); g.fill();
         g.fillStyle = p.big ? '#ffd23f' : '#ffffff'; g.fillText(p.name, x, y + 0.5 * q);
       }

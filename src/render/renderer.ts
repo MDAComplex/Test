@@ -7,7 +7,9 @@ import { CHUTE_Z, DROP_Z, FREE_BACK } from '../sim/game';
 import { buildGun } from './guns';
 import { buildItem } from './items';
 import type { WrapId } from '../wraps';
-import { LootKind, RAIL_R, FOUNTAIN_R, PLAZA_R, coastPolygon, BEACH_W, ISLAND } from '../mapgen';
+import { LootKind, RAIL_R, FOUNTAIN_R, coastPolygon, BEACH_W, ISLAND, ISLETS, landRadius } from '../mapgen';
+import { buildGround } from './ground';
+import { buildProps } from './props';
 import { WHITE_CHUTE } from '../chute';
 import { ANIM, buildCharacter, buildChute, animateRig, poseLying, poseCrawl, poseDeath, capturePose, makeToon, Rig, PoseSnap, DeathKind } from './character';
 
@@ -459,6 +461,29 @@ export class Renderer {
   // ---------- Boden ----------
 
   private boxMats = new Map<number, THREE.Material>();
+  private cone4 = new THREE.CylinderGeometry(0, 1, 1, 4);
+  private archGeo = new THREE.CylinderGeometry(1, 1, 1, 16, 1, false, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2).rotateZ(Math.PI);
+  private firGeo = mergeGeometries([0, 1, 2].map((i) => new THREE.ConeGeometry(2.2 - i * 0.55, 2.4, 8).translate(0, 2.0 + i * 1.45, 0).toNonIndexed()))!;
+  private firSnow = mergeGeometries([0, 1, 2].map((i) => new THREE.ConeGeometry((2.2 - i * 0.55) * 0.62, 1.0, 8).translate(0, 2.0 + i * 1.45 + 0.75, 0).toNonIndexed()))!;
+  private cactusGeo = mergeGeometries([
+    new THREE.CapsuleGeometry(0.45, 3.6, 4, 8).translate(0, 2.25, 0),
+    new THREE.CapsuleGeometry(0.3, 1.2, 4, 8).translate(0.95, 2.6, 0),
+    new THREE.CylinderGeometry(0.3, 0.3, 0.6, 8).rotateZ(Math.PI / 2).translate(0.55, 2.0, 0),
+    new THREE.CapsuleGeometry(0.28, 0.9, 4, 8).translate(-0.85, 3.1, 0),
+    new THREE.CylinderGeometry(0.28, 0.28, 0.5, 8).rotateZ(Math.PI / 2).translate(-0.5, 2.7, 0),
+  ].map((g) => g.toNonIndexed()))!;
+  private palmTrunk = mergeGeometries(Array.from({ length: 6 }, (_, i) => new THREE.CylinderGeometry(0.22 - i * 0.015, 0.26 - i * 0.015, 1.0, 7).translate(i * i * 0.04, 0.5 + i * 0.95, 0).toNonIndexed()))!;
+  private palmLeaves = mergeGeometries(Array.from({ length: 7 }, (_, i) => { const a = (i / 7) * Math.PI * 2; const g = new THREE.SphereGeometry(1, 8, 4); g.scale(1.7, 0.12, 0.45); g.translate(1.5, 0, 0); g.rotateZ(-0.35); g.rotateY(a); g.translate(1.0, 5.8, 0); return g.toNonIndexed(); }).concat([new THREE.SphereGeometry(0.32, 8, 6).translate(1.0, 5.75, 0).toNonIndexed()]))!;
+  private firMat = new THREE.MeshToonMaterial({ color: 0x2f7a46 });
+  private palmMat = new THREE.MeshToonMaterial({ color: 0x4caf50, side: THREE.DoubleSide });
+  private cactusMat = new THREE.MeshToonMaterial({ color: 0x4f9a52 });
+  private cactusMat2 = new THREE.MeshToonMaterial({ color: 0x5aa85a });
+  private prismR = (() => { const sh = new THREE.Shape(); sh.moveTo(-0.5, 0); sh.lineTo(0.5, 0); sh.lineTo(0.5, 1); sh.closePath(); const g = new THREE.ExtrudeGeometry(sh, { depth: 1, bevelEnabled: false }); g.translate(0, 0, -0.5); g.rotateY(Math.PI / 2); return g; })();
+  private houseExtras: { x: number; z: number; sx: number; sz: number; mat: THREE.Material }[] = [];
+  private propAnims: ((t: number, dt: number) => void)[] = [];
+  // Wetter je Biom (Schnee, Blüten) und Fußspuren im Schnee
+  private weather: { pts: THREE.Points; mat: THREE.PointsMaterial; vel: Float32Array; kind: string; a: number } | null = null;
+  private steps: { mesh: THREE.InstancedMesh; age: Float32Array; next: number; last: Map<number, { x: number; y: number; side: number }> } | null = null;
   private boxMat(c: number) {
     let m = this.boxMats.get(c);
     if (!m) { m = new THREE.MeshToonMaterial({ color: c, gradientMap: this.gradient }); this.boxMats.set(c, m); }
@@ -473,7 +498,12 @@ export class Renderer {
 
   /** Klippen rund um die Insel und Brandungsstreifen auf dem Wasser */
   private buildCoast(world: THREE.Group) {
-    const coast = coastPolygon(360);
+    this.buildCliff(world, coastPolygon(360), ISLAND, true);
+    // Leuchtturm-Insel: eigene kleine Klippe und Brandung
+    for (const i of ISLETS) this.buildCliff(world, Array.from({ length: 64 }, (_, k) => ({ x: i.x + Math.cos(k / 64 * Math.PI * 2) * i.r, y: i.y + Math.sin(k / 64 * Math.PI * 2) * i.r })), i, false);
+  }
+
+  private buildCliff(world: THREE.Group, coast: { x: number; y: number }[], ISLAND: { x: number; y: number }, main: boolean) {
     const n = coast.length;
     // Klippenwand: oben an der Küste, unten leicht nach außen versetzt
     const pos: number[] = [], idx: number[] = [];
@@ -502,6 +532,7 @@ export class Renderer {
     fg.setAttribute('position', new THREE.Float32BufferAttribute(fp, 3));
     fg.setAttribute('aEdge', new THREE.Float32BufferAttribute(fa, 1));
     fg.setIndex(fi);
+    if (!main && this.foamMat) { this.perRound.push(cg, fg); world.add(new THREE.Mesh(fg, this.foamMat)); return; }
     this.foamMat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
       uniforms: { uT: { value: 0 } },
@@ -532,6 +563,8 @@ export class Renderer {
       poly(coast); c.fill();
       c.fillStyle = C.grass;
       poly(inner); c.fill();
+      // Leuchtturm-Insel: Sandrand, Gras in der Mitte
+      for (const i of ISLETS) { c.fillStyle = C.sand; c.beginPath(); c.arc(i.x * k, i.y * k, i.r * k, 0, Math.PI * 2); c.fill(); c.fillStyle = C.grass; c.beginPath(); c.arc(i.x * k, i.y * k, (i.r - 80) * k, 0, Math.PI * 2); c.fill(); }
       c.save();
       poly(coast);
       c.clip();
@@ -552,96 +585,17 @@ export class Renderer {
       const RC: Record<string, string> = { snow: '#eef4fb', desert: '#e8c088', grove: '#a6dc78', beach: C.sand, farm: '#9ccd5e', industry: '#b9bcc2', forest: '#5d9f43', city: '#cfd4da' };
       for (const g of map.regions) {
         if (g.kind === 'city') continue;
-        const gr = c.createRadialGradient(g.x * k, g.y * k, g.r * 0.55 * k, g.x * k, g.y * k, g.r * k);
-        gr.addColorStop(0, RC[g.kind] + 'ff'); gr.addColorStop(1, RC[g.kind] + '00');
-        c.fillStyle = gr; c.beginPath(); c.arc(g.x * k, g.y * k, g.r * k, 0, Math.PI * 2); c.fill();
+        // weiche, breite Übergänge zwischen den Biomen
+        const R2 = g.r * 1.18;
+        const gr = c.createRadialGradient(g.x * k, g.y * k, g.r * 0.45 * k, g.x * k, g.y * k, R2 * k);
+        gr.addColorStop(0, RC[g.kind] + 'ff'); gr.addColorStop(0.55, RC[g.kind] + 'f0'); gr.addColorStop(0.8, RC[g.kind] + '80'); gr.addColorStop(1, RC[g.kind] + '00');
+        c.fillStyle = gr; c.beginPath(); c.arc(g.x * k, g.y * k, R2 * k, 0, Math.PI * 2); c.fill();
       }
-      // Schnee: Glitzer, Wüste: Sandkörnung
-      for (const g of map.regions) {
-        if (g.kind !== 'snow' && g.kind !== 'desert') continue;
-        for (let i = 0; i < 400; i++) { const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * g.r * 0.8; c.fillStyle = g.kind === 'snow' ? 'rgba(170,195,225,0.35)' : 'rgba(190,130,70,0.25)'; c.beginPath(); c.arc((g.x + Math.cos(a) * d) * k, (g.y + Math.sin(a) * d) * k, (6 + rnd() * 14) * k, 0, Math.PI * 2); c.fill(); }
-      }
-      // Stadt: gepflasterte Fläche innerhalb der Ringstraße
+      // Stadt: helle Fläche innerhalb der Ringstraße (Straßen und Plätze kommen als scharfe Geometrie)
       const rg = map.ring;
-      c.fillStyle = '#cfd4da'; c.beginPath(); c.arc(rg.x * k, rg.y * k, rg.r * k, 0, Math.PI * 2); c.fill();
-      c.strokeStyle = 'rgba(150,158,170,0.5)'; c.lineWidth = 3 * k;
-      for (let rr = 450; rr < rg.r; rr += 220) { c.beginPath(); c.arc(rg.x * k, rg.y * k, rr * k, 0, Math.PI * 2); c.stroke(); }
-
-      // Felder
-      for (const f of map.fields) {
-        const x = (f.x - f.w / 2) * k, y = (f.y - f.h / 2) * k;
-        c.fillStyle = C.wheat;
-        c.beginPath();
-        c.roundRect(x, y, f.w * k, f.h * k, 24 * k);
-        c.fill();
-        c.strokeStyle = C.wheatDark;
-        c.lineWidth = 6 * k;
-        for (let yy = y + 20 * k; yy < y + f.h * k - 10 * k; yy += 36 * k) {
-          c.beginPath();
-          c.moveTo(x + 16 * k, yy);
-          c.lineTo(x + f.w * k - 16 * k, yy);
-          c.stroke();
-        }
-      }
-
-      // Wege
-      const hs = map.houses;
-      const edges = new Set<string>();
-      hs.forEach((a, i) => {
-        const near = hs.map((b, j) => ({ j, d: (a.x - b.x) ** 2 + (a.y - b.y) ** 2 })).filter((o) => o.j !== i).sort((p, q) => p.d - q.d).slice(0, 2);
-        for (const n of near) edges.add(i < n.j ? `${i}-${n.j}` : `${n.j}-${i}`);
-      });
-      const drawPaths = (width: number, color: string) => {
-        c.strokeStyle = color;
-        c.lineWidth = width * k;
-        c.lineCap = 'round';
-        for (const e of edges) {
-          const [i, j] = e.split('-').map(Number);
-          const a = hs[i], b = hs[j];
-          const mx = (a.x + b.x) / 2 + (b.y - a.y) * 0.15, my = (a.y + b.y) / 2 - (b.x - a.x) * 0.15;
-          c.beginPath();
-          c.moveTo(a.x * k, a.y * k);
-          c.quadraticCurveTo(mx * k, my * k, b.x * k, b.y * k);
-          c.stroke();
-        }
-      };
-      drawPaths(60, C.path);
-      drawPaths(38, C.pathLight);
-      // Asphaltstraßen mit Mittelstreifen, Ringstraße um die Stadt
-      const roadPath = (pts: { x: number; y: number }[]) => { c.beginPath(); pts.forEach((q, i) => (i ? c.lineTo(q.x * k, q.y * k) : c.moveTo(q.x * k, q.y * k))); };
-      c.lineCap = 'round'; c.lineJoin = 'round';
-      for (const [extra, col] of [[24, '#6f7682'], [0, '#8a929e']] as [number, string][]) {
-        c.strokeStyle = col;
-        for (const rd of map.roads) { c.lineWidth = (rd.w + extra) * k; roadPath(rd.pts); c.stroke(); }
-        c.lineWidth = (rg.w + extra) * k; c.beginPath(); c.arc(rg.x * k, rg.y * k, rg.r * k, 0, Math.PI * 2); c.stroke();
-      }
-      c.strokeStyle = 'rgba(255,255,255,0.85)'; c.lineWidth = 6 * k; c.setLineDash([50 * k, 50 * k]);
-      for (const rd of map.roads) { roadPath(rd.pts); c.stroke(); }
-      c.beginPath(); c.arc(rg.x * k, rg.y * k, rg.r * k, 0, Math.PI * 2); c.stroke();
-      c.setLineDash([]);
-      // Dorfplatz
-      const t = map.town;
-      c.fillStyle = C.path;
-      c.beginPath();
-      c.arc(t.x * k, t.y * k, (PLAZA_R + 40) * k, 0, Math.PI * 2);
-      c.fill();
-      c.fillStyle = C.plaza;
-      c.beginPath();
-      c.arc(t.x * k, t.y * k, PLAZA_R * k, 0, Math.PI * 2);
-      c.fill();
-      c.strokeStyle = 'rgba(160,140,110,0.5)';
-      c.lineWidth = 2;
-      for (let r = 50; r < PLAZA_R; r += 40) {
-        c.beginPath();
-        c.arc(t.x * k, t.y * k, r * k, 0, Math.PI * 2);
-        c.stroke();
-      }
-      for (const h of hs) {
-        c.fillStyle = C.path;
-        c.beginPath();
-        c.roundRect((h.x - h.s / 2 - 40) * k, (h.y - h.s / 2 - 40) * k, (h.s + 80) * k, (h.s + 80) * k, 40 * k);
-        c.fill();
-      }
+      const cg = c.createRadialGradient(rg.x * k, rg.y * k, rg.r * 0.7 * k, rg.x * k, rg.y * k, rg.r * 1.12 * k);
+      cg.addColorStop(0, '#d3d8dd'); cg.addColorStop(0.75, '#d3d8dd'); cg.addColorStop(1, '#d3d8dd00');
+      c.fillStyle = cg; c.beginPath(); c.arc(rg.x * k, rg.y * k, rg.r * 1.12 * k, 0, Math.PI * 2); c.fill();
       // Flussufer (Sand) und Flussbett
       const rv = map.river;
       c.lineCap = 'round';
@@ -659,19 +613,6 @@ export class Renderer {
         c.beginPath();
         c.arc(p.x * k, p.y * k, (p.r + 46) * k, 0, Math.PI * 2);
         c.fill();
-      }
-      // Blumen (feine Grashalme kommen aus der scharfen Detail-Textur)
-      const fs = N / 2048;
-      for (let i = 0; i < 700; i++) {
-        const x = rnd() * N, y = rnd() * N;
-        if (rnd() < 0) {
-          c.stroke();
-        } else {
-          c.fillStyle = ['#ffffff', '#ffe066', '#ff8fb1'][Math.floor(rnd() * 3)];
-          c.beginPath();
-          c.arc(x, y, 2 * fs, 0, Math.PI * 2);
-          c.fill();
-        }
       }
       c.restore();
     });
@@ -854,25 +795,31 @@ export class Renderer {
     glow.castShadow = false;
     const lid = new THREE.Group();
     if (o.kind === 'chest') {
+      // goldene Truhe: gleiches Modell, verschiedene Goldtöne (dunkle Kanten, helle Verschlüsse)
+      const gm = (c: number) => this.boxMat(c);
+      const M = o.gold
+        ? { body: gm(0xe0a52a), edge: gm(0xa8701a), glow: new THREE.MeshBasicMaterial({ color: 0xfff1b0 }), latch: gm(0xffe27a), top: gm(0xffcf4a) }
+        : { body: this.m.caseBody, edge: this.m.caseEdge, glow: this.m.caseGlow, latch: this.m.caseLatch, top: this.m.caseEdge };
+      if (o.gold) this.perRound.push(M.glow);
       // moderne schwarze Loot-Kiste (Waffenkiste) mit Leuchtstreifen
       const w = o.w * S, d = o.h * S, h = 0.8;
-      add(this.g.box, this.m.caseBody, 0, h / 2, 0, w, h, d);
+      add(this.g.box, M.body, 0, h / 2, 0, w, h, d);
       // Kantenschutz unten und an den Ecken
-      add(this.g.box, this.m.caseEdge, 0, 0.06, 0, w + 0.08, 0.12, d + 0.08);
-      for (const cx of [-w / 2, w / 2]) for (const cz of [-d / 2, d / 2]) add(this.g.box, this.m.caseEdge, cx, h / 2, cz, 0.16, h + 0.04, 0.16);
+      add(this.g.box, M.edge, 0, 0.06, 0, w + 0.08, 0.12, d + 0.08);
+      for (const cx of [-w / 2, w / 2]) for (const cz of [-d / 2, d / 2]) add(this.g.box, M.edge, cx, h / 2, cz, 0.16, h + 0.04, 0.16);
       // Leuchtstreifen rundherum
-      add(this.g.box, this.m.caseGlow, 0, h * 0.55, d / 2 + 0.01, w * 0.86, 0.07, 0.02);
-      add(this.g.box, this.m.caseGlow, 0, h * 0.55, -d / 2 - 0.01, w * 0.86, 0.07, 0.02);
-      for (const cx of [-w / 2 - 0.01, w / 2 + 0.01]) add(this.g.box, this.m.caseGlow, cx, h * 0.55, 0, 0.02, 0.07, d * 0.8);
+      add(this.g.box, M.glow, 0, h * 0.55, d / 2 + 0.01, w * 0.86, 0.07, 0.02);
+      add(this.g.box, M.glow, 0, h * 0.55, -d / 2 - 0.01, w * 0.86, 0.07, 0.02);
+      for (const cx of [-w / 2 - 0.01, w / 2 + 0.01]) add(this.g.box, M.glow, cx, h * 0.55, 0, 0.02, 0.07, d * 0.8);
       // Griffe an den Seiten
-      for (const cx of [-w / 2 - 0.08, w / 2 + 0.08]) add(this.g.box, this.m.caseEdge, cx, h * 0.75, 0, 0.08, 0.1, d * 0.4);
+      for (const cx of [-w / 2 - 0.08, w / 2 + 0.08]) add(this.g.box, M.edge, cx, h * 0.75, 0, 0.08, 0.1, d * 0.4);
       // Deckel: flach, Drehpunkt an der Hinterkante
       lid.position.set(0, h, -d / 2);
-      add(this.g.box, this.m.caseBody, 0, 0.12, d / 2, w + 0.04, 0.24, d + 0.04, lid);
-      add(this.g.box, this.m.caseEdge, 0, 0.25, d / 2, w * 0.7, 0.04, d * 0.55, lid);
-      add(this.g.box, this.m.caseGlow, 0, 0.27, d / 2, w * 0.25, 0.02, 0.06, lid);
+      add(this.g.box, M.body, 0, 0.12, d / 2, w + 0.04, 0.24, d + 0.04, lid);
+      add(this.g.box, M.top, 0, 0.25, d / 2, w * 0.7, 0.04, d * 0.55, lid);
+      add(this.g.box, M.glow, 0, 0.27, d / 2, w * 0.25, 0.02, 0.06, lid);
       // zwei Verschlüsse vorne
-      for (const cx of [-w * 0.28, w * 0.28]) add(this.g.box, this.m.caseLatch, cx, 0.02, d + 0.04, 0.22, 0.26, 0.08, lid);
+      for (const cx of [-w * 0.28, w * 0.28]) add(this.g.box, M.latch, cx, 0.02, d + 0.04, 0.22, 0.26, 0.08, lid);
     } else if (o.kind === 'airdrop') {
       add(this.g.box, this.m.dropBody, 0, 0.9, 0, s, 1.8, s);
       add(this.g.box, this.m.dropStripe, 0, 0.9, 0, s + 0.05, 0.3, s + 0.05);
@@ -894,6 +841,7 @@ export class Renderer {
 
   build(game: Game, tod?: number) {
     if (this.world) this.scene.remove(this.world);
+    for (const m of [this.firMat, this.palmMat, this.cactusMat, this.cactusMat2]) m.gradientMap = this.gradient;
     this.tod = TODS[tod ?? 0];
     this.hemi.color.setHex(this.tod.sky);
     this.hemi.groundColor.setHex(this.tod.ground);
@@ -917,6 +865,7 @@ export class Renderer {
     this.canopies = [];
     this.bushes = [];
     this.houses = [];
+    this.houseExtras = [];
     this.ponds = [];
     this.progMesh = null;
     this.progTrack = null;
@@ -944,36 +893,81 @@ export class Renderer {
     };
 
     // Wasser
+    // Meer: türkis an der Küste, tiefblau draußen, wandernde Lichtmuster, Wellen laufen zum Strand
+    const isl = ISLETS[0];
     this.waterMat = new THREE.ShaderMaterial({
-      uniforms: { uT: { value: 0 }, uC: { value: new THREE.Color(this.tod.water) }, uHalf: { value: W * 4 }, uCenter: { value: new THREE.Vector2(W / 2, W / 2) } },
+      uniforms: { uT: { value: 0 }, uC: { value: new THREE.Color(this.tod.water) }, uIsl: { value: new THREE.Vector4(ISLAND.x * S, ISLAND.y * S, ISLAND.r * S, 0) }, uLet: { value: new THREE.Vector3(isl.x * S, isl.y * S, isl.r * S) } },
       vertexShader: `varying vec2 vXZ; void main(){ vec4 wp = modelMatrix * vec4(position,1.0); vXZ = wp.xz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
-      fragmentShader: `uniform float uT; uniform vec3 uC; uniform float uHalf; uniform vec2 uCenter; varying vec2 vXZ;
+      fragmentShader: `uniform float uT; uniform vec3 uC; uniform vec4 uIsl; uniform vec3 uLet; varying vec2 vXZ;
         void main(){
-          float w = sin(vXZ.x * 0.35 + uT * 0.8) * sin(vXZ.y * 0.3 - uT * 0.6);
-          float glint = smoothstep(0.82, 1.0, w);
-          vec3 col = uC * (0.92 + w * 0.06) + vec3(glint * 0.35);
-          // Abstand zur Inselkante (nur außerhalb der Insel > 0)
-          vec2 q = abs(vXZ - uCenter) - vec2(uHalf);
-          float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-          if (d > 0.0) {
-            // flaches, helles Wasser am Ufer
-            col = mix(vec3(0.45, 0.85, 0.9), col, smoothstep(0.0, 9.0, d));
-            // Wellen, die zum Strand laufen
-            float wave = sin(d * 1.3 + uT * 2.2 + sin(vXZ.x * 0.15 + vXZ.y * 0.12) * 1.5);
-            float foam = smoothstep(0.86, 1.0, wave) * (1.0 - smoothstep(1.0, 7.0, d));
-            float edge = 1.0 - smoothstep(0.0, 0.9 + sin(uT * 1.7 + vXZ.x * 0.4 + vXZ.y * 0.3) * 0.35, d);
-            col = mix(col, vec3(1.0), clamp(foam * 0.8 + edge * 0.9, 0.0, 1.0));
+          vec2 q = vXZ - uIsl.xy;
+          float a = atan(q.y, q.x);
+          float R = uIsl.z * (1.0 + sin(a * 3.0 + 13.3) * 0.08 + sin(a * 5.0 + 11.9) * 0.048 + sin(a * 11.0 + 1.3) * 0.02);
+          float d = length(q) - R;
+          d = min(d, length(vXZ - uLet.xy) - uLet.z);
+          float x = vXZ.x, z = vXZ.y, t = uT;
+          float n = sin(x * 0.55 + t * 0.9) * sin(z * 0.5 - t * 0.7) + sin((x + z) * 0.31 + t * 1.2) * 0.55 + sin((x - z) * 0.83 - t * 0.6) * 0.35;
+          float n2 = sin(x * 1.3 - t * 1.4 + sin(z * 0.7) * 2.0) * sin(z * 1.2 + t * 1.1);
+          vec3 deep = uC * 0.8, shallow = vec3(0.36, 0.83, 0.86);
+          vec3 col;
+          if (d < 0.0) {
+            // Teiche und Brunnen: ruhiges Wasser
+            col = mix(uC * 0.95, shallow, 0.25) + vec3(smoothstep(1.05, 1.5, n) * 0.18);
+          } else {
+            col = mix(shallow, deep, smoothstep(0.0, 34.0, d));
+            col *= 0.95 + n * 0.035;
+            // Lichtnetz im flachen Wasser, Glitzern draußen
+            col += vec3(0.85, 0.95, 1.0) * smoothstep(1.0, 1.45, n) * (0.22 * (1.0 - smoothstep(4.0, 30.0, d)) + 0.08);
+            col += vec3(smoothstep(0.86, 1.0, n2) * 0.12);
+            float wave = sin(d * 1.15 - t * 2.1 + sin(x * 0.15 + z * 0.12) * 1.5);
+            float foam = smoothstep(0.88, 1.0, wave) * (1.0 - smoothstep(1.0, 8.0, d));
+            float edge = 1.0 - smoothstep(0.0, 0.9 + sin(t * 1.7 + x * 0.4 + z * 0.3) * 0.35, d);
+            col = mix(col, vec3(1.0), clamp(foam * 0.75 + edge * 0.9, 0.0, 1.0));
           }
           gl_FragColor = vec4(col, 1.0);
         }`,
     });
     this.perRound.push(this.waterMat);
-    flat(add(this.g.plane, this.waterMat, W / 2, -0.4, W / 2, 1800, 1800, 1)).receiveShadow = false;
+    flat(add(this.g.plane, this.waterMat, W / 2, -0.4, W / 2, 2000, 2000, 1)).receiveShadow = false;
     this.buildCoast(world);
     const tex = this.groundTexture(game);
     const groundMat = new THREE.MeshToonMaterial({ map: tex, gradientMap: this.gradient, alphaTest: 0.5 });
     this.perRound.push(tex, groundMat);
     flat(add(this.g.plane, groundMat, W / 2, 0, W / 2, W, W, 1));
+    // scharfe Straßen, Wege, Plätze und Felder
+    {
+      const gm = new Map<string, THREE.Material>();
+      const gmat = (c: number, lift: number) => {
+        const k = c + ':' + lift;
+        let m = gm.get(k);
+        if (!m) { m = new THREE.MeshToonMaterial({ color: c, gradientMap: this.gradient, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 - lift, polygonOffsetUnits: -2 - lift * 2 }); gm.set(k, m); this.perRound.push(m); }
+        return m;
+      };
+      const gb = buildGround(game.map, gmat);
+      for (const m of gb.meshes) world.add(m);
+      this.perRound.push(...gb.dispose);
+    }
+    // Requisiten (Deko je Biom)
+    this.propAnims = [];
+    buildProps(game.map, { world, toon: (c) => this.boxMat(c), water: this.waterMat, anims: this.propAnims, dispose: this.perRound as (THREE.BufferGeometry | THREE.Material)[] });
+    {
+      const N = 700, pos = new Float32Array(N * 3), vel = new Float32Array(N);
+      for (let i = 0; i < N; i++) { pos[i * 3] = (Math.random() - 0.5) * 80; pos[i * 3 + 1] = Math.random() * 30; pos[i * 3 + 2] = (Math.random() - 0.5) * 80; vel[i] = 0.6 + Math.random() * 0.8; }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const mat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.32, transparent: true, opacity: 0, depthWrite: false });
+      const pts = new THREE.Points(g, mat); pts.frustumCulled = false; pts.visible = false;
+      world.add(pts);
+      this.perRound.push(g, mat);
+      this.weather = { pts, mat, vel, kind: '', a: 0 };
+      const sg = new THREE.CircleGeometry(0.16, 8).rotateX(-Math.PI / 2); sg.scale(1, 1, 1.6);
+      const sm = new THREE.MeshBasicMaterial({ color: 0xbccbdb, transparent: true, opacity: 0.8, depthWrite: false });
+      const mesh = new THREE.InstancedMesh(sg, sm, 260); mesh.frustumCulled = false; mesh.renderOrder = 1;
+      const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+      for (let i = 0; i < 260; i++) mesh.setMatrixAt(i, zero);
+      world.add(mesh);
+      this.perRound.push(sg, sm, mesh);
+      this.steps = { mesh, age: new Float32Array(260).fill(99), next: 0, last: new Map() };
+    }
 
     // Häuser
     const floorTex = canvasTexture(128, 128, (c) => {
@@ -987,21 +981,104 @@ export class Renderer {
     floorTex.repeat.set(3, 3);
     const floorMat = new THREE.MeshToonMaterial({ map: floorTex, gradientMap: this.gradient });
     this.perRound.push(floorTex, floorMat);
+    const logTex = canvasTexture(64, 64, (c) => {
+      c.fillStyle = '#9a6a3c'; c.fillRect(0, 0, 64, 64);
+      for (let y = 0; y < 64; y += 16) { c.fillStyle = '#b07c48'; c.fillRect(0, y + 2, 64, 11); c.fillStyle = '#7a4e28'; c.fillRect(0, y + 13, 64, 3); }
+    });
+    logTex.wrapS = logTex.wrapT = THREE.RepeatWrapping; logTex.repeat.set(1, 1);
+    this.perRound.push(logTex);
+    const STY: Record<string, { walls: number[]; roofs: number[]; trim?: number }> = {
+      normal: { walls: C.walls, roofs: C.roofs }, shop: { walls: C.walls, roofs: C.roofs },
+      hall: { walls: [0xefe6d6], roofs: [0x4a5a78], trim: 0xb8a68a },
+      snow: { walls: [0xe9eef3, 0xf3e6d6, 0xdfe8ef], roofs: [0xb8433a, 0x3d6fae, 0x5b6b7a] },
+      west: { walls: [0xc89a62, 0xd8b07a, 0xb98a55], roofs: [0x8a5a36, 0x9c6a42] , trim: 0x6e4424 },
+      jp: { walls: [0xf6eedc, 0xf3e8d2], roofs: [0x3a3f4a, 0x4a3a3a], trim: 0x4a2e1e },
+      log: { walls: [0xffffff], roofs: [0x3f6b45, 0x5b4636, 0x8a3e2e], trim: 0x5e3d20 },
+      barn: { walls: [0xb8322a, 0xa62d26], roofs: [0x4a4f58], trim: 0xf4f0e6 },
+      factory: { walls: [0xb9bcc2, 0xa8adb5], roofs: [0x6b7a8a, 0x5b6b7a], trim: 0x4a505c },
+      beach: { walls: [0xfde7c8, 0xd8f0f0, 0xfff2e0], roofs: [0x3dc6c6, 0xff8a6e, 0xf2c94c] },
+    };
     game.houses.forEach((h, i) => {
-      const s = h.s * S;
+      const s = h.s * S, st = h.style ?? 'normal', pal = STY[st] ?? STY.normal;
       flat(add(this.g.plane, floorMat, h.x * S, 0.03, h.y * S, s, s, 1));
-      const wallMat = new THREE.MeshToonMaterial({ color: C.walls[i % C.walls.length], gradientMap: this.gradient });
-      const roofMat = new THREE.MeshToonMaterial({ color: C.roofs[i % C.roofs.length], gradientMap: this.gradient });
-      const trimMat = new THREE.MeshToonMaterial({ color: C.trim, gradientMap: this.gradient });
+      const wallMat = new THREE.MeshToonMaterial({ color: pal.walls[i % pal.walls.length], gradientMap: this.gradient, map: st === 'log' ? logTex : null });
+      const roofMat = new THREE.MeshToonMaterial({ color: pal.roofs[i % pal.roofs.length], gradientMap: this.gradient });
+      const trimMat = new THREE.MeshToonMaterial({ color: pal.trim ?? C.trim, gradientMap: this.gradient });
       const chimMat = new THREE.MeshToonMaterial({ color: 0x9c6a52, gradientMap: this.gradient });
-      this.perRound.push(wallMat, roofMat, trimMat, chimMat);
+      const snowMat = new THREE.MeshToonMaterial({ color: 0xf6fafd, gradientMap: this.gradient });
+      const glassMat = new THREE.MeshToonMaterial({ color: 0xa8d8f0, gradientMap: this.gradient });
+      const upperWall = wallMat.clone();
+      this.perRound.push(wallMat, roofMat, trimMat, chimMat, snowMat, glassMat, upperWall);
       const roof = new THREE.Group();
+      const mats: THREE.Material[] = [trimMat, roofMat, chimMat];
       add(this.g.box, trimMat, 0, WALL_H + 0.12, 0, s + 0.6, 0.24, s + 0.6, roof);
-      add(this.g.gable, roofMat, 0, WALL_H + 0.24, 0, s + 0.8, 3.6, s + 0.8, roof).rotation.y = Math.PI / 2;
-      add(this.g.box, chimMat, s * 0.22, WALL_H + 2.6, s * 0.18, 0.7, 1.8, 0.7, roof);
+      if (st === 'jp') {
+        // geschwungenes Walmdach mit hochgezogenen Ecken, kleiner Aufsatz oben
+        // unterer Dachkranz weit ausladend, darüber ein steiles Walmdach
+        add(this.cone4, roofMat, 0, WALL_H + 0.24 + 0.7, 0, (s + 2.4) * 0.72, 1.4, (s + 2.4) * 0.72, roof).rotation.y = Math.PI / 4;
+        add(this.g.box, upperWall, 0, WALL_H + 1.2, 0, s * 0.62, 1.0, s * 0.62, roof);
+        add(this.cone4, roofMat, 0, WALL_H + 1.7 + 1.5, 0, (s * 0.62 + 1.4) * 0.72, 3.0, (s * 0.62 + 1.4) * 0.72, roof).rotation.y = Math.PI / 4;
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(this.cone4, roofMat, sx * (s / 2 + 0.9), WALL_H + 0.55, sz * (s / 2 + 0.9), 0.3, 0.8, 0.3, roof);
+        add(this.g.box, trimMat, 0, WALL_H + 4.6, 0, 0.6, 0.3, 0.6, roof);
+        mats.push(upperWall);
+      } else if (st === 'west') {
+        // flaches Dach, hohe Holzfassade über der Tür (Westernstil)
+        add(this.g.box, roofMat, 0, WALL_H + 0.4, 0, s + 0.4, 0.3, s + 0.4, roof);
+        const d = h.doors[0];
+        if (d) {
+          const fx = d.nx * (s / 2 + 0.05), fz = d.ny * (s / 2 + 0.05), along = Math.abs(d.nx) < 0.5;
+          add(this.g.box, wallMat, fx, WALL_H + 1.1, fz, along ? s + 0.2 : 0.25, 1.6, along ? 0.25 : s + 0.2, roof);
+          add(this.g.box, trimMat, fx + d.nx * 0.14, WALL_H + 1.9, fz + d.ny * 0.14, along ? s + 0.4 : 0.12, 0.18, along ? 0.12 : s + 0.4, roof);
+          add(this.g.box, trimMat, fx + d.nx * 0.16, WALL_H + 1.05, fz + d.ny * 0.16, along ? s * 0.5 : 0.08, 0.6, along ? 0.08 : s * 0.5, roof);
+        }
+      } else if (st === 'factory') {
+        // Sheddach: mehrere Sägezähne mit Glasflächen
+        const n = 3, w = (s + 0.6) / n;
+        for (let k = 0; k < n; k++) {
+          const z = -s / 2 - 0.3 + w * (k + 0.5);
+          add(this.prismR, roofMat, 0, WALL_H + 0.24, z, s + 0.6, 2.2, w, roof);
+          add(this.g.box, glassMat, 0, WALL_H + 1.3, z + w / 2 - 0.02, s + 0.4, 2.0, 0.06, roof);
+        }
+        mats.push(glassMat);
+      } else {
+        const tall = st === 'barn' ? 4.6 : st === 'hall' ? 3.2 : 3.6;
+        add(this.g.gable, roofMat, 0, WALL_H + 0.24, 0, s + 0.8, tall, s + 0.8, roof).rotation.y = Math.PI / 2;
+        if (st === 'snow') {
+          // Schnee auf dem Dach: weiße Schicht, unten schaut die Dachfarbe raus
+          add(this.g.gable, snowMat, 0, WALL_H + 0.62, 0, (s + 0.8) * 0.84, tall * 0.94, s + 1.0, roof).rotation.y = Math.PI / 2;
+          mats.push(snowMat);
+        }
+        if (st !== 'hall' && st !== 'barn') add(this.g.box, chimMat, s * 0.22, WALL_H + 2.6, s * 0.18, 0.7, 1.8, 0.7, roof);
+        if (st === 'snow') add(this.g.box, snowMat, s * 0.22, WALL_H + 3.55, s * 0.18, 0.8, 0.14, 0.8, roof);
+        if (st === 'barn') for (const sx of [-1, 1]) add(this.g.box, trimMat, 0, WALL_H + 2.3, sx * (s / 2 + 0.42), s * 0.5, 0.18, 0.06, roof);
+      }
+      if (st === 'hall') {
+        // Uhrturm auf dem Rathaus
+        const tw = 4.2, base = WALL_H + 0.2, top = base + 9;
+        const clockW = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: this.gradient }), clockB = new THREE.MeshToonMaterial({ color: 0x22232b, gradientMap: this.gradient });
+        this.perRound.push(clockW, clockB);
+        add(this.g.box, upperWall, 0, (base + top) / 2, 0, tw, top - base, tw, roof);
+        add(this.g.box, trimMat, 0, top, 0, tw + 0.5, 0.35, tw + 0.5, roof);
+        for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const c = add(this.g.circle, clockW, nx * (tw / 2 + 0.03), top - 1.8, nz * (tw / 2 + 0.03), 1.3, 1.3, 1, roof);
+          c.rotation.y = Math.atan2(nx, nz);
+          const hand = add(this.g.box, clockB, nx * (tw / 2 + 0.08), top - 1.5, nz * (tw / 2 + 0.08), nz ? 0.12 : 0.04, 0.8, nx ? 0.12 : 0.04, roof);
+          hand.position.y = top - 1.45;
+          const hand2 = add(this.g.box, clockB, nx * (tw / 2 + 0.09), top - 1.8, nz * (tw / 2 + 0.09), nz ? 0.6 : 0.04, 0.12, nx ? 0.6 : 0.04, roof);
+          hand2.position.x += nz ? 0.25 : 0; hand2.position.z += nx ? 0.25 : 0;
+        }
+        add(this.cone4, roofMat, 0, top + 0.17 + 1.6, 0, tw * 0.8, 3.2, tw * 0.8, roof).rotation.y = Math.PI / 4;
+        add(this.g.blob, clockW, 0, top + 3.6, 0, 0.3, 0.3, 0.3, roof);
+        mats.push(upperWall, clockW, clockB);
+      }
       roof.position.set(h.x * S, 0, h.y * S);
       world.add(roof);
-      this.houses.push({ roof, roofMats: [trimMat, roofMat, chimMat], wallMat, fade: 1 });
+      this.houses.push({ roof, roofMats: mats, wallMat, fade: 1 });
+      // Vordach über jeder Tür (dezent)
+      for (const d of h.doors) {
+        const along = Math.abs(d.nx) < 0.5;
+        this.houseExtras.push({ x: d.x * S + d.nx * 0.45, z: d.y * S + d.ny * 0.45, sx: along ? 2.2 : 0.9, sz: along ? 0.9 : 2.2, mat: trimMat });
+      }
     });
 
     // Lichtschein aus den Hauseingängen
@@ -1060,10 +1137,6 @@ export class Renderer {
       }
     }
 
-    // Dorfbrunnen
-    const t = game.map.town;
-    add(this.g.cyl, this.m.rock, t.x * S, 0.4, t.y * S, 2.2, 0.8, 2.2);
-    flat(add(this.g.circle, this.waterMat, t.x * S, 0.82, t.y * S, 1.9, 1.9, 1));
 
     // statische Objekte werden pro Material zu einem einzigen Mesh zusammengefasst (weniger Draw-Calls)
     const staticParts = new Map<THREE.Material, THREE.BufferGeometry[]>();
@@ -1079,8 +1152,18 @@ export class Renderer {
       list.push(g);
       staticParts.set(mat, list);
     };
+    for (const e of this.houseExtras) sadd(this.g.box, e.mat, e.x, WALL_H - 0.12, e.z, e.sx, 0.12, e.sz);
+    // Baumart je Biom; am Rand der Biome weich gemischt
+    let ts = 7;
+    const trnd = () => ((ts = (ts * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const treeRegion = (x: number, y: number) => {
+      let best: string | null = null, bd = Infinity;
+      for (const g of game.map.regions) { const d = Math.hypot(g.x - x, g.y - y) / g.r; if (d < 0.72 + trnd() * 0.5 && d < bd) { bd = d; best = g.kind; } }
+      return best;
+    };
     for (const o of game.obstacles) {
       const x = o.x * S, z = o.y * S;
+      if (o.hide) continue;
       switch (o.kind) {
         case 'wall': {
           const hi = game.houseAt(o.x, o.y);
@@ -1094,6 +1177,13 @@ export class Renderer {
             const wx = x + (horizW ? 0 : outer * t), wz = z + (horizW ? outer * t : 0);
             const isInner = Math.abs(horizW ? o.y - h.y : o.x - h.x) < h.s / 2 - 40;
             if (!isInner) {
+              // dezente Details: Fensterläden bei manchen Häusern, Blumenkasten bei wenigen
+              const deco = (hi * 7) % 10;
+              if (deco < 3) for (const sd of [-1, 1]) sadd(this.g.box, this.houses[hi].roofMats[1], wx + (horizW ? sd * 0.95 : outer * 0.03), 1.22, wz + (horizW ? outer * 0.03 : sd * 0.95), horizW ? 0.45 : 0.06, 0.95, horizW ? 0.06 : 0.45);
+              if (deco === 4 || deco === 8) {
+                sadd(this.g.box, this.m.wood, wx + (horizW ? 0 : outer * 0.15), 0.68, wz + (horizW ? outer * 0.15 : 0), horizW ? 1.3 : 0.3, 0.22, horizW ? 0.3 : 1.3);
+                for (let k = -1; k <= 1; k++) sadd(this.g.blob, k ? this.m.red : this.m.gold, wx + (horizW ? k * 0.4 : outer * 0.15), 0.86, wz + (horizW ? outer * 0.15 : k * 0.4), 0.15, 0.12, 0.15);
+              }
               sadd(this.g.box, this.m.white, wx, 1.22, wz, horizW ? 1.35 : 0.08, 0.95, horizW ? 0.08 : 1.35);
               sadd(this.g.box, this.m.windowGlass, wx + (horizW ? 0 : outer * 0.02), 1.22, wz + (horizW ? outer * 0.02 : 0), horizW ? 1.1 : 0.06, 0.72, horizW ? 0.06 : 1.1);
               sadd(this.g.box, this.m.white, wx + (horizW ? 0 : outer * 0.04), 1.22, wz + (horizW ? outer * 0.04 : 0), horizW ? 0.07 : 0.05, 0.72, horizW ? 0.05 : 0.07);
@@ -1103,14 +1193,45 @@ export class Renderer {
         }
         case 'rock': {
           const r = o.r * S;
-          sadd(this.g.rock, this.m.rock, x, r * 0.42, z, r, r * 0.78, r, new THREE.Euler(Math.random() * 0.6, Math.random() * 6, Math.random() * 0.6));
+          const rot = new THREE.Euler(Math.random() * 0.3, Math.random() * 6, Math.random() * 0.3);
+          const reg = this.regionAt(game, o.x, o.y);
+          sadd(this.g.rock, reg === 'desert' ? this.boxMat(0xc9875a) : this.m.rock, x, r * 0.42, z, r, r * 0.78, r, rot);
+          if (reg === 'snow') sadd(this.g.rock, this.m.leavesSnow, x, r * 0.62, z, r * 0.86, r * 0.55, r * 0.86, rot);
           break;
         }
         case 'tree': {
+          const reg = treeRegion(o.x, o.y);
+          const v = trnd();
+          if (reg === 'desert') {
+            // Kaktus (Saguaro)
+            const k = 0.8 + v * 0.5, cm = v < 0.5 ? this.cactusMat : this.cactusMat2;
+            const m = add(this.cactusGeo, cm, x, 0, z, k, k, k);
+            m.rotation.y = v * 6;
+            this.canopies.push({ meshes: [m], x: o.x, y: o.y, r: 30, faded: false, normal: cm, fade: this.m.leavesFade, wobble: 0, base: [] });
+            break;
+          }
+          if (reg === 'beach') {
+            // Palme: gebogener Stamm, Wedel oben
+            const k = 0.9 + v * 0.4, ry = v * 6;
+            sadd(this.palmTrunk, this.m.trunk, x, 0, z, k, k, k, new THREE.Euler(0, ry, 0));
+            const m = add(this.palmLeaves, this.palmMat, x, 0, z, k, k, k);
+            m.rotation.y = ry;
+            this.canopies.push({ meshes: [m], x: o.x, y: o.y, r: 50, faded: false, normal: this.palmMat, fade: this.m.leavesFade, wobble: 0, base: [] });
+            break;
+          }
+          if (reg === 'snow' || (reg === 'forest' && v < 0.55)) {
+            // Tanne (im Schnee mit weißen Spitzen)
+            const k = 0.85 + trnd() * 0.45;
+            sadd(this.g.trunk, this.m.trunk, x, 0.6, z, 0.8, 1.2, 0.8);
+            const m = add(this.firGeo, this.firMat, x, 0, z, k, k, k);
+            const meshes = [m];
+            if (reg === 'snow') meshes.push(add(this.firSnow, this.m.leavesSnow, x, 0, z, k, k, k));
+            this.canopies.push({ meshes, x: o.x, y: o.y, r: 45, faded: false, normal: this.firMat, fade: this.m.leavesFade, wobble: 0, base: [] });
+            break;
+          }
           sadd(this.g.trunk, this.m.trunk, x, 1.1, z, 1, 2.2, 1);
-          const reg = this.regionAt(game, o.x, o.y);
-          const mats = reg === 'snow' ? [this.m.leavesSnow, this.m.leavesSnow2] : reg === 'grove' ? [this.m.leavesPink, this.m.leavesPink2, this.m.leaves0] : [this.m.leaves0, this.m.leaves1, this.m.leaves2];
-          const mat = mats[Math.floor(Math.random() * mats.length)];
+          const mats = reg === 'grove' ? [this.m.leavesPink, this.m.leavesPink2, this.m.leavesPink] : [this.m.leaves0, this.m.leaves1, this.m.leaves2];
+          const mat = mats[Math.floor(v * mats.length)];
           const big = add(this.g.blob, mat, x, 3.2, z, 2.1, 1.7, 2.1);
           const top = add(this.g.blob, mat, x + 0.3, 4.3, z - 0.25, 1.4, 1.2, 1.4);
           this.canopies.push({ meshes: [big, top], x: o.x, y: o.y, r: 50, faded: false, normal: mat, fade: this.m.leavesFade, wobble: 0, base: [] });
@@ -1174,7 +1295,8 @@ export class Renderer {
         along += p.distanceTo(prev);
         prev = p;
         // Abstand zur Inselkante (negativ = über dem Meer); weit draußen nicht mehr zeichnen
-        const ed = Math.min(p.x, p.z, W - p.x, W - p.z);
+        const cdx = p.x / S - ISLAND.x, cdy = p.z / S - ISLAND.y;
+        const ed = (landRadius(Math.atan2(cdy, cdx)) - Math.hypot(cdx, cdy)) * S;
         if (ed < -9) continue;
         const nx = -tg.z, nz = tg.x;
         // hinter der Küste fällt das Wasser sanft auf Meereshöhe ab
@@ -1251,13 +1373,47 @@ export class Renderer {
       const grp = new THREE.Group();
       grp.position.set(b.x * S, 0, b.y * S);
       grp.rotation.y = -(b.angle + Math.PI / 2);
-      const L = (game.map.river.width + 150) * S, Wd = 6.2;
-      add(this.g.box, deckMat, 0, -0.06, 0, L, 0.24, Wd, grp);
-      for (const side of [Wd / 2 - 0.15, -Wd / 2 + 0.15]) {
-        for (let i = 0; i <= 6; i++) add(this.g.box, this.m.bridgeRail, -L / 2 + (i / 6) * L, 0.45, side, 0.18, 0.9, 0.18, grp);
-        add(this.g.box, this.m.bridgeRail, 0, 0.88, side, L, 0.12, 0.16, grp);
+      const L = (game.map.river.width + 150) * S, Wd = 6.2, st = b.style ?? 'wood';
+      if (st === 'stone') {
+        // Steinbrücke mit Brüstung und Bogen
+        const sm = this.boxMat(0xb8b2a6), sd = this.boxMat(0x948e82);
+        add(this.g.box, sm, 0, -0.04, 0, L, 0.3, Wd, grp);
+        for (const side of [Wd / 2 - 0.25, -Wd / 2 + 0.25]) { add(this.g.box, sd, 0, 0.45, side, L, 0.7, 0.5, grp); add(this.g.box, sm, 0, 0.84, side, L + 0.2, 0.12, 0.62, grp); }
+        for (const ex of [-L / 2, L / 2]) for (const side of [Wd / 2 - 0.25, -Wd / 2 + 0.25]) add(this.g.box, sd, ex, 0.65, side, 0.8, 1.3, 0.8, grp);
+      } else if (st === 'rope') {
+        // Hängebrücke: Planken, hohe Pfosten, durchhängende Seile
+        add(this.g.box, deckMat, 0, -0.02, 0, L, 0.16, Wd * 0.7, grp);
+        const posts: THREE.Vector3[] = [];
+        for (const ex of [-L / 2 - 0.2, L / 2 + 0.2]) for (const side of [Wd * 0.38, -Wd * 0.38]) { add(this.g.box, this.m.bridgeRail, ex, 1.3, side, 0.3, 2.6, 0.3, grp); posts.push(new THREE.Vector3(ex, 2.5, side)); }
+        const lp: number[] = [];
+        for (const side of [Wd * 0.38, -Wd * 0.38]) {
+          const n = 16;
+          for (let k = 0; k < n; k++) {
+            const t0 = k / n, t1 = (k + 1) / n, x0 = -L / 2 + t0 * L, x1 = -L / 2 + t1 * L;
+            const y0 = 2.5 - Math.sin(t0 * Math.PI) * 1.5, y1 = 2.5 - Math.sin(t1 * Math.PI) * 1.5;
+            lp.push(x0, y0, side, x1, y1, side);
+            if (k % 2 === 0 && k > 0) lp.push(x0, y0, side, x0, 0.05, side);
+          }
+        }
+        const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(lp, 3));
+        this.perRound.push(lg);
+        grp.add(new THREE.LineSegments(lg, this.m.line));
+      } else {
+        add(this.g.box, deckMat, 0, -0.06, 0, L, 0.24, Wd, grp);
+        for (const side of [Wd / 2 - 0.15, -Wd / 2 + 0.15]) {
+          for (let i = 0; i <= 6; i++) add(this.g.box, this.m.bridgeRail, -L / 2 + (i / 6) * L, 0.45, side, 0.18, 0.9, 0.18, grp);
+          add(this.g.box, this.m.bridgeRail, 0, 0.88, side, L, 0.12, 0.16, grp);
+        }
       }
       world.add(grp);
+    }
+    // gefrorener Teich: Eisfläche mit Rissen
+    for (const pd of game.map.ponds) {
+      if (!pd.ice) continue;
+      const ice = flat(add(this.g.circle, this.boxMat(0xcfeaf7), pd.x * S, 0.03, pd.y * S, pd.r * S, pd.r * S, 1));
+      ice.receiveShadow = true;
+      const crack = flat(add(this.g.ring, this.boxMat(0xa9d3ea), pd.x * S, 0.035, pd.y * S, pd.r * S * 0.55, pd.r * S * 0.55, 1));
+      crack.receiveShadow = true;
     }
     // dichte Wiesen: Büschel aus breiten, überlappenden Blättern (InstancedMesh, wiegen sich im Wind)
     // dunkleres, satteres Grün als der Boden, damit die Wiese klar erkennbar ist
@@ -1784,6 +1940,8 @@ export class Renderer {
 
     this.plane.visible = false;
 
+    for (const f of this.propAnims) f(this.time, dt);
+    this.updateBiomeFx(game, dt);
     this.updateCamera(game, dt);
     this.updateSun();
     this.renderer.render(this.scene, this.camera);
@@ -1984,8 +2142,8 @@ export class Renderer {
     }
   }
 
-  private goldCore = new THREE.MeshBasicMaterial({ color: 0xff8a1a, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
-  private goldGlow = new THREE.MeshBasicMaterial({ color: 0xffc233, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false });
+  private goldCore = new THREE.MeshBasicMaterial({ color: 0xff7410, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
+  private goldGlow = new THREE.MeshBasicMaterial({ color: 0xffaa22, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false });
   private bulletMesh(wid: WeaponId, gold = false) {
     // goldene (legendäre) Waffen: leuchtend orangefarbener Kern mit goldenem Schein
     const pk = gold && wid !== 'rocket' ? wid + ':gold' : wid;
@@ -2304,6 +2462,7 @@ export class Renderer {
       if (this.zoneMat) { this.zoneMat.uniforms.uR.value = 1e5; this.zoneMat.uniforms.uNR.value = 0; }
       if (this.zoneWall) this.zoneWall.visible = false;
     }
+    if (this.scene.fog instanceof THREE.Fog) { this.scene.fog.near = 160 + pos.y * 2.5; this.scene.fog.far = 420 + pos.y * 4; }
     // Schattenbereich wächst mit der Höhe, damit von oben keine Kante zu sehen ist
     const area = Math.min(300, 60 + pos.y * 1.3);
     const sc = this.sun.shadow.camera;
@@ -2315,6 +2474,7 @@ export class Renderer {
     const ahead = Math.min(pos.y > 60 ? 0 : 40, 8 + pos.y * 0.6);
     this.camTarget.set(pos.x + Math.cos(yaw) * ahead, 0, pos.z + Math.sin(yaw) * ahead);
     this.cullTrees(pos.x / S, pos.z / S, 4200 + pos.y * 60);
+    for (const f of this.propAnims) f(this.time, dt);
     this.updateSun();
     if (this.waterMat) this.waterMat.uniforms.uT.value = this.time;
     if (this.foamMat) this.foamMat.uniforms.uT.value = this.time;
@@ -2334,6 +2494,75 @@ export class Renderer {
     this.camera.fov = 40; this.camera.near = 0.5; this.camera.far = 800; this.camera.updateProjectionMatrix();
     this.scene.background = null;
     this.scene.fog = null;
+  }
+
+  /** Schneefall / Blütenblätter je nach Gebiet, kühleres Licht im Schnee, Fußspuren im Schnee */
+  private updateBiomeFx(game: Game, dt: number) {
+    const w = this.weather;
+    if (!w) return;
+    const p = game.player, spec = !p.alive && game.spectate ? game.spectate : p;
+    const reg = spec.phase === 'plane' ? null : this.regionAt(game, spec.x, spec.y);
+    const want = reg === 'snow' ? 'snow' : reg === 'grove' ? 'grove' : '';
+    if (want && want !== w.kind && w.a < 0.05) {
+      w.kind = want;
+      w.mat.color.setHex(want === 'snow' ? 0xffffff : 0xffb3d1);
+      w.mat.size = want === 'snow' ? 0.32 : 0.42;
+    }
+    w.a = Math.max(0, Math.min(1, w.a + (want && want === w.kind ? dt : -dt) * 0.8));
+    w.mat.opacity = w.a * 0.9;
+    w.pts.visible = w.a > 0.01;
+    if (w.pts.visible) {
+      const pos = w.pts.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const arr = pos.array as Float32Array, cx = this.camTarget.x, cz = this.camTarget.z;
+      const fall = w.kind === 'snow' ? 2.6 : 1.4;
+      for (let i = 0; i < w.vel.length; i++) {
+        let x = arr[i * 3], y = arr[i * 3 + 1], z = arr[i * 3 + 2];
+        y -= w.vel[i] * fall * dt;
+        x += Math.sin(this.time * 0.9 + i) * dt * (w.kind === 'snow' ? 0.5 : 1.4) + dt * 0.6;
+        z += Math.cos(this.time * 0.7 + i * 1.3) * dt * 0.4;
+        if (y < 0) y += 30;
+        // um die Kamera herum mitwandern
+        if (x - cx > 40) x -= 80; else if (x - cx < -40) x += 80;
+        if (z - cz > 40) z -= 80; else if (z - cz < -40) z += 80;
+        arr[i * 3] = x; arr[i * 3 + 1] = y; arr[i * 3 + 2] = z;
+      }
+      pos.needsUpdate = true;
+    }
+    // Licht: im Schnee etwas kühler
+    const cool = w.kind === 'snow' ? w.a : 0;
+    this.sun.color.setHex(this.tod.sun).lerp(new THREE.Color(0xdde9ff), cool * 0.6);
+    this.hemi.color.setHex(this.tod.sky).lerp(new THREE.Color(0xd6e6ff), cool * 0.5);
+    // Fußspuren
+    const st = this.steps;
+    if (!st) return;
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3();
+    for (const f of game.fighters) {
+      if (!f.alive || f.phase !== 'ground' || !this.near(f.x, f.y, 45)) continue;
+      const last = st.last.get(f.id);
+      if (!last) { st.last.set(f.id, { x: f.x, y: f.y, side: 1 }); continue; }
+      if (Math.hypot(f.x - last.x, f.y - last.y) < 26) continue;
+      const ang = Math.atan2(f.y - last.y, f.x - last.x);
+      last.x = f.x; last.y = f.y; last.side *= -1;
+      if (this.regionAt(game, f.x, f.y) !== 'snow' || game.houseAt(f.x, f.y) >= 0) continue;
+      const i = st.next; st.next = (st.next + 1) % st.age.length;
+      st.age[i] = 0;
+      const ox = -Math.sin(ang) * 0.22 * last.side, oz = Math.cos(ang) * 0.22 * last.side;
+      q.setFromEuler(new THREE.Euler(0, -ang + Math.PI / 2, 0));
+      m4.compose(ps.set(f.x * S + ox, 0.04, f.y * S + oz), q, sc.set(1, 1, 1));
+      st.mesh.setMatrixAt(i, m4);
+    }
+    let dirty = false;
+    for (let i = 0; i < st.age.length; i++) {
+      if (st.age[i] > 8) continue;
+      st.age[i] += dt;
+      dirty = true;
+      if (st.age[i] > 6) {
+        st.mesh.getMatrixAt(i, m4); m4.decompose(ps, q, sc);
+        const k = Math.max(0, 1 - (st.age[i] - 6) / 2);
+        m4.compose(ps, q, sc.set(k, 1, k)); st.mesh.setMatrixAt(i, m4);
+      }
+    }
+    if (dirty) st.mesh.instanceMatrix.needsUpdate = true;
   }
 
   private updateSun() {
@@ -2524,6 +2753,7 @@ export class Renderer {
     if (this.plane) this.plane.visible = false;
     if (this.playerRing) this.playerRing.visible = false;
     if (this.aimLine) this.aimLine.visible = false;
+    for (const f of this.propAnims) f(this.time, Math.min(dt, 0.05));
     this.renderer.render(this.scene, this.camera);
   }
 
