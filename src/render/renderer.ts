@@ -462,6 +462,7 @@ export class Renderer {
 
   private boxMats = new Map<number, THREE.Material>();
   private cone4 = new THREE.CylinderGeometry(0, 1, 1, 4);
+  private snowLip = new THREE.CapsuleGeometry(0.22, 1, 4, 8).scale(1, 1 / 1.44, 1);
   private canopyGeo = mergeGeometries([new THREE.IcosahedronGeometry(1, 1).scale(2.1, 1.7, 2.1).translate(0, 3.2, 0), new THREE.IcosahedronGeometry(1, 1).scale(1.4, 1.2, 1.4).translate(0.3, 4.3, -0.25)])!;
   private archGeo = new THREE.CylinderGeometry(1, 1, 1, 16, 1, false, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2).rotateZ(Math.PI);
   private firGeo = mergeGeometries([0, 1, 2].map((i) => new THREE.ConeGeometry(2.2 - i * 0.55, 2.4, 8).translate(0, 2.0 + i * 1.45, 0).toNonIndexed()))!;
@@ -1049,9 +1050,27 @@ export class Renderer {
         const tall = st === 'barn' ? 4.6 : st === 'hall' ? 3.2 : 3.6;
         add(this.g.gable, roofMat, 0, WALL_H + 0.24, 0, s + 0.8, tall, s + 0.8, roof).rotation.y = Math.PI / 2;
         if (st === 'snow') {
-          // Schnee auf dem Dach: weiße Schicht, unten schaut die Dachfarbe raus
-          add(this.g.gable, snowMat, 0, WALL_H + 0.62, 0, (s + 0.8) * 0.84, tall * 0.94, s + 1.0, roof).rotation.y = Math.PI / 2;
-          mats.push(snowMat);
+          // Schnee: dicke Schicht auf jeder Dachseite, runde Schneekante an der Traufe, Schnee auf dem First, Eiszapfen
+          const bw = s + 0.8, dep = s + 0.8, y0 = WALL_H + 0.24, L = Math.hypot(bw / 2, tall), th = Math.atan2(tall, bw / 2);
+          const iceMat = new THREE.MeshToonMaterial({ color: 0xd8f0ff, gradientMap: this.gradient, transparent: true, opacity: 0.85 });
+          this.perRound.push(iceMat);
+          for (const sd of [1, -1]) {
+            const nz = Math.sin(th) * sd, ny = Math.cos(th);
+            const slab = add(this.g.box, snowMat, 0, y0 + tall / 2 + ny * 0.13, sd * bw / 4 + nz * 0.13, dep * 0.97, 0.26, L * 0.97, roof);
+            slab.rotation.x = th * sd;
+            // Schneekante an der Traufe (leicht überhängend)
+            const lip = add(this.snowLip, snowMat, 0, y0 + 0.2, sd * (bw / 2 - 0.15), 1, dep * 0.97, 1, roof);
+            lip.rotation.z = Math.PI / 2;
+            // Eiszapfen in unregelmäßigem Abstand
+            for (let k = 0; k < 7; k++) {
+              const x = -dep / 2 + 0.8 + (k + 0.5 + Math.sin(i * 3.1 + k * 1.7) * 0.3) * (dep - 1.6) / 7;
+              const ic = add(this.cone4, iceMat, x, y0 - 0.25, sd * (bw / 2 - 0.05), 0.09, 0.5 + ((i + k) % 3) * 0.18, 0.09, roof);
+              ic.rotation.x = Math.PI; ic.castShadow = false;
+            }
+          }
+          const ridge = add(this.snowLip, snowMat, 0, y0 + tall + 0.12, 0, 1.3, dep * 0.97, 1.3, roof);
+          ridge.rotation.z = Math.PI / 2;
+          mats.push(snowMat, iceMat);
         }
         if (st !== 'hall' && st !== 'barn') add(this.g.box, chimMat, s * 0.22, WALL_H + 2.6, s * 0.18, 0.7, 1.8, 0.7, roof);
         if (st === 'snow') add(this.g.box, snowMat, s * 0.22, WALL_H + 3.55, s * 0.18, 0.8, 0.14, 0.8, roof);

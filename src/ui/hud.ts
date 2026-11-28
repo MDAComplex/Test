@@ -1336,7 +1336,8 @@ export class Hud {
     const now = performance.now();
     if (base) g.drawImage(base, 0, 0);
     for (const o of game.obstacles) {
-      if (!isContainer(o) || o.opened) continue;
+      // Truhen werden nicht angezeigt (weder Ort noch ob offen), nur gelandete Versorgungspakete
+      if (!isContainer(o) || o.opened || o.kind !== 'airdrop') continue;
       const col = o.kind === 'crate' ? '#ffd54a' : o.kind === 'chest' ? '#ffc93c' : '#ff8a1e';
       const s = (o.kind === 'crate' ? 3 : 5) * q * (big ? 0.8 : 1);
       if (big) {
