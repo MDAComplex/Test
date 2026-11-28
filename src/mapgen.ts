@@ -406,7 +406,7 @@ function buildLayout() {
     if (g === 'beach') return 'beach';
     return 'normal';
   };
-  const addHouse = (p: P2, s: number, fenced: boolean, style?: HouseStyle, gold = false) => {
+  const addHouse = (p: P2, s: number, fenced: boolean, style?: HouseStyle, gold = false, allDoors = false) => {
     const house: House = { x: p.x, y: p.y, s, doors: [], style: style ?? styleFor(p.x, p.y), garden: fenced };
     houses.push(house);
     const t = 22, h = s / 2, door = 86;
@@ -421,7 +421,7 @@ function buildLayout() {
       add(fixed, a, mid - door / 2);
       add(fixed, mid + door / 2, b);
     };
-    const isDoor = (side: number) => side === doorA || side === doorB;
+    const isDoor = (side: number) => allDoors || side === doorA || side === doorB;
     const sideInfo = [
       { x: p.x, y: p.y - h, nx: 0, ny: -1 },
       { x: p.x, y: p.y + h, nx: 0, ny: 1 },
@@ -433,7 +433,7 @@ function buildLayout() {
     seg(true, p.y + h - t / 2, p.x - h, p.x + h, isDoor(1));
     seg(false, p.x - h + t / 2, p.y - h + t, p.y + h - t, isDoor(2));
     seg(false, p.x + h - t / 2, p.y - h + t, p.y + h - t, isDoor(3));
-    if (s > 290 && r() < 0.75) {
+    if (s > 290 && !gold && !allDoors && r() < 0.75) {
       const gap = 92, clear = 115;
       const vertical = r() < 0.5;
       let a0 = (vertical ? p.y : p.x) - h + t, a1 = (vertical ? p.y : p.x) + h - t;
@@ -447,7 +447,7 @@ function buildLayout() {
       }
     }
     const chestAt = (cx: number, cy: number, g = false) => obstacles.push({ kind: 'chest', x: cx, y: cy, r: 22, w: 48, h: 28, gold: g || undefined });
-    if (gold) chestAt(p.x + 30, p.y - h + t + 34, true);
+    if (gold) chestAt(p.x, p.y, true);
     else if (r() < 0.75) chestAt(p.x - h + t + 36, p.y - h + t + 30);
     if (s > 320 && r() < 0.6) chestAt(p.x + h - t - 36, p.y + h - t - 30);
     const n = 1 + Math.floor(r() * 2) + (s > 330 ? 1 : 0);
@@ -579,7 +579,7 @@ function buildLayout() {
   const near = (p: P2, spread: number, rad: number, pad = 20, tries = 40) => placeNear(p.x, p.y, spread, rad, pad, tries);
   /** Wahrzeichen nah am Ort */
   const landmark = (p: P2, k: string, w: number, h: number, spread = 260, o: Partial<Prop> = {}) => {
-    const q = near(p, spread, Math.max(w, h) * 0.6, 30, 80);
+    const q = near(p, spread, Math.max(w, h) * 0.6, 55, 80);
     if (!q) return null;
     solid(q.x, q.y, w, h);
     prop(k, q.x, q.y, o);
@@ -592,17 +592,18 @@ function buildLayout() {
     for (let i = 0; i < 3; i++) landmark(sw, 'chimney', 80, 80, 600);
     for (let i = 0; i < 3; i++) landmark(sw, 'silo', 110, 110, 650, { c: [0xd8dde3, 0xb9c1ca][i % 2] });
     // Containerhof mit Kran
-    const yard = near(sw, 800, 330, 10, 200);
+    const yard = near(sw, 900, 400, 10, 300);
     if (yard) {
-      blocks.push({ x: yard.x, y: yard.y, r: 430 });
+      blocks.push({ x: yard.x, y: yard.y, r: 490 });
       for (let i = 0; i < 3; i++) for (let j = 0; j < 4; j++) {
         if (r() < 0.25) continue;
-        const x = yard.x - 285 + j * 190, y = yard.y - 130 + i * 130, lv = r() < 0.35 ? 2 : 1;
+        // Gänge zwischen den Containern sind breit genug zum Durchlaufen (mind. 80)
+        const x = yard.x - 360 + j * 240, y = yard.y - 150 + i * 150, lv = r() < 0.35 ? 2 : 1;
         obstacles.push({ kind: 'box', x, y, w: 160, h: 64, r: 0, hide: true });
         prop('container', x, y, { a: 0, c: CC[Math.floor(r() * CC.length)], h: lv, s: 1 });
       }
       prop('crane', yard.x, yard.y, { s: 1 });
-      for (const sx of [-1, 1]) for (const sy of [-1, 1]) obstacles.push({ kind: 'box', x: yard.x + sx * 400, y: yard.y + sy * 220, w: 34, h: 34, r: 0, hide: true });
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) obstacles.push({ kind: 'box', x: yard.x + sx * 400, y: yard.y + sy * 270, w: 34, h: 34, r: 0, hide: true });
     }
     const ir = region('industry');
     for (const k of ['pallet', 'pallet', 'drum', 'drum', 'forklift', 'barrier', 'barrier', 'pallet']) landmark(ir, k, k === 'forklift' ? 80 : 50, 50, ir.r * 0.8, { a: r() * 6 });
@@ -644,7 +645,7 @@ function buildLayout() {
   {
     const p = poi('Blossom Temple');
     const tq = placeNear(p.x, p.y, 220, 330, 40, 80) ?? placeNear(p.x, p.y, 600, 330, 40, 80);
-    if (tq) { blocks.push({ x: tq.x, y: tq.y, r: 320 }); addHouse(tq, 420, false, 'jp', true); }
+    if (tq) { blocks.push({ x: tq.x, y: tq.y, r: 340 }); addHouse(tq, 420, false, 'jp', true, true); }
   }
   village(poi('Blossom Temple'), 4, 260, 320, 520, 0.3);
   village(poi('Port Haven'), 4, 340, 400, 520);
@@ -713,7 +714,7 @@ function buildLayout() {
       blocks.push({ x: q.x, y: q.y, r: 150 });
       for (let k = 0; k < 9; k++) {
         const a = r() * 6.28, d = Math.sqrt(r()) * 110, x = q.x + Math.cos(a) * d, y = q.y + Math.sin(a) * d;
-        if (props.some((o) => o.k === 'bamboo' && Math.hypot(o.x - x, o.y - y) < 60)) continue;
+        if (props.some((o) => o.k === 'bamboo' && Math.hypot(o.x - x, o.y - y) < 80)) continue;
         prop('bamboo', x, y, { s: 0.8 + r() * 0.5 });
         obstacles.push({ kind: 'box', x, y, w: 26, h: 26, r: 0, hide: true });
       }
@@ -791,7 +792,7 @@ function buildLayout() {
         prop(k, x, y, { a: Math.atan2(uy, ux) });
         if (cars < 6 && r() < 0.6) {
           const cx = a.x + ux * (t + 130) - uy * side * (rd.w / 2 + 110), cy = a.y + uy * (t + 130) + ux * side * (rd.w / 2 + 110);
-          if (fits(cx, cy, 40, 0)) {
+          if (fits(cx, cy, 70, 20)) {
             const ang = Math.atan2(uy, ux);
             const horiz = Math.abs(ux) > Math.abs(uy);
             solid(cx, cy, horiz ? 130 : 64, horiz ? 64 : 130, 10);
@@ -883,23 +884,29 @@ function buildLayout() {
   { const p = PIERS[1]; addLoot(p.x1 + (p.x2 - p.x1) * 0.8, p.y1 + (p.y2 - p.y1) * 0.8); }
 
   // ---------- Erdwege von Häusern abseits der Straßen zur nächsten Straße ----------
+  const rectGap = (h: House, x: number, y: number) => Math.hypot(Math.max(0, Math.abs(x - h.x) - h.s / 2), Math.max(0, Math.abs(y - h.y) - h.s / 2));
   for (const h of houses) {
-    const d0 = h.doors[0];
-    if (!d0) continue;
-    const sx = d0.x + d0.nx * 40, sy = d0.y + d0.ny * 40;
-    let best: (typeof roadSamples)[0] | null = null, bd = Infinity;
-    for (const q of roadSamples) { const e = Math.hypot(q.x - sx, q.y - sy); if (e < bd) { bd = e; best = q; } }
-    if (!best || bd < best.w / 2 + 60 || bd > 900) continue;
-    const a = { x: sx, y: sy }, b = { x: best.x, y: best.y };
-    // nicht durch Flüsse oder andere Häuser
-    let bad = false;
-    for (let i = 0; i < pts.length - 1 && !bad; i++) if (segsCross(a, b, pts[i], pts[i + 1])) bad = true;
-    for (const o of houses) {
-      if (bad || o === h) continue;
-      if (segDist(o.x, o.y, a, b) < o.s * 0.62) bad = true;
-    }
     if (h.style === 'hall' || h.style === 'shop' || regionAt(h.x, h.y) === 'city') continue;
-    if (!bad) roads.push({ pts: [a, b], w: 56, dirt: true });
+    // für jede Tür die nächste Straße suchen; nur Wege, die von der Tür weg führen und kein Haus schneiden
+    let bestPath: { a: P2; b: P2; len: number } | null = null;
+    for (const d0 of h.doors) {
+      const a = { x: d0.x + d0.nx * 40, y: d0.y + d0.ny * 40 };
+      let best: (typeof roadSamples)[0] | null = null, bd = Infinity;
+      for (const q of roadSamples) { const e = Math.hypot(q.x - a.x, q.y - a.y); if (e < bd) { bd = e; best = q; } }
+      if (!best || bd > 900) continue;
+      if (bd < best.w / 2 + 60) { bestPath = null; break; }
+      const b = { x: best.x, y: best.y };
+      if ((b.x - a.x) * d0.nx + (b.y - a.y) * d0.ny < bd * 0.35) continue;
+      let bad = false;
+      for (let i = 0; i < pts.length - 1 && !bad; i++) if (segsCross(a, b, pts[i], pts[i + 1])) bad = true;
+      const n = Math.ceil(bd / 20);
+      for (let k = 1; k <= n && !bad; k++) {
+        const x = a.x + (b.x - a.x) * k / n, y = a.y + (b.y - a.y) * k / n;
+        for (const o of houses) if (rectGap(o, x, y) < 40) { bad = true; break; }
+      }
+      if (!bad && (!bestPath || bd < bestPath.len)) bestPath = { a, b, len: bd };
+    }
+    if (bestPath) roads.push({ pts: [bestPath.a, bestPath.b], w: 56, dirt: true });
   }
 
   return { obstacles, lootSpots: loot, houses, forests, ponds, fields, town, river, grass, pois, roads, ring, regions, props, plazas };

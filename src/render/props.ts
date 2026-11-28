@@ -522,7 +522,7 @@ export function buildProps(map: MapData, ctx: PropCtx) {
       }
       case 'crane': {
         b.at(p.x, p.y, 0);
-        const H = 13, LX = 20, LZ = 11;
+        const H = 13, LX = 20, LZ = 13.5;
         for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box(K.yellow, 0.7, H, 0.7, sx * LX, H / 2, sz * LZ);
         for (const sx of [-1, 1]) b.box(K.yellow, 0.9, 1.0, LZ * 2 + 0.8, sx * LX, H, 0);
         for (const sz of [-1, 1]) b.box(K.yellow, LX * 2 + 0.8, 1.2, 0.9, 0, H + 1, sz * LZ * 0.4);

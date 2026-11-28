@@ -87,4 +87,37 @@ describe('Erreichbarkeit der Karte', () => {
     }
     expect(blocked / total).toBeLessThan(0.01);
   });
+  it('Straßen und Wege schneiden keine Häuser, Requisiten stehen nicht in Häusern', () => {
+    const gap = (h: { x: number; y: number; s: number }, x: number, y: number) => Math.hypot(Math.max(0, Math.abs(x - h.x) - h.s / 2), Math.max(0, Math.abs(y - h.y) - h.s / 2));
+    const bad: string[] = [];
+    for (const rd of g.map.roads) for (let i = 0; i < rd.pts.length - 1; i++) {
+      const a = rd.pts[i], b = rd.pts[i + 1], n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 20);
+      for (let k = 0; k <= n; k++) {
+        const x = a.x + (b.x - a.x) * k / n, y = a.y + (b.y - a.y) * k / n;
+        for (const h of g.map.houses) if (gap(h, x, y) < rd.w / 2 - 6) { bad.push(`Weg bei ${Math.round(x)},${Math.round(y)}`); break; }
+      }
+    }
+    for (const o of g.map.obstacles) if (o.hide && g.map.houses.some((h) => gap(h, o.x, o.y) < Math.max(o.w, o.h) / 2 - 4)) bad.push(`Requisit bei ${Math.round(o.x)},${Math.round(o.y)}`);
+    expect(bad).toEqual([]);
+  });
+  it('Tempel hat vier Eingänge, goldene Truhen stehen frei in der Mitte', () => {
+    const golds = g.obstacles.filter((o) => o.gold);
+    for (const c of golds) {
+      const h = g.map.houses[g.houseAt(c.x, c.y)];
+      expect(h).toBeTruthy();
+      expect(Math.hypot(h.x - c.x, h.y - c.y)).toBeLessThan(5);
+      if (h.style === 'jp') expect(h.doors.length).toBe(4);
+    }
+  });
+  it('zwischen Containern und anderen Blöcken passt man durch (oder sie stehen dicht an dicht)', () => {
+    const boxes = g.obstacles.filter((o) => o.kind === 'box' || o.kind === 'wall');
+    let tight = 0;
+    for (const a of g.obstacles.filter((o) => o.kind === 'box' && o.hide)) for (const b of boxes) {
+      if (a === b) continue;
+      const gx = Math.max(0, Math.abs(a.x - b.x) - (a.w + b.w) / 2), gy = Math.max(0, Math.abs(a.y - b.y) - (a.h + b.h) / 2);
+      const gap = Math.hypot(gx, gy);
+      if (gap > 2 && gap < 44) tight++;
+    }
+    expect(tight).toBe(0);
+  });
 });
