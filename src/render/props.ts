@@ -12,6 +12,8 @@ type Col = number | Mat;
 export interface PropCtx {
   world: THREE.Group;
   toon: (c: number) => Mat;
+  /** Toon-Material mit Eckfarben */
+  vcToon: Mat;
   water: Mat;
   anims: ((t: number, dt: number) => void)[];
   dispose: (THREE.BufferGeometry | Mat)[];
@@ -20,7 +22,7 @@ export interface PropCtx {
 const CHUNKS = 4;
 const unit = {
   box: new THREE.BoxGeometry(1, 1, 1),
-  sph: new THREE.SphereGeometry(1, 12, 8),
+  sph: new THREE.SphereGeometry(1, 10, 6),
   blob: new THREE.IcosahedronGeometry(1, 0),
   blob1: new THREE.IcosahedronGeometry(1, 1),
   half: new THREE.SphereGeometry(1, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2),
@@ -81,15 +83,30 @@ const K = {
 export function buildProps(map: MapData, ctx: PropCtx) {
   const parts = new Map<string, { m: Mat; geos: THREE.BufferGeometry[] }>();
   const CW = WORLD / CHUNKS;
+  // einfarbige Teile: Farbe pro Ecke, damit alles eines Kartenbereichs in EIN Mesh passt (wenige Draw-Calls)
+  const vcMat = ctx.vcToon;
+  const colorOf = new Map<Mat, THREE.Color>();
   const sink = (g: THREE.BufferGeometry, m: Mat, mat: THREE.Matrix4, x: number, z: number) => {
     const ci = Math.max(0, Math.min(CHUNKS - 1, Math.floor(x / CW))) + Math.max(0, Math.min(CHUNKS - 1, Math.floor(z / CW))) * CHUNKS;
-    const key = m.uuid + ':' + ci;
+    const cc = colorOf.get(m);
+    const key = (cc ? 'vc' : m.uuid) + ':' + ci;
     const n = (g.index ? g.toNonIndexed() : g.clone()).applyMatrix4(mat);
     for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal') n.deleteAttribute(k);
-    const l = parts.get(key) ?? { m, geos: [] };
+    if (!n.getAttribute('normal')) n.computeVertexNormals();
+    if (cc) {
+      const cnt = n.getAttribute('position').count, arr = new Float32Array(cnt * 3);
+      for (let i = 0; i < cnt; i++) { arr[i * 3] = cc.r; arr[i * 3 + 1] = cc.g; arr[i * 3 + 2] = cc.b; }
+      n.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    }
+    const l = parts.get(key) ?? { m: cc ? vcMat : m, geos: [] };
     l.geos.push(n); parts.set(key, l);
   };
-  const col = (c: Col) => (typeof c === 'number' ? ctx.toon(c) : c);
+  const col = (c: Col) => {
+    if (typeof c !== 'number') return c;
+    const m = ctx.toon(c);
+    if (!colorOf.has(m)) colorOf.set(m, new THREE.Color(c));
+    return m;
+  };
   const b = new Builder(sink, col);
   const basic = (c: number, opacity = 1, add = false) => {
     const m = new THREE.MeshBasicMaterial({ color: c, transparent: opacity < 1 || add, opacity, depthWrite: !(opacity < 1 || add), blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
@@ -701,7 +718,7 @@ export function buildProps(map: MapData, ctx: PropCtx) {
           const x = Math.cos(i * 2.4) * (0.2 + i * 0.12), z = Math.sin(i * 2.4) * (0.2 + i * 0.12), h = 0.22 + (i % 3) * 0.06;
           b.box(0x3f8f3a, 0.03, h, 0.03, x, h / 2, z);
           b.geo(new THREE.CircleGeometry(0.12, 5).rotateX(-Math.PI / 2), p.c ?? K.white, x, h, z);
-          b.sph(0xffd23f, 0.04, x, h + 0.01, z, 1, 0.5, 1);
+          b.box(0xffd23f, 0.06, 0.03, 0.06, x, h + 0.01, z);
         }
         break;
       case 'reed':

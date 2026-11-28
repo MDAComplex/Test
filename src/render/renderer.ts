@@ -462,6 +462,7 @@ export class Renderer {
 
   private boxMats = new Map<number, THREE.Material>();
   private cone4 = new THREE.CylinderGeometry(0, 1, 1, 4);
+  private canopyGeo = mergeGeometries([new THREE.IcosahedronGeometry(1, 1).scale(2.1, 1.7, 2.1).translate(0, 3.2, 0), new THREE.IcosahedronGeometry(1, 1).scale(1.4, 1.2, 1.4).translate(0.3, 4.3, -0.25)])!;
   private archGeo = new THREE.CylinderGeometry(1, 1, 1, 16, 1, false, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2).rotateZ(Math.PI);
   private firGeo = mergeGeometries([0, 1, 2].map((i) => new THREE.ConeGeometry(2.2 - i * 0.55, 2.4, 8).translate(0, 2.0 + i * 1.45, 0).toNonIndexed()))!;
   private firSnow = mergeGeometries([0, 1, 2].map((i) => new THREE.ConeGeometry((2.2 - i * 0.55) * 0.62, 1.0, 8).translate(0, 2.0 + i * 1.45 + 0.75, 0).toNonIndexed()))!;
@@ -949,12 +950,16 @@ export class Renderer {
     }
     // Requisiten (Deko je Biom)
     this.propAnims = [];
-    buildProps(game.map, { world, toon: (c) => this.boxMat(c), water: this.waterMat, anims: this.propAnims, dispose: this.perRound as (THREE.BufferGeometry | THREE.Material)[] });
+    const vcToon = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: this.gradient });
+    this.perRound.push(vcToon);
+    buildProps(game.map, { world, vcToon, toon: (c) => this.boxMat(c), water: this.waterMat, anims: this.propAnims, dispose: this.perRound as (THREE.BufferGeometry | THREE.Material)[] });
     {
       const N = 700, pos = new Float32Array(N * 3), vel = new Float32Array(N);
       for (let i = 0; i < N; i++) { pos[i * 3] = (Math.random() - 0.5) * 80; pos[i * 3 + 1] = Math.random() * 30; pos[i * 3 + 2] = (Math.random() - 0.5) * 80; vel[i] = 0.6 + Math.random() * 0.8; }
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      const mat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.32, transparent: true, opacity: 0, depthWrite: false });
+      const dot = canvasTexture(32, 32, (c) => { const gr = c.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.6, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = gr; c.fillRect(0, 0, 32, 32); });
+      this.perRound.push(dot);
+      const mat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.32, map: dot, transparent: true, opacity: 0, depthWrite: false });
       const pts = new THREE.Points(g, mat); pts.frustumCulled = false; pts.visible = false;
       world.add(pts);
       this.perRound.push(g, mat);
@@ -1167,7 +1172,8 @@ export class Renderer {
       switch (o.kind) {
         case 'wall': {
           const hi = game.houseAt(o.x, o.y);
-          add(this.g.box, hi >= 0 ? this.houses[hi].wallMat : this.m.white, x, WALL_H / 2, z, o.w * S, WALL_H, o.h * S);
+          // Wände eines Hauses teilen ein Material -> werden zu einem Mesh zusammengefasst
+          sadd(this.g.box, hi >= 0 ? this.houses[hi].wallMat : this.m.white, x, WALL_H / 2, z, o.w * S, WALL_H, o.h * S);
           // Fenster auf der Außenseite längerer Wandstücke
           const horizW = o.w > o.h, len = (horizW ? o.w : o.h) * S;
           if (hi >= 0 && len > 3.6) {
@@ -1232,9 +1238,9 @@ export class Renderer {
           sadd(this.g.trunk, this.m.trunk, x, 1.1, z, 1, 2.2, 1);
           const mats = reg === 'grove' ? [this.m.leavesPink, this.m.leavesPink2, this.m.leavesPink] : [this.m.leaves0, this.m.leaves1, this.m.leaves2];
           const mat = mats[Math.floor(v * mats.length)];
-          const big = add(this.g.blob, mat, x, 3.2, z, 2.1, 1.7, 2.1);
-          const top = add(this.g.blob, mat, x + 0.3, 4.3, z - 0.25, 1.4, 1.2, 1.4);
-          this.canopies.push({ meshes: [big, top], x: o.x, y: o.y, r: 50, faded: false, normal: mat, fade: this.m.leavesFade, wobble: 0, base: [] });
+          // Krone aus zwei Kugeln in einem Mesh (halbe Draw-Calls)
+          const crown = add(this.canopyGeo, mat, x, 0, z);
+          this.canopies.push({ meshes: [crown], x: o.x, y: o.y, r: 50, faded: false, normal: mat, fade: this.m.leavesFade, wobble: 0, base: [] });
           break;
         }
         case 'crate':
