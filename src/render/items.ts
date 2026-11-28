@@ -81,7 +81,7 @@ export function buildItem(kind: Kind, gradient: THREE.Texture): THREE.Group {
   }
   if (kind === 'armor' || kind === 'armor25') {
     // Schild: aufrecht, weißer Rand, blaue Fläche; das kleine ist dieselbe Form, nur kleiner
-    const k = kind === 'armor' ? 1 : 0.68;
+    const k = kind === 'armor' ? 0.8 : 0.6;
     const shape = (w: number, h: number) => {
       const s = new THREE.Shape();
       s.moveTo(-0.5 * w, 0.5 * h); s.quadraticCurveTo(0, 0.6 * h, 0.5 * w, 0.5 * h); s.lineTo(0.5 * w, 0.05 * h);
@@ -93,7 +93,7 @@ export function buildItem(kind: Kind, gradient: THREE.Texture): THREE.Group {
       e.translate(0, 0, -d / 2);
       return e;
     };
-    const sx = 1.25 * k, tilt = -0.45;
+    const sx = k, tilt = -0.45;
     const place = (geo: THREE.BufferGeometry, mat: THREE.Material, z: number) => {
       geo.scale(sx, sx, sx);
       put(geo, mat, 0, 0.42 * sx + 0.06, z * sx, tilt, 0, 0);
