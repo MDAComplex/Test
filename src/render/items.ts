@@ -6,7 +6,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
  * Heil- und Schild-Gegenstände: abgerundete Formen, klare Farben, kleine Details (Griff, Schnallen, Leuchtkern).
  * Teile werden je Material zu einem Mesh zusammengefasst (wenig Draw-Calls, es liegen viele davon herum).
  */
-type Kind = 'medkit' | 'bigmed' | 'armor';
+type Kind = 'medkit' | 'bigmed' | 'armor' | 'armor25';
 const cache = new Map<Kind, THREE.Group>();
 let mats: Record<string, THREE.Material> | null = null;
 
@@ -16,7 +16,7 @@ function getMats(gradient: THREE.Texture) {
   mats = {
     white: toon(0xf4f6f8), whiteShade: toon(0xd5dbe2), red: toon(0xe5373a), redDark: toon(0xa8222a), redGlow: toon(0xff4a4f, 0x5a0808),
     metal: toon(0x8d95a3), dark: toon(0x2b2f38), green: toon(0x3fd06a, 0x0c3a1a),
-    blue: toon(0x2f7fe8), blueDark: toon(0x1d4fa8), blueRim: toon(0xbfe3ff), core: new THREE.MeshBasicMaterial({ color: 0x7ff6ff }),
+    blue: toon(0x2f7fe8), shieldBlue: toon(0x3d8cf0), blueDark: toon(0x1d4fa8), blueRim: toon(0xbfe3ff), core: new THREE.MeshBasicMaterial({ color: 0x7ff6ff }),
     coreGlow: new THREE.MeshBasicMaterial({ color: 0x9ff8ff, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }),
     gold: toon(0xffc93c),
     greenMain: toon(0x3fcf6a), greenMain2: toon(0x2fbf5c), greenDark: toon(0x1f8a43),
@@ -76,6 +76,32 @@ export function buildItem(kind: Kind, gradient: THREE.Texture): THREE.Group {
     icon('cross', 0.22, M.white, 0, 0.38, 0);
     flush(g);
     g.position.y = -0.18;
+    cache.set(kind, g);
+    return g.clone();
+  }
+  if (kind === 'armor' || kind === 'armor25') {
+    // Schild: aufrecht, weißer Rand, blaue Fläche; das kleine ist dieselbe Form, nur kleiner
+    const k = kind === 'armor' ? 1 : 0.68;
+    const shape = (w: number, h: number) => {
+      const s = new THREE.Shape();
+      s.moveTo(-0.5 * w, 0.5 * h); s.quadraticCurveTo(0, 0.6 * h, 0.5 * w, 0.5 * h); s.lineTo(0.5 * w, 0.05 * h);
+      s.quadraticCurveTo(0.48 * w, -0.35 * h, 0, -0.62 * h); s.quadraticCurveTo(-0.48 * w, -0.35 * h, -0.5 * w, 0.05 * h); s.closePath();
+      return s;
+    };
+    const slab = (s: THREE.Shape, d: number, b: number) => {
+      const e = new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: true, bevelThickness: b, bevelSize: b, bevelSegments: 4, curveSegments: 18 });
+      e.translate(0, 0, -d / 2);
+      return e;
+    };
+    const sx = 1.25 * k, tilt = -0.45;
+    const place = (geo: THREE.BufferGeometry, mat: THREE.Material, z: number) => {
+      geo.scale(sx, sx, sx);
+      put(geo, mat, 0, 0.42 * sx + 0.06, z * sx, tilt, 0, 0);
+    };
+    place(slab(shape(0.72, 0.74), 0.07, 0.03), M.white, 0);
+    place(slab(shape(0.6, 0.62), 0.07, 0.02), M.shieldBlue, 0.035);
+    flush(g);
+    g.position.y = -0.2;
     cache.set(kind, g);
     return g.clone();
   }

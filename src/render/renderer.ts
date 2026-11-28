@@ -85,7 +85,7 @@ interface FighterView {
 }
 interface Particle { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; life: number; max: number }
 interface Puff { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number; max: number; size: number; grow: number }
-interface LootView { root: THREE.Group; item: THREE.Group; pop: number; x: number; y: number; from?: { x: number; y: number } }
+interface LootView { root: THREE.Group; item: THREE.Group; pop: number; x: number; y: number; from?: { x: number; y: number }; face?: boolean }
 interface CrateView { lid: THREE.Group; glow: THREE.Mesh; openT: number; kind: string; body: THREE.Group; o: Obstacle }
 interface FadeView { meshes: THREE.Mesh[]; x: number; y: number; r: number; faded: boolean; normal: THREE.Material; fade: THREE.Material; wobble: number; base: THREE.Vector3[] }
 interface HouseView { roof: THREE.Group; roofMats: THREE.Material[]; wallMat: THREE.MeshToonMaterial; fade: number }
@@ -799,7 +799,7 @@ export class Renderer {
           item.add(c, tip);
         }
       }
-    } else if (l.kind === 'armor' || l.kind === 'medkit' || l.kind === 'bigmed') {
+    } else if (l.kind === 'armor' || l.kind === 'armor25' || l.kind === 'medkit' || l.kind === 'bigmed') {
       // neue Modelle: Schild mit Leuchtkern, weiße Erste-Hilfe-Tasche, roter Notfallkoffer
       const it = buildItem(l.kind, this.gradient);
       item.add(it);
@@ -807,12 +807,12 @@ export class Renderer {
     root.add(item);
     if (pop) root.scale.setScalar(0.01);
     this.world!.add(root);
-    this.lootViews.set(l.id, { root, item, pop: pop ? 0 : 1, x: l.x, y: l.y, from: pop ? l.from : undefined });
+    this.lootViews.set(l.id, { root, item, pop: pop ? 0 : 1, x: l.x, y: l.y, from: pop ? l.from : undefined, face: l.kind === 'armor' || l.kind === 'armor25' });
   }
 
   private lootTier(k: LootKind) {
     if (k.startsWith('w:')) return parseWeapon(k).tier;
-    return k === 'armor' ? 3 : k === 'bigmed' ? 3 : k === 'medkit' ? 2 : 1;
+    return k === 'armor' ? 3 : k === 'armor25' ? 2 : k === 'bigmed' ? 3 : k === 'medkit' ? 2 : 1;
   }
 
   /** Kiste / Truhe / Versorgungspaket mit aufklappbarem Deckel */
@@ -2164,7 +2164,8 @@ export class Renderer {
         }
       }
       if (this.near(v.x, v.y, 40)) {
-        v.item.rotation.y = this.time * 1.6 + v.x;
+        // Schilde schauen zur Kamera und wiegen nur leicht hin und her, alles andere dreht sich
+        v.item.rotation.y = v.face ? Math.sin(this.time * 1.8 + v.x) * 0.45 : this.time * 1.6 + v.x;
         v.item.position.y = 0.95 + Math.sin(this.time * 3 + v.y) * 0.12;
       }
     }

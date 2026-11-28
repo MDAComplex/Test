@@ -4,7 +4,7 @@ import { mulberry32 } from './rng';
 
 export type ObsKind = 'tree' | 'rock' | 'crate' | 'chest' | 'airdrop' | 'wall' | 'bush' | 'water' | 'fence' | 'barrel' | 'hay' | 'box';
 export interface Obs { kind: ObsKind; x: number; y: number; r: number; w: number; h: number; /** Farbe und Höhe (nur 'box': Container, Zelte, Türme) */ c?: number; tall?: number }
-export type LootKind = 'ammo' | 'ammo6' | 'armor' | 'medkit' | 'bigmed' | WeaponLoot;
+export type LootKind = 'ammo' | 'ammo6' | 'armor' | 'armor25' | 'medkit' | 'bigmed' | WeaponLoot;
 export interface LootSpawn { x: number; y: number; kind: LootKind }
 export interface Door { x: number; y: number; nx: number; ny: number }
 export interface House { x: number; y: number; s: number; doors: Door[] }
@@ -77,7 +77,8 @@ export function randomLootKind(r: () => number): LootKind {
   }
   // Munition: meist 3er-Packung, seltener die 6er-Packung
   if (v < 0.72) return r() < 0.22 ? 'ammo6' : 'ammo';
-  if (v < 0.82) return 'armor';
+  // Schilde: kleines (+25) häufig, großes (+50) seltener
+  if (v < 0.82) return r() < 0.68 ? 'armor25' : 'armor';
   return v < 0.95 ? 'medkit' : 'bigmed';
 }
 

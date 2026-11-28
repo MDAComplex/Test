@@ -199,7 +199,7 @@ const PICKUP_R = 40;
 const CRATE_REACH = 30;
 const CRATE_TIME = 1800;
 /** Aufhebe-Zeiten in ms */
-export const PICK_TIME: Record<string, number> = { ammo: 350, ammo6: 450, weapon: 600, armor: 900, medkit: 900, bigmed: 1250, crate: CRATE_TIME };
+export const PICK_TIME: Record<string, number> = { ammo: 350, ammo6: 450, weapon: 600, armor: 900, armor25: 700, medkit: 900, bigmed: 1250, crate: CRATE_TIME };
 /** Öffnungszeiten der Behälter in ms */
 export const OPEN_TIME: Record<string, number> = { crate: CRATE_TIME, chest: 2200, airdrop: 3200 };
 export const isContainer = (o: { kind: string }) => o.kind === 'crate' || o.kind === 'chest' || o.kind === 'airdrop';
@@ -241,7 +241,7 @@ export function segRect(x1: number, y1: number, x2: number, y2: number, r: Rect)
 }
 
 export const lootLabel = (k: LootKind) =>
-  k === 'ammo' ? 'Munition' : k === 'ammo6' ? 'Munition (groß)' : k === 'armor' ? 'Rüstung' : k === 'medkit' ? 'Kleines Medikit' : k === 'bigmed' ? 'Großes Medikit' : `${parseWeapon(k).name} (${RARITY_NAMES[parseWeapon(k).tier]})`;
+  k === 'ammo' ? 'Munition' : k === 'ammo6' ? 'Munition (groß)' : k === 'armor' ? 'Großes Schild' : k === 'armor25' ? 'Kleines Schild' : k === 'medkit' ? 'Kleines Medikit' : k === 'bigmed' ? 'Großes Medikit' : `${parseWeapon(k).name} (${RARITY_NAMES[parseWeapon(k).tier]})`;
 
 // ---------- Spiel ----------
 
@@ -1132,7 +1132,8 @@ export class Game {
     const drops: LootKind[] = [];
     if (f.weapon.id !== 'fists') drops.push(wKind(f.weapon.id, f.weapon.tier));
     if (f.ammo >= 15) drops.push('ammo');
-    if (f.armor >= 25) drops.push('armor');
+    if (f.armor >= 50) drops.push('armor');
+    else if (f.armor >= 20) drops.push('armor25');
     if (f.backup && f.backup.w.id !== 'pistol') drops.push(wKind(f.backup.w.id, f.backup.w.tier));
     const off = Math.random() * Math.PI;
     drops.forEach((k, i) => {
@@ -1715,7 +1716,7 @@ export class Game {
 
   private isUseful(f: Fighter, k: LootKind) {
     if (k === 'ammo' || k === 'ammo6') return f.ammo < 90;
-    if (k === 'armor') return f.armor < 100;
+    if (k === 'armor' || k === 'armor25') return f.armor < 100;
     // Heilung wird sofort verbraucht: nur nützlich, wenn Leben fehlt
     if (k === 'medkit') return f.hp < (f.isPlayer ? 100 : 85);
     if (k === 'bigmed') return f.hp < (f.isPlayer ? 100 : 60);
@@ -1805,7 +1806,7 @@ export class Game {
     o.taken = true;
     o.progress = 1;
     const w = Math.random();
-    const extras: LootKind[] = ['armor', 'medkit', 'ammo', 'bigmed'];
+    const extras: LootKind[] = ['armor25', 'armor25', 'armor', 'medkit', 'ammo', 'bigmed'];
     const pickExtra = () => extras[Math.floor(Math.random() * extras.length)];
     let kinds: LootKind[];
     if (o.kind === 'airdrop') {
@@ -1893,9 +1894,9 @@ export class Game {
       if (f.ammo >= 150) return false;
       // 6er-Packung gibt doppelt so viel
       f.ammo = Math.min(k === 'ammo6' ? 220 : 180, f.ammo + (k === 'ammo6' ? 80 : 40));
-    } else if (k === 'armor') {
+    } else if (k === 'armor' || k === 'armor25') {
       if (f.armor >= 100) return false;
-      f.armor = Math.min(100, f.armor + 50);
+      f.armor = Math.min(100, f.armor + (k === 'armor' ? 50 : 25));
       if (f.isPlayer) this.stats.shields++;
     } else if (k === 'medkit' || k === 'bigmed') {
       if (f.hp >= 100 || f.healUntil) return false;
