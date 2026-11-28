@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0f1a2b;font-family:Nunito,system-ui,sans-serif;color:#fff}
+.frame{position:relative;width:1280px;height:720px;overflow:hidden;margin:0 0 12px}
+.frame canvas{position:absolute;inset:0;width:100%;height:100%}
+.banner{position:absolute;left:50%;top:26px;transform:translateX(-50%);text-align:center}
+.banner .b1{font-size:96px;font-weight:900;color:#ffd23f;-webkit-text-stroke:3px #7a3f00;text-shadow:0 7px 0 #b86b00,0 14px 30px rgba(0,0,0,.45);line-height:1}
+.banner .b2{display:inline-block;margin-top:10px;padding:6px 22px;border-radius:999px;background:rgba(10,20,36,.6);font-size:22px}
+.ribbon{position:absolute;left:50%;top:0;transform:translateX(-50%);width:760px;height:150px;background:linear-gradient(180deg,rgba(255,180,40,.35),rgba(255,180,40,0));clip-path:polygon(0 0,100% 0,92% 100%,8% 100%)}
+.stats{position:absolute;left:50%;bottom:110px;transform:translateX(-50%);display:flex;gap:12px}
+.chip{padding:8px 16px;border-radius:14px;background:rgba(10,20,36,.65);font-size:18px}
+.chip b{color:#ffd23f}
+.btns{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);display:flex;gap:12px}
+.btn{font-size:28px;padding:12px 40px;border-radius:18px;background:linear-gradient(180deg,#4cd36f,#2aa64c);border-bottom:6px solid #1d7a38;text-shadow:0 2px 0 rgba(0,0,0,.5)}
+.btn.s{background:#3a4a5c;border-bottom-color:#232e3a;font-size:22px}
+.emote{position:absolute;padding:4px 12px;border-radius:999px;background:rgba(10,20,36,.65);font-size:16px;transform:translateX(-50%)}
+.tag{position:absolute;left:16px;top:12px;font-size:15px;opacity:.7}
+.lock{position:absolute;inset:40px 120px;border-radius:24px;background:rgba(12,22,36,.9);padding:24px}
+.lock h2{margin:0 0 6px;font-size:30px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:14px}
+.card{position:relative;height:250px;border-radius:18px;background:radial-gradient(ellipse at 50% 40%,#3b5f8a,#1a2c47);border:3px solid transparent}
+.card.on{border-color:#ffd23f;box-shadow:0 0 18px rgba(255,210,63,.5)}
+.card .n{position:absolute;left:0;right:0;bottom:8px;text-align:center;font-size:20px}
+.card .r{position:absolute;right:10px;top:8px;font-size:12px;padding:2px 8px;border-radius:999px;color:#111}
+</style></head><body>
+<div id="out"></div>
+<script type="module" src="/src/concept/heal6.ts"></script>
+</body></html>
